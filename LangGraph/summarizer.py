@@ -1,0 +1,301 @@
+"""确定性总结流水线：切分 → map → reduce → final，仿 wechat-chat-summary 的方法论。
+
+与 Agent 自由问答的区别：本模块的流程由代码写死，不依赖模型自觉——
+- 切分确定性：每条消息恰好进入一个 chunk，无截断；
+- map：每个 chunk 一次结构化调用，输出 JSON（话题/要点/原话）；
+- reduce：fan-in 逐级合并，直到规模可直接进 final；
+- final：按固定 Schema 生成报告，统计数字全部来自本地计算，杜绝编造。
+
+数据来自归一化库（只读），报告写入 Output/ 目录。
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import html
+import json
+import os
+import re
+import sqlite3
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
+from dotenv import load_dotenv
+
+load_dotenv(ROOT_DIR / ".env")  # 独立运行时也能读到 DASHSCOPE_API_KEY
+
+from Tool.structured_message import StructuredMessage, from_raw_rows, to_llm_text  # noqa: E402
+
+DEFAULT_DB_PATH = ROOT_DIR / "GetWechatInfo" / "DataInfo" / "chat_snapshot_normalized.sqlite3"
+OUTPUT_ROOT = ROOT_DIR / "Output"
+
+# 切分参数（与 wechat-chat-summary 对齐，见 AGENTS.md/settings 注释）
+CHUNK_MAX_MESSAGES = 500
+CHUNK_MAX_CHARS = 24000
+CHUNK_MAX_MINUTES = 240
+HARD_GAP_MINUTES = 90
+# reduce 每轮合并的份数
+REDUCE_FAN_IN = 4
+# 超过该 chunk 数才启用 reduce，否则 map 结果直接进 final
+REDUCE_THRESHOLD = 5
+
+INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+
+# ---------------------------------------------------------------- 数据读取
+
+def _connect(db_path: Path) -> sqlite3.Connection:
+    if not db_path.exists():
+        raise RuntimeError(f"找不到归一化聊天库 {db_path}，请先运行 normalize_snapshot.py。")
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def load_day_messages(db_path: Path, date: str) -> tuple[str, list[StructuredMessage]]:
+    """读取指定日期的全部消息（含跨群名校验）。"""
+
+    day = datetime.strptime(date.strip(), "%Y-%m-%d")
+    start_ts = int(day.replace(hour=0, minute=0, second=0).timestamp())
+    end_ts = int(day.replace(hour=23, minute=59, second=59).timestamp())
+    with _connect(db_path) as connection:
+        chat = connection.execute(
+            "SELECT chat_id, display_name FROM chats LIMIT 2"
+        ).fetchall()
+        if len(chat) != 1:
+            raise RuntimeError(f"库里应有且仅有 1 个群，实际 {len(chat)} 个，暂不支持多群总结。")
+        chat_id = str(chat[0]["chat_id"])
+        chat_name = str(chat[0]["display_name"])
+        rows = connection.execute(
+            """SELECT message_id, chat_id, timestamp, time, sender, text, msg_type, render_type
+               FROM messages WHERE chat_id = ? AND timestamp >= ? AND timestamp <= ?
+               ORDER BY timestamp, message_id""",
+            (chat_id, start_ts, end_ts),
+        ).fetchall()
+    if not rows:
+        raise RuntimeError(f"{date} 没有消息记录。")
+    raw_rows = [
+        {
+            "id": row["message_id"],
+            "createTime": row["timestamp"],
+            "senderDisplayName": row["sender"],
+            "renderType": row["render_type"],
+            "content": row["text"],
+        }
+        for row in rows
+    ]
+    # from_raw_rows 只做去重和排序，字段已在库中归一化过
+    messages = from_raw_rows(chat_id, raw_rows)
+    return chat_name, messages
+
+
+# ---------------------------------------------------------------- 确定性切分
+
+def build_chunks(messages: list[StructuredMessage]) -> list[list[StructuredMessage]]:
+    """按条数/字符/时长/硬间隔切分。每个 chunk 是连续消息，无遗漏、无重叠。"""
+
+    chunks: list[list[StructuredMessage]] = []
+    current: list[StructuredMessage] = []
+    current_chars = 0
+    for message in messages:
+        if current:
+            first_ts = current[0].timestamp
+            gap_minutes = (message.timestamp - current[-1].timestamp) / 60
+            span_minutes = (message.timestamp - first_ts) / 60
+            if (
+                len(current) >= CHUNK_MAX_MESSAGES
+                or current_chars + len(message.text) > CHUNK_MAX_CHARS
+                or span_minutes > CHUNK_MAX_MINUTES
+                or gap_minutes > HARD_GAP_MINUTES
+            ):
+                chunks.append(current)
+                current, current_chars = [], 0
+        current.append(message)
+        current_chars += len(message.text)
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+# ---------------------------------------------------------------- LLM 调用
+
+def _build_llm():
+    from langchain_openai import ChatOpenAI
+
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("未找到 DASHSCOPE_API_KEY，请在 .env 中配置。")
+    return ChatOpenAI(
+        model="qwen-plus",
+        api_key=api_key,
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        temperature=0.2,
+        max_tokens=8192,
+    )
+
+
+def _extract_json(text: str) -> dict[str, Any]:
+    """从模型输出中提取第一个完整 JSON 对象（容忍 markdown 代码块包裹）。"""
+
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
+    start = cleaned.find("{")
+    if start < 0:
+        raise ValueError(f"模型输出中没有 JSON: {text[:200]}")
+    depth = 0
+    for index in range(start, len(cleaned)):
+        char = cleaned[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(cleaned[start : index + 1])
+    raise ValueError(f"模型输出的 JSON 不完整: {text[:200]}")
+
+
+def _chat_json(llm, system: str, user: str) -> dict[str, Any]:
+    response = llm.invoke(
+        [("system", system), ("human", user)],
+        response_format={"type": "json_object"},
+    )
+    return _extract_json(response.content)
+
+
+# ---------------------------------------------------------------- 三阶段
+
+MAP_SYSTEM = """你是微信群聊分析助手。把给定时段的聊天记录提炼为结构化 JSON。
+只输出 JSON，不要其他文字。JSON 结构：
+{"summary": "该时段一两句概述",
+ "topics": [{"title": "话题标题（短句）",
+             "key_points": ["要点1", "要点2"],
+             "quotes": [{"sender": "发言人", "time": "MM-DD HH:MM", "text": "原话摘录"}]}]}
+要求：话题按重要度排序，最多 5 个；每个话题要点 2-4 条；quotes 从原文挑选有代表性的原话，每个话题最多 2 条，必须原文照抄、不得改写。"""
+
+REDUCE_SYSTEM = """你是微信群聊分析助手。把多个时段的分析结果合并成一份，去掉重复话题、保留各话题的时间范围。
+只输出 JSON，不要其他文字。JSON 结构：
+{"summary": "合并后的一两句概述",
+ "topics": [{"title": "话题标题",
+             "time_ranges": ["MM-DD HH:MM-HH:MM"],
+             "key_points": ["要点"],
+             "quotes": [{"sender": "发言人", "time": "MM-DD HH:MM", "text": "原话"}]}]}
+要求：同一事件/话题只保留一条，time_ranges 可含多个区间；quotes 每个话题最多保留 2 条最有代表性的。"""
+
+FINAL_SYSTEM = """你是微信群日报撰写助手。基于各时段的合并分析结果和本地统计，撰写最终日报。
+只输出 JSON，不要其他文字。JSON 结构：
+{"summary": "今日总览：一段话概括全天",
+ "highlights": ["今日速览要点1", "要点2", "要点3"],
+ "topics": [{"title": "话题标题",
+             "time_ranges": ["MM-DD HH:MM-HH:MM"],
+             "discussion": "该话题的讨论脉络，2-4 个短段，用\\n分隔",
+             "quotes": [{"sender": "发言人", "time": "MM-DD HH:MM", "text": "原话"}]}],
+ "observations": ["AI 观察1", "观察2"],
+ "closing": "报告结尾：一段话收束，可含展望"}
+要求：topics 最多 6 个，按时间或重要度排序；discussion 只基于输入材料，不得引入外部信息；quotes 必须来自输入。"""
+
+
+def _map_chunk(llm, chat_name: str, chunk: list[StructuredMessage]) -> dict[str, Any]:
+    first, last = chunk[0], chunk[-1]
+    user = (
+        f"群名：{chat_name}\n"
+        f"时段：{first.time} ~ {last.time}（共 {len(chunk)} 条消息）\n\n"
+        f"聊天记录：\n{to_llm_text(chunk)}"
+    )
+    return _chat_json(llm, MAP_SYSTEM, user)
+
+
+def _reduce_once(llm, items: list[dict[str, Any]]) -> dict[str, Any]:
+    user = f"共 {len(items)} 份时段分析，请合并：\n{json.dumps(items, ensure_ascii=False)}"
+    return _chat_json(llm, REDUCE_SYSTEM, user)
+
+
+def _local_stats(messages: list[StructuredMessage]) -> dict[str, Any]:
+    """本地统计：报告里的数字必须来自这里，不让模型生成数字。"""
+
+    senders: dict[str, int] = {}
+    type_counts: dict[str, int] = {}
+    for message in messages:
+        senders[message.sender] = senders.get(message.sender, 0) + 1
+        type_counts[message.msg_type] = type_counts.get(message.msg_type, 0) + 1
+    top = sorted(senders.items(), key=lambda item: item[1], reverse=True)[:10]
+    return {
+        "message_count": len(messages),
+        "participant_count": len(senders),
+        "type_counts": type_counts,
+        "top_senders": [{"sender": name, "count": count} for name, count in top],
+    }
+
+
+def run_pipeline(chat_name: str, messages: list[StructuredMessage]) -> dict[str, Any]:
+    """执行 map/reduce/final，返回报告数据字典。"""
+
+    llm = _build_llm()
+    chunks = build_chunks(messages)
+    print(f"[summarizer] 切分为 {len(chunks)} 个 chunk")
+
+    # map：4 路并发，每个 chunk 独立结构化分析
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        map_results = list(executor.map(lambda c: _map_chunk(llm, chat_name, c), chunks))
+    print(f"[summarizer] map 完成：{len(map_results)} 份时段分析")
+
+    # reduce：份数过多时逐级合并；不超过阈值则跳过直接进 final
+    current = map_results
+    round_index = 1
+    while len(current) > REDUCE_THRESHOLD:
+        groups = [current[i : i + REDUCE_FAN_IN] for i in range(0, len(current), REDUCE_FAN_IN)]
+        current = [_reduce_once(llm, group) for group in groups]
+        print(f"[summarizer] reduce 第 {round_index} 轮：{len(groups)} 份 → {len(current)} 份")
+        round_index += 1
+
+    stats = _local_stats(messages)
+    user = (
+        f"群名：{chat_name}\n"
+        f"本地统计（权威数据，直接引用）：{json.dumps(stats, ensure_ascii=False)}\n\n"
+        f"各时段合并分析：\n{json.dumps(current, ensure_ascii=False)}"
+    )
+    report = _chat_json(llm, FINAL_SYSTEM, user)
+    report["chat_name"] = chat_name
+    report["date"] = datetime.fromtimestamp(messages[0].timestamp).strftime("%Y-%m-%d")
+    report["activity"] = stats
+    print("[summarizer] final 完成")
+    return report
+
+
+# ---------------------------------------------------------------- 入口
+
+def run_summary(date: str, db_path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
+    """跑完整流水线并渲染落盘，返回 {'html': ..., 'png': ...}。"""
+
+    from report_render import export_png, render_html
+
+    chat_name, messages = load_day_messages(db_path, date)
+    report = run_pipeline(chat_name, messages)
+
+    # 输出目录：Output/<群名>/YYYY-MM-DD报告.html(.png)
+    safe_name = INVALID_FILENAME_CHARS.sub("_", chat_name).strip() or "未知群聊"
+    out_dir = OUTPUT_ROOT / safe_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    html_path = out_dir / f"{report['date']}_群聊总结.html"
+    png_path = out_dir / f"{report['date']}_群聊总结.png"
+
+    html_text = render_html(report)
+    html_path.write_text(html_text, encoding="utf-8")
+
+    png_result = export_png(html_path, png_path)
+    return {
+        "html": str(html_path),
+        "png": str(png_path) if png_result else "",
+        "png_note": "" if png_result else "PNG 未生成（需安装 playwright 和浏览器内核）",
+    }
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        raise SystemExit("用法: python summarizer.py YYYY-MM-DD")
+    paths = run_summary(sys.argv[1])
+    print("HTML:", paths["html"])
+    print("PNG :", paths["png"] or paths["png_note"])

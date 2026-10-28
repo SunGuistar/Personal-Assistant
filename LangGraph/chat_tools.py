@@ -186,6 +186,35 @@ def search_messages(keyword: str, date: str = "", limit: int = 30) -> str:
     return f"找到 {len(rows)} 条包含 {keyword!r} 的消息：\n" + _rows_to_lines(rows)
 
 
+@tool
+def summarize_chat(date: str) -> str:
+    """生成指定日期的群聊总结报告（仿日报版式的 HTML，可选 PNG），返回报告文件路径。
+    用户要求"总结/日报/回顾"某天聊天时必须使用本工具——内部是确定性 map/reduce 流水线，
+    覆盖率与格式有保证；不要改用 get_messages 自己逐片翻消息。
+
+    Args:
+        date: 日期，格式 YYYY-MM-DD，例如 2026-10-27。
+    """
+
+    # 延迟导入：普通问答不触发流水线的依赖加载
+    import sys
+    from pathlib import Path as _Path
+
+    script_dir = _Path(__file__).resolve().parent
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    from summarizer import run_summary
+
+    try:
+        paths = run_summary(date.strip())
+    except (RuntimeError, ValueError) as exc:
+        return f"生成报告失败: {exc}"
+    lines = [f"报告已生成（{date}）：", f"  HTML: {paths['html']}"]
+    lines.append(f"  PNG : {paths['png']}" if paths["png"] else f"  PNG : 未生成（{paths['png_note']}）")
+    lines.append("请向用户告知文件位置，并基于报告内容给出 3-5 句话的简要概括。")
+    return "\n".join(lines)
+
+
 # 解耦点：新增工具只需在本文件里写一个 @tool 函数，再挂进这个列表，
 # agent.py 侧无需任何改动。
-ALL_TOOLS = [list_chats, get_stats, get_messages, search_messages]
+ALL_TOOLS = [list_chats, get_stats, get_messages, search_messages, summarize_chat]
