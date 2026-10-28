@@ -26,6 +26,9 @@ from langchain_openai import ChatOpenAI
 
 from chat_tools import ALL_TOOLS
 
+# 系统提示词 = Agent 的行为准则。其中"必须分时段多次取"这条最关键：
+# 它替代了 wechat-chat-summary 里 chunking 模块的角色——不靠代码切分，
+# 靠约束模型自己分批取数，从而把单次上下文体积控制在 token 预算内。
 SYSTEM_PROMPT = """你是微信群聊天记录分析助手，通过工具读取本地聊天库，只进行分析，绝不修改任何数据。
 
 工作规则：
@@ -44,8 +47,11 @@ def build_agent():
         model="qwen-plus",
         api_key=api_key,
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        temperature=0.2,
+        temperature=0.2,  # 低温度：总结类任务求稳，减少发挥
     )
+    # create_agent 一行完成状态图装配：内部定义 messages 状态、call_model/tools
+    # 节点和"继续调工具还是结束"的条件边。langgraph 1.x 中该入口位于 langchain.agents，
+    # 返回的仍是 LangGraph 编译好的图（CompiledStateGraph）。
     return create_agent(model, ALL_TOOLS, system_prompt=SYSTEM_PROMPT)
 
 
@@ -58,6 +64,7 @@ def main() -> int:
     agent = build_agent()
     history: list = []
     if len(sys.argv) > 1:
+        # 命令行带参数：单轮提问，答完即退（适合脚本化调用）
         question = " ".join(sys.argv[1:])
         result = agent.invoke({"messages": [HumanMessage(question)]})
         _print_reply(result)
@@ -72,6 +79,8 @@ def main() -> int:
             break
         history.append(HumanMessage(question))
         result = agent.invoke({"messages": history})
+        # invoke 返回的 messages 已包含本轮"模型决策→工具执行→结果回填"的完整
+        # 往返记录，直接作为下一轮输入，即实现多轮追问的记忆能力。
         history = result["messages"]
         _print_reply(result)
     return 0

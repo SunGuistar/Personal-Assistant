@@ -1,8 +1,23 @@
 """只读工具集：供 LangGraph Agent 查询归一化聊天库。
 
+主要功能与对应函数：
+- list_chats()      列出库里的群和消息总数（Agent 每次任务的第一步）
+- get_stats(date)   按天统计：消息总数、类型分布、发言排行 Top10（先摸底再细读）
+- get_messages(date, start_hour, end_hour, limit)
+                    按天+小时段取消息原文，返回 "[MM-DD HH:MM] 发送者: 正文"
+                    格式文本；单次硬上限 1000 条，强制 Agent 分时段多次调用
+- search_messages(keyword, date, limit)
+                    关键词搜索消息正文，适合"谁说了某话题"类精准定位
+
+公共辅助（不直接暴露为工具）：
+- _db_path()        解析库路径：环境变量 WECHAT_AGENT_DB 优先，默认
+                    GetWechatInfo/DataInfo/chat_snapshot_normalized.sqlite3
+- _connect()        打开连接：mode=ro 物理只读，误写 SQL 直接报错
+- _day_range()      把 YYYY-MM-DD 转成当天 [00:00:00, 23:59:59] 的时间戳闭区间
+- _rows_to_lines()  把查询结果行格式化为 LLM 可读的聊天记录文本
+- ALL_TOOLS         工具注册表：新工具写好 @tool 函数后挂进此列表即可被 Agent 发现
+
 所有工具只读（sqlite3 以 mode=ro 打开），不提供任何修改/导出能力。
-数据库位置默认为 GetWechatInfo/DataInfo/chat_snapshot_normalized.sqlite3，
-可用环境变量 WECHAT_AGENT_DB 覆盖。
 """
 
 from __future__ import annotations
@@ -14,6 +29,8 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
+# 注意：@tool 函数的 docstring 和参数签名会被 LangGraph 直接暴露给 LLM，
+# 作为模型判断"何时调用本工具、传什么参数"的依据。改动 docstring = 改变模型行为。
 DEFAULT_DB_PATH = (
     Path(__file__).resolve().parent.parent
     / "GetWechatInfo" / "DataInfo" / "chat_snapshot_normalized.sqlite3"
@@ -21,6 +38,7 @@ DEFAULT_DB_PATH = (
 
 
 def _db_path() -> Path:
+    # 环境变量优先；未配置时回落到归一化库固定位置
     configured = os.environ.get("WECHAT_AGENT_DB", "").strip()
     return Path(configured).expanduser() if configured else DEFAULT_DB_PATH
 
@@ -29,6 +47,8 @@ def _connect() -> sqlite3.Connection:
     path = _db_path()
     if not path.exists():
         raise RuntimeError(f"找不到归一化聊天库 {path}，请先运行 normalize_snapshot.py。")
+    # mode=ro：SQLite 层面的物理只读。即使工具代码里误写 INSERT/UPDATE 也会直接报错，
+    # 从机制上保证 Agent"只分析不修改"，而不只是靠约定。
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     return connection
@@ -87,6 +107,7 @@ def get_stats(date: str) -> str:
             (start, end),
         ).fetchall()
         by_sender = connection.execute(
+            # 排除"系统"类型（进出群提示、群公告等），否则发言排行会被非真人条目污染
             """SELECT sender, count(*) AS n FROM messages
                WHERE timestamp >= ? AND timestamp <= ? AND msg_type != '系统'
                GROUP BY sender ORDER BY n DESC LIMIT 10""",
@@ -118,6 +139,8 @@ def get_messages(date: str, start_hour: int = 0, end_hour: int = 23, limit: int 
     start = int(day.replace(hour=max(0, min(23, start_hour)), minute=0, second=0).timestamp())
     end = int(day.replace(hour=max(0, min(23, end_hour)), minute=59, second=59).timestamp())
     limit = max(1, min(int(limit), 1000))
+    # 硬上限 1000 条：工具的返回值整体进入 LLM 上下文，限制它就是控制 token 成本、
+    # 防止单日数千条消息一次性塞爆上下文——这是"精简"策略在代码上的落点。
     with _connect() as connection:
         rows = connection.execute(
             """SELECT time, sender, text FROM messages
@@ -163,4 +186,6 @@ def search_messages(keyword: str, date: str = "", limit: int = 30) -> str:
     return f"找到 {len(rows)} 条包含 {keyword!r} 的消息：\n" + _rows_to_lines(rows)
 
 
+# 解耦点：新增工具只需在本文件里写一个 @tool 函数，再挂进这个列表，
+# agent.py 侧无需任何改动。
 ALL_TOOLS = [list_chats, get_stats, get_messages, search_messages]
