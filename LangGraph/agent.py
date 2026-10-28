@@ -60,7 +60,35 @@ def _print_reply(result: dict) -> None:
     print(f"\n{last.content}\n")
 
 
+def _print_token_usage(messages: list) -> None:
+    """汇总并打印本轮所有模型调用的 token 消耗（工具消息不带用量，跳过）。
+
+    注意：逐次"输入"包含当次对话历史，是累进值；各次加总才是实际计费量。
+    """
+
+    calls = [
+        usage
+        for usage in (getattr(message, "usage_metadata", None) for message in messages)
+        if usage
+    ]
+    if not calls:
+        return
+    print("Token 消耗：")
+    total_in = total_out = 0
+    for index, usage in enumerate(calls, start=1):
+        input_tokens = int(usage.get("input_tokens", 0))
+        output_tokens = int(usage.get("output_tokens", 0))
+        total_in += input_tokens
+        total_out += output_tokens
+        print(f"  第{index}次调用: 输入 {input_tokens} + 输出 {output_tokens} = {input_tokens + output_tokens}")
+    print(f"  本轮合计: 输入 {total_in} + 输出 {total_out} = {total_in + total_out}")
+
+
 def main() -> int:
+    # token 消耗默认打印；--no-tokens 关闭
+    show_tokens = "--no-tokens" not in sys.argv
+    if not show_tokens:
+        sys.argv.remove("--no-tokens")
     agent = build_agent()
     history: list = []
     if len(sys.argv) > 1:
@@ -68,6 +96,8 @@ def main() -> int:
         question = " ".join(sys.argv[1:])
         result = agent.invoke({"messages": [HumanMessage(question)]})
         _print_reply(result)
+        if show_tokens:
+            _print_token_usage(result["messages"])
         return 0
     print("微信群聊总结 Agent（输入 exit 退出）")
     while True:
@@ -83,6 +113,8 @@ def main() -> int:
         # 往返记录，直接作为下一轮输入，即实现多轮追问的记忆能力。
         history = result["messages"]
         _print_reply(result)
+        if show_tokens:
+            _print_token_usage(result["messages"])
     return 0
 
 
