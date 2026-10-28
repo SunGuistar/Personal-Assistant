@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -39,6 +40,23 @@ SYSTEM_PROMPT = """你是微信群聊天记录分析助手，通过工具读取�
 """
 
 
+def build_system_prompt() -> str:
+    """组装系统提示词：注入本机当前日期。
+
+    LLM 自身无法访问运行环境的时钟，对"今天/昨天"的认知只能来自提示词
+    或服务商注入的日期（后者可能因时区/网关与本地不一致）。把本机日期
+    明确写进提示词，相对日期计算才以用户机器为准。
+    """
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    date_line = (
+        f"今天是 {today}（本机系统日期）。用户提问中的"
+        "'今天/昨天/明天/这周/上周五'等相对日期，都基于这个日期推算；"
+        "不要依赖你自己的时间感知。\n\n"
+    )
+    return date_line + SYSTEM_PROMPT
+
+
 def build_agent():
     api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
     if not api_key:
@@ -52,7 +70,7 @@ def build_agent():
     # create_agent 一行完成状态图装配：内部定义 messages 状态、call_model/tools
     # 节点和"继续调工具还是结束"的条件边。langgraph 1.x 中该入口位于 langchain.agents，
     # 返回的仍是 LangGraph 编译好的图（CompiledStateGraph）。
-    return create_agent(model, ALL_TOOLS, system_prompt=SYSTEM_PROMPT)
+    return create_agent(model, ALL_TOOLS, system_prompt=build_system_prompt())
 
 
 def _print_reply(result: dict) -> None:
