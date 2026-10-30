@@ -25,6 +25,9 @@ from langchain_core.messages import HumanMessage
 
 from chat_tools import ALL_TOOLS
 from llm_config import build_llm
+from tracing_config import configure_tracing
+
+configure_tracing()  # 收敛 langsmith 报错日志、增强后台上传重试，须在首次追踪前调用
 
 # 系统提示词 = Agent 的行为准则。其中"必须分时段多次取"这条最关键：
 # 它替代了 wechat-chat-summary 里 chunking 模块的角色——不靠代码切分，
