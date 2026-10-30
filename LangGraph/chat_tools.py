@@ -205,10 +205,32 @@ def summarize_chat(date: str) -> str:
         sys.path.insert(0, str(script_dir))
     from summarizer import run_summary
 
+    # openai 错误（dashscope 走 OpenAI 兼容模式，额度/限流/网络问题都以这些异常抛出）
+    from openai import (
+        APIConnectionError,
+        APIError,
+        APITimeoutError,
+        PermissionDeniedError,
+        RateLimitError,
+    )
+
     try:
         paths = run_summary(date.strip())
     except (RuntimeError, ValueError) as exc:
         return f"生成报告失败: {exc}"
+    except PermissionDeniedError:
+        # 典型场景：DashScope 免费额度耗尽（403 Free quota exhausted）。
+        # 不把原始报错抛给上层，转成人话提示，Agent 可继续对话。
+        return (
+            "生成报告失败：模型 API 额度已用完（403）。"
+            "请到阿里云百炼控制台充值或关闭\"仅使用免费额度\"后重试。"
+        )
+    except RateLimitError:
+        return "生成报告失败：模型 API 限流中，请稍等片刻后重试。"
+    except (APIConnectionError, APITimeoutError):
+        return "生成报告失败：模型 API 网络连接失败，请检查网络后重试。"
+    except APIError as exc:
+        return f"生成报告失败：模型 API 返回错误（HTTP {getattr(exc, 'status_code', '?')}），请稍后重试。"
     lines = [f"报告已生成（{date}）：", f"  HTML: {paths['html']}"]
     lines.append(f"  PNG : {paths['png']}" if paths["png"] else f"  PNG : 未生成（{paths['png_note']}）")
     lines.append("请向用户告知文件位置，并基于报告内容给出 3-5 句话的简要概括。")

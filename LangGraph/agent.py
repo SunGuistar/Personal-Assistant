@@ -4,12 +4,11 @@
     python agent.py                          # 进入交互式问答
     python agent.py "总结2026-10-27这个群的聊天"   # 单轮提问
 
-LLM 用 dashscope 的 qwen-plus（兼容 OpenAI 模式），Key 从仓库根目录 .env 读取。
+LLM 配置统一在 llm_config.py（模型/key/endpoint 一处维护），Key 从仓库根目录 .env 读取。
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -23,9 +22,9 @@ load_dotenv(ROOT_DIR / ".env")
 
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 
 from chat_tools import ALL_TOOLS
+from llm_config import build_llm
 
 # 系统提示词 = Agent 的行为准则。其中"必须分时段多次取"这条最关键：
 # 它替代了 wechat-chat-summary 里 chunking 模块的角色——不靠代码切分，
@@ -60,15 +59,8 @@ def build_system_prompt() -> str:
 
 
 def build_agent():
-    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
-    if not api_key:
-        raise SystemExit("未找到 DASHSCOPE_API_KEY，请在 .env 中配置。")
-    model = ChatOpenAI(
-        model="qwen-plus",
-        api_key=api_key,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        temperature=0.2,  # 低温度：总结类任务求稳，减少发挥
-    )
+    # 模型/key/endpoint 统一由 llm_config.build_llm 提供，低温度：总结类任务求稳，减少发挥
+    model = build_llm()
     # create_agent 一行完成状态图装配：内部定义 messages 状态、call_model/tools
     # 节点和"继续调工具还是结束"的条件边。langgraph 1.x 中该入口位于 langchain.agents，
     # 返回的仍是 LangGraph 编译好的图（CompiledStateGraph）。
@@ -104,6 +96,34 @@ def _print_token_usage(messages: list) -> None:
     print(f"  本轮合计: 输入 {total_in} + 输出 {total_out} = {total_in + total_out}")
 
 
+def _print_api_error(exc: Exception) -> bool:
+    """把模型 API 异常（额度/限流/网络）转成人话提示，返回 True 表示已处理。
+
+    Agent 主链路的 model 节点不在任何工具内部，LLM 异常会直接穿透 invoke
+    抛到 main——这里统一兜住，避免原始 traceback 刷屏。
+    """
+
+    from openai import (
+        APIConnectionError,
+        APIError,
+        APITimeoutError,
+        PermissionDeniedError,
+        RateLimitError,
+    )
+
+    if isinstance(exc, PermissionDeniedError):
+        print("\n模型 API 额度已用完（403）。请到阿里云百炼控制台充值或关闭\"仅使用免费额度\"后重试。\n")
+    elif isinstance(exc, RateLimitError):
+        print("\n模型 API 限流中，请稍等片刻后重试。\n")
+    elif isinstance(exc, (APIConnectionError, APITimeoutError)):
+        print("\n模型 API 网络连接失败，请检查网络后重试。\n")
+    elif isinstance(exc, APIError):
+        print(f"\n模型 API 返回错误（HTTP {getattr(exc, 'status_code', '?')}），请稍后重试。\n")
+    else:
+        return False
+    return True
+
+
 def main() -> int:
     # token 消耗默认打印；--no-tokens 关闭
     show_tokens = "--no-tokens" not in sys.argv
@@ -114,7 +134,12 @@ def main() -> int:
     if len(sys.argv) > 1:
         # 命令行带参数：单轮提问，答完即退（适合脚本化调用）
         question = " ".join(sys.argv[1:])
-        result = agent.invoke({"messages": [HumanMessage(question)]})
+        try:
+            result = agent.invoke({"messages": [HumanMessage(question)]})
+        except Exception as exc:
+            if not _print_api_error(exc):
+                raise
+            return 1
         _print_reply(result)
         if show_tokens:
             _print_token_usage(result["messages"])
@@ -128,7 +153,12 @@ def main() -> int:
         if not question or question in {"exit", "quit"}:
             break
         history.append(HumanMessage(question))
-        result = agent.invoke({"messages": history})
+        try:
+            result = agent.invoke({"messages": history})
+        except Exception as exc:
+            if not _print_api_error(exc):
+                raise
+            continue  # 会话保活，等用户换问题或稍后重试
         # invoke 返回的 messages 已包含本轮"模型决策→工具执行→结果回填"的完整
         # 往返记录，直接作为下一轮输入，即实现多轮追问的记忆能力。
         history = result["messages"]

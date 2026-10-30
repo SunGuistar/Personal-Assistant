@@ -14,7 +14,6 @@ from __future__ import annotations
 import concurrent.futures
 import html
 import json
-import os
 import re
 import sqlite3
 import sys
@@ -125,18 +124,10 @@ def build_chunks(messages: list[StructuredMessage]) -> list[list[StructuredMessa
 # ---------------------------------------------------------------- LLM 调用
 
 def _build_llm():
-    from langchain_openai import ChatOpenAI
+    # 模型/key/endpoint 统一由 llm_config 提供；流水线只需覆盖输出上限
+    from llm_config import build_llm
 
-    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("未找到 DASHSCOPE_API_KEY，请在 .env 中配置。")
-    return ChatOpenAI(
-        model="qwen-plus",
-        api_key=api_key,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        temperature=0.2,
-        max_tokens=8192,
-    )
+    return build_llm(max_tokens=8192)
 
 
 def _extract_json(text: str) -> dict[str, Any]:
