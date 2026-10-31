@@ -292,12 +292,14 @@ def run_summary(date: str, db_path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
     chat_name, messages = load_day_messages(db_path, date)
     report = run_pipeline(chat_name, messages)
 
-    # 输出目录：Output/<群名>/YYYY-MM-DD报告.html(.png)
+    # 输出目录：Output/<群名>/YYYY-MM-DD群聊总结_YYYYMMDDHHMM.html(.png)
+    # 文件名带生成时间戳，用于区分同一日期多次生成的报告
     safe_name = INVALID_FILENAME_CHARS.sub("_", chat_name).strip() or "未知群聊"
     out_dir = OUTPUT_ROOT / safe_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    html_path = out_dir / f"{report['date']}_群聊总结.html"
-    png_path = out_dir / f"{report['date']}_群聊总结.png"
+    stamp = datetime.now().strftime("%Y%m%d%H%M")
+    html_path = out_dir / f"{report['date']}_群聊总结_{stamp}.html"
+    png_path = out_dir / f"{report['date']}_群聊总结_{stamp}.png"
 
     html_text = render_html(report)
     html_path.write_text(html_text, encoding="utf-8")
