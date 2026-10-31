@@ -253,7 +253,7 @@ def run_pipeline(chat_name: str, messages: list[StructuredMessage]) -> dict[str,
         f"本地统计（权威数据，直接引用）：{json.dumps(stats, ensure_ascii=False)}\n\n"
         f"各时段合并分析：\n{json.dumps(current, ensure_ascii=False)}"
     )
-    report = _final_with_retry(llm, user)
+    report = _chat_json(llm, FINAL_SYSTEM, user)
     report["chat_name"] = chat_name
     report["date"] = datetime.fromtimestamp(messages[0].timestamp).strftime("%Y-%m-%d")
     report["activity"] = stats
