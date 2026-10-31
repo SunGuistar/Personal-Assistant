@@ -253,12 +253,33 @@ def run_pipeline(chat_name: str, messages: list[StructuredMessage]) -> dict[str,
         f"本地统计（权威数据，直接引用）：{json.dumps(stats, ensure_ascii=False)}\n\n"
         f"各时段合并分析：\n{json.dumps(current, ensure_ascii=False)}"
     )
-    report = _chat_json(llm, FINAL_SYSTEM, user)
+    report = _final_with_retry(llm, user)
     report["chat_name"] = chat_name
     report["date"] = datetime.fromtimestamp(messages[0].timestamp).strftime("%Y-%m-%d")
     report["activity"] = stats
     print("[summarizer] final 完成")
     return report
+
+
+def _final_with_retry(llm, user: str, max_attempts: int = 2) -> dict[str, Any]:
+    """final 阶段带重试。
+
+    长输入 + JSON mode 下模型偶发退化（复读垃圾 token 到输出上限、输出非 JSON），
+    实测同输入成功率约 2/3，重试一次可将成功率提升到约 8-9 成。
+    仅重试 final，map/reduce 不重试。
+    """
+
+    from openai import LengthFinishReasonError
+
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return _chat_json(llm, FINAL_SYSTEM, user)
+        except (ValueError, LengthFinishReasonError) as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                print(f"[summarizer] final 第 {attempt} 次失败（{type(exc).__name__}），重试")
+    raise last_exc
 
 
 # ---------------------------------------------------------------- 入口
