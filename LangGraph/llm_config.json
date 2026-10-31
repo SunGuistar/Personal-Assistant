@@ -1,6 +1,6 @@
 {
     "_comment": "LLM 统一配置。改模型只需改 default_model，或在 .env 设 DASHSCOPE_MODEL 临时覆盖。模型在 JSON Mode 下是否关闭思考模式，由 llm_config.py 的 should_disable_thinking() 依据百炼官方清单判断，不在此配置。",
-    "default_model": "qwen3.5-122b-a10b",
+    "default_model": "qwen3-vl-plus",
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "default_temperature": 0.2
 }
