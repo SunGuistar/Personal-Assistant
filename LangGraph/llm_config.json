@@ -1,10 +1,11 @@
 {
     "_comment": "LLM 统一配置。改模型/参数只需改本文件，不用动代码。环境变量 DASHSCOPE_MODEL 可临时覆盖 default_model。",
-    "default_model": "qwen3.5-122b-a10b",
+    "default_model": "qwen3-vl-plus",
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "default_temperature": 0.2,
     "_comment_json_mode": "在 JSON Mode 下需要关闭思考模式的模型名单（思维链与 JSON 输出并存会偶发抽风），更换模型时按百炼官方文档维护",
     "json_mode_disable_thinking_models": [
-        "qwen3.5-122b-a10b"
+        "qwen3.5-122b-a10b",
+        "qwen3-vl-plus"
     ]
 }

@@ -206,10 +206,14 @@ def summarize_chat(date: str) -> str:
     from summarizer import run_summary
 
     # openai 错误（dashscope 走 OpenAI 兼容模式，额度/限流/网络问题都以这些异常抛出）
+    # 注意：LengthFinishReasonError / ContentFilterFinishReasonError 直接继承
+    # openai.OpenAIError 而非 APIError，捕获时必须显式列出，并用 OpenAIError 做总闸。
     from openai import (
         APIConnectionError,
-        APIError,
         APITimeoutError,
+        ContentFilterFinishReasonError,
+        LengthFinishReasonError,
+        OpenAIError,
         PermissionDeniedError,
         RateLimitError,
     )
@@ -229,7 +233,14 @@ def summarize_chat(date: str) -> str:
         return "生成报告失败：模型 API 限流中，请稍等片刻后重试。"
     except (APIConnectionError, APITimeoutError):
         return "生成报告失败：模型 API 网络连接失败，请检查网络后重试。"
-    except APIError as exc:
+    except LengthFinishReasonError:
+        # 服务器返回 200 但 JSON 被输出上限截断（流水线里 final 阶段会重试一次）
+        return "生成报告失败：模型输出超长被截断（JSON 不完整），请重试。"
+    except ContentFilterFinishReasonError:
+        return "生成报告失败：模型输出触发内容审核被截断，请调整输入后重试。"
+    except OpenAIError as exc:
+        # 总闸：兜住 openai 库里尚未单独处理的所有异常（含 APIError 家族），
+        # 防止再出现"平级新异常类"漏网刷屏。
         return f"生成报告失败：模型 API 返回错误（HTTP {getattr(exc, 'status_code', '?')}），请稍后重试。"
     lines = [f"报告已生成（{date}）：", f"  HTML: {paths['html']}"]
     lines.append(f"  PNG : {paths['png']}" if paths["png"] else f"  PNG : 未生成（{paths['png_note']}）")

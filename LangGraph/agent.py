@@ -106,10 +106,14 @@ def _print_api_error(exc: Exception) -> bool:
     抛到 main——这里统一兜住，避免原始 traceback 刷屏。
     """
 
+    # 注意：LengthFinishReasonError / ContentFilterFinishReasonError 直接继承
+    # openai.OpenAIError 而非 APIError，必须显式判断，并用 OpenAIError 做总闸。
     from openai import (
         APIConnectionError,
-        APIError,
         APITimeoutError,
+        ContentFilterFinishReasonError,
+        LengthFinishReasonError,
+        OpenAIError,
         PermissionDeniedError,
         RateLimitError,
     )
@@ -120,7 +124,13 @@ def _print_api_error(exc: Exception) -> bool:
         print("\n模型 API 限流中，请稍等片刻后重试。\n")
     elif isinstance(exc, (APIConnectionError, APITimeoutError)):
         print("\n模型 API 网络连接失败，请检查网络后重试。\n")
-    elif isinstance(exc, APIError):
+    elif isinstance(exc, LengthFinishReasonError):
+        # 服务器返回 200 但输出被长度上限截断，JSON 解析失败
+        print("\n模型输出超长被截断（JSON 不完整），请重试。\n")
+    elif isinstance(exc, ContentFilterFinishReasonError):
+        print("\n模型输出触发内容审核被截断，请调整输入后重试。\n")
+    elif isinstance(exc, OpenAIError):
+        # 总闸：兜住 openai 库里尚未单独处理的所有异常（含 APIError 家族）
         print(f"\n模型 API 返回错误（HTTP {getattr(exc, 'status_code', '?')}），请稍后重试。\n")
     else:
         return False
