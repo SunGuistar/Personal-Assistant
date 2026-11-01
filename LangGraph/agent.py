@@ -10,6 +10,7 @@ LLM 配置统一在 llm_config.py（模型/key/endpoint 一处维护），Key �
 from __future__ import annotations
 
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -70,9 +71,47 @@ def build_agent():
     return create_agent(model, ALL_TOOLS, system_prompt=build_system_prompt())
 
 
-def _print_reply(result: dict) -> None:
+def _fmt_duration(seconds: float) -> str:
+    total = int(round(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours}小时{minutes}分钟{secs}秒"
+
+
+def _save_reply(question: str, reply: str) -> Path:
+    """把本轮问答追加到 Output/Agent问答_<日期>.md，返回文件路径。
+
+    文件按天聚合、追加写入，首次创建时补标题；回答本身是 LLM 生成的
+    Markdown 文本，直接嵌入即可。
+    """
+
+    md_path = ROOT_DIR / "Output" / f"Agent问答_{datetime.now():%Y-%m-%d}.md"
+    if not md_path.exists():
+        md_path.write_text("# 微信群聊总结 Agent 问答记录\n", encoding="utf-8")
+    with open(md_path, "a", encoding="utf-8") as f:
+        f.write(f"\n## {datetime.now():%H:%M:%S}\n\n**问:** {question}\n\n{reply}\n")
+    return md_path
+
+
+def _print_reply(result: dict, question: str | None = None) -> None:
     last = result["messages"][-1]
     print(f"\n{last.content}\n")
+    if question is not None:
+        print(f"已保存到: {_save_reply(question, last.content)}")
+
+
+def _record_total(duration: float) -> None:
+    """会话结束时的总耗时：打印到终端，并追加到当天问答记录文件尾部。
+
+    当天文件不存在（没有成功保存过回答）时只打印到终端。
+    """
+
+    text = f"总耗时: {_fmt_duration(duration)}"
+    print(f"\n{text}")
+    md_path = ROOT_DIR / "Output" / f"Agent问答_{datetime.now():%Y-%m-%d}.md"
+    if md_path.exists():
+        with open(md_path, "a", encoding="utf-8") as f:
+            f.write(f"\n---\n\n**{text}**\n")
 
 
 def _print_token_usage(messages: list) -> None:
@@ -138,6 +177,7 @@ def _print_api_error(exc: Exception) -> bool:
 
 
 def main() -> int:
+    session_start = time.perf_counter()
     # token 消耗默认打印；--no-tokens 关闭
     show_tokens = "--no-tokens" not in sys.argv
     if not show_tokens:
@@ -152,10 +192,12 @@ def main() -> int:
         except Exception as exc:
             if not _print_api_error(exc):
                 raise
+            _record_total(time.perf_counter() - session_start)
             return 1
-        _print_reply(result)
+        _print_reply(result, question)
         if show_tokens:
             _print_token_usage(result["messages"])
+        _record_total(time.perf_counter() - session_start)
         return 0
     print("微信群聊总结 Agent（输入 exit 退出）")
     while True:
@@ -175,9 +217,10 @@ def main() -> int:
         # invoke 返回的 messages 已包含本轮"模型决策→工具执行→结果回填"的完整
         # 往返记录，直接作为下一轮输入，即实现多轮追问的记忆能力。
         history = result["messages"]
-        _print_reply(result)
+        _print_reply(result, question)
         if show_tokens:
             _print_token_usage(result["messages"])
+    _record_total(time.perf_counter() - session_start)
     return 0
 
 
