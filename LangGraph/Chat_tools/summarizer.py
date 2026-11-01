@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from dotenv import load_dotenv
@@ -125,7 +125,7 @@ def build_chunks(messages: list[StructuredMessage]) -> list[list[StructuredMessa
 
 def _build_llm():
     # 模型/key/endpoint 统一由 llm_config 提供；流水线只需覆盖输出上限
-    from llm_config import build_llm
+    from ..llm_config import build_llm
 
     return build_llm(max_tokens=8192)
 
@@ -152,7 +152,7 @@ def _extract_json(text: str) -> dict[str, Any]:
 def _chat_json(llm, system: str, user: str) -> dict[str, Any]:
     """调用模型并提取 JSON；按模型特性附加 JSON mode 参数（如 qwen3.5 关闭思考模式）。"""
 
-    from llm_config import get_json_mode_kwargs
+    from ..llm_config import get_json_mode_kwargs
 
     response = llm.invoke(
         [("system", system), ("human", user)],
@@ -287,7 +287,7 @@ def _final_with_retry(llm, user: str, max_attempts: int = 2) -> dict[str, Any]:
 def run_summary(date: str, db_path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
     """跑完整流水线并渲染落盘，返回 {'html': ..., 'png': ...}。"""
 
-    from report_render import export_png, render_html
+    from ..Normal_Tools.report_render import export_png, render_html
 
     chat_name, messages = load_day_messages(db_path, date)
     report = run_pipeline(chat_name, messages)

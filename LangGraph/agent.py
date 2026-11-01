@@ -10,12 +10,11 @@ LLM 配置统一在 llm_config.py（模型/key/endpoint 一处维护），Key �
 from __future__ import annotations
 
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT_DIR / "LangGraph"))
+sys.path.insert(0, str(ROOT_DIR))
 
 from dotenv import load_dotenv
 
@@ -24,9 +23,10 @@ load_dotenv(ROOT_DIR / ".env")
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from chat_tools import ALL_TOOLS
-from llm_config import build_llm
-from tracing_config import configure_tracing
+from LangGraph.Chat_tools.chat_tools import ALL_TOOLS
+from LangGraph.llm_config import build_llm
+from LangGraph.Normal_Tools.time_utils import SessionTimer
+from LangGraph.Normal_Tools.tracing_config import configure_tracing
 
 configure_tracing()  # 收敛 langsmith 报错日志、增强后台上传重试，须在首次追踪前调用
 
@@ -71,13 +71,6 @@ def build_agent():
     return create_agent(model, ALL_TOOLS, system_prompt=build_system_prompt())
 
 
-def _fmt_duration(seconds: float) -> str:
-    total = int(round(seconds))
-    hours, rem = divmod(total, 3600)
-    minutes, secs = divmod(rem, 60)
-    return f"{hours}小时{minutes}分钟{secs}秒"
-
-
 def _save_reply(question: str, reply: str) -> Path:
     """把本轮问答追加到 Output/Agent问答_<日期>.md，返回文件路径。
 
@@ -100,13 +93,13 @@ def _print_reply(result: dict, question: str | None = None) -> None:
         print(f"已保存到: {_save_reply(question, last.content)}")
 
 
-def _record_total(duration: float) -> None:
+def _record_total(timer: SessionTimer) -> None:
     """会话结束时的总耗时：打印到终端，并追加到当天问答记录文件尾部。
 
     当天文件不存在（没有成功保存过回答）时只打印到终端。
     """
 
-    text = f"总耗时: {_fmt_duration(duration)}"
+    text = f"总耗时: {timer.elapsed_text()}"
     print(f"\n{text}")
     md_path = ROOT_DIR / "Output" / f"Agent问答_{datetime.now():%Y-%m-%d}.md"
     if md_path.exists():
@@ -177,7 +170,7 @@ def _print_api_error(exc: Exception) -> bool:
 
 
 def main() -> int:
-    session_start = time.perf_counter()
+    timer = SessionTimer()
     # token 消耗默认打印；--no-tokens 关闭
     show_tokens = "--no-tokens" not in sys.argv
     if not show_tokens:
@@ -192,12 +185,12 @@ def main() -> int:
         except Exception as exc:
             if not _print_api_error(exc):
                 raise
-            _record_total(time.perf_counter() - session_start)
+            _record_total(timer)
             return 1
         _print_reply(result, question)
         if show_tokens:
             _print_token_usage(result["messages"])
-        _record_total(time.perf_counter() - session_start)
+        _record_total(timer)
         return 0
     print("微信群聊总结 Agent（输入 exit 退出）")
     while True:
@@ -220,7 +213,7 @@ def main() -> int:
         _print_reply(result, question)
         if show_tokens:
             _print_token_usage(result["messages"])
-    _record_total(time.perf_counter() - session_start)
+    _record_total(timer)
     return 0
 
 

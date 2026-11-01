@@ -32,7 +32,7 @@ from langchain_core.tools import tool
 # 注意：@tool 函数的 docstring 和参数签名会被 LangGraph 直接暴露给 LLM，
 # 作为模型判断"何时调用本工具、传什么参数"的依据。改动 docstring = 改变模型行为。
 DEFAULT_DB_PATH = (
-    Path(__file__).resolve().parent.parent
+    Path(__file__).resolve().parent.parent.parent
     / "GetWechatInfo" / "DataInfo" / "chat_snapshot_normalized.sqlite3"
 )
 
@@ -197,13 +197,7 @@ def summarize_chat(date: str) -> str:
     """
 
     # 延迟导入：普通问答不触发流水线的依赖加载
-    import sys
-    from pathlib import Path as _Path
-
-    script_dir = _Path(__file__).resolve().parent
-    if str(script_dir) not in sys.path:
-        sys.path.insert(0, str(script_dir))
-    from summarizer import run_summary
+    from .summarizer import run_summary
 
     # openai 错误（dashscope 走 OpenAI 兼容模式，额度/限流/网络问题都以这些异常抛出）
     # 注意：LengthFinishReasonError / ContentFilterFinishReasonError 直接继承
