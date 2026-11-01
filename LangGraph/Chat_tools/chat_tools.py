@@ -8,6 +8,13 @@
                     格式文本；单次硬上限 1000 条，强制 Agent 分时段多次调用
 - search_messages(keyword, date, limit)
                     关键词搜索消息正文，适合"谁说了某话题"类精准定位
+- semantic_search_messages(query, date, chat_id, top_k)
+                    语义检索：按含义找情绪/态度/隐含表达类内容（向量召回，
+                    需要先构建向量索引，见 rag_store 模块）
+- get_messages_by_ids(message_ids)
+                    按消息 ID 取回原始记录，核对检索结果/补上下文
+- count_speakers_by_ids(message_ids)
+                    按消息 ID 确定性统计各发言人条数（免疫 Chunk 重叠重复计数）
 
 公共辅助（不直接暴露为工具）：
 - _db_path()        解析库路径：环境变量 WECHAT_AGENT_DB 优先，默认
@@ -28,6 +35,12 @@ from datetime import datetime
 from pathlib import Path
 
 from langchain_core.tools import tool
+
+from .semantic_search import (
+    count_speakers_by_ids,
+    get_messages_by_ids,
+    semantic_search_messages,
+)
 
 # 注意：@tool 函数的 docstring 和参数签名会被 LangGraph 直接暴露给 LLM，
 # 作为模型判断"何时调用本工具、传什么参数"的依据。改动 docstring = 改变模型行为。
@@ -244,4 +257,13 @@ def summarize_chat(date: str) -> str:
 
 # 解耦点：新增工具只需在本文件里写一个 @tool 函数，再挂进这个列表，
 # agent.py 侧无需任何改动。
-ALL_TOOLS = [list_chats, get_stats, get_messages, search_messages, summarize_chat]
+ALL_TOOLS = [
+    list_chats,
+    get_stats,
+    get_messages,
+    search_messages,
+    semantic_search_messages,
+    get_messages_by_ids,
+    count_speakers_by_ids,
+    summarize_chat,
+]
