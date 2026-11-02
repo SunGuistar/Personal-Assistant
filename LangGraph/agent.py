@@ -5,6 +5,8 @@
     python agent.py "总结2026-10-27这个群的聊天"   # 单轮提问
 
 LLM 配置统一在 llm_config.py（模型/key/endpoint 一处维护），Key 从仓库根目录 .env 读取。
+终端打印、问答落盘、Token 统计、API 错误提示等输出逻辑在
+Normal_Tools/console_output.py 中维护。
 """
 
 from __future__ import annotations
@@ -25,6 +27,12 @@ from langchain_core.messages import HumanMessage
 
 from LangGraph.Chat_tools.chat_tools import ALL_TOOLS
 from LangGraph.llm_config import build_llm
+from LangGraph.Normal_Tools.console_output import (
+    print_api_error,
+    print_reply,
+    print_token_usage,
+    record_total,
+)
 from LangGraph.Normal_Tools.time_utils import SessionTimer
 from LangGraph.Normal_Tools.tracing_config import configure_tracing
 
@@ -79,104 +87,6 @@ def build_agent():
     return create_agent(model, ALL_TOOLS, system_prompt=build_system_prompt())
 
 
-def _save_reply(question: str, reply: str) -> Path:
-    """把本轮问答追加到 Output/Agent问答_<日期>.md，返回文件路径。
-
-    文件按天聚合、追加写入，首次创建时补标题；回答本身是 LLM 生成的
-    Markdown 文本，直接嵌入即可。
-    """
-
-    md_path = ROOT_DIR / "Output" / f"Agent问答_{datetime.now():%Y-%m-%d}.md"
-    if not md_path.exists():
-        md_path.write_text("# 微信群聊总结 Agent 问答记录\n", encoding="utf-8")
-    with open(md_path, "a", encoding="utf-8") as f:
-        f.write(f"\n## {datetime.now():%H:%M:%S}\n\n**问:** {question}\n\n{reply}\n")
-    return md_path
-
-
-def _print_reply(result: dict, question: str | None = None) -> None:
-    last = result["messages"][-1]
-    print(f"\n{last.content}\n")
-    if question is not None:
-        print(f"已保存到: {_save_reply(question, last.content)}")
-
-
-def _record_total(timer: SessionTimer) -> None:
-    """会话结束时的总耗时：打印到终端，并追加到当天问答记录文件尾部。
-
-    当天文件不存在（没有成功保存过回答）时只打印到终端。
-    """
-
-    text = f"总耗时: {timer.elapsed_text()}"
-    print(f"\n{text}")
-    md_path = ROOT_DIR / "Output" / f"Agent问答_{datetime.now():%Y-%m-%d}.md"
-    if md_path.exists():
-        with open(md_path, "a", encoding="utf-8") as f:
-            f.write(f"\n---\n\n**{text}**\n")
-
-
-def _print_token_usage(messages: list) -> None:
-    """汇总并打印本轮所有模型调用的 token 消耗（工具消息不带用量，跳过）。
-
-    注意：逐次"输入"包含当次对话历史，是累进值；各次加总才是实际计费量。
-    """
-
-    calls = [
-        usage
-        for usage in (getattr(message, "usage_metadata", None) for message in messages)
-        if usage
-    ]
-    if not calls:
-        return
-    print("Token 消耗：")
-    total_in = total_out = 0
-    for index, usage in enumerate(calls, start=1):
-        input_tokens = int(usage.get("input_tokens", 0))
-        output_tokens = int(usage.get("output_tokens", 0))
-        total_in += input_tokens
-        total_out += output_tokens
-        print(f"  第{index}次调用: 输入 {input_tokens} + 输出 {output_tokens} = {input_tokens + output_tokens}")
-    print(f"  本轮合计: 输入 {total_in} + 输出 {total_out} = {total_in + total_out}")
-
-
-def _print_api_error(exc: Exception) -> bool:
-    """把模型 API 异常（额度/限流/网络）转成人话提示，返回 True 表示已处理。
-
-    Agent 主链路的 model 节点不在任何工具内部，LLM 异常会直接穿透 invoke
-    抛到 main——这里统一兜住，避免原始 traceback 刷屏。
-    """
-
-    # 注意：LengthFinishReasonError / ContentFilterFinishReasonError 直接继承
-    # openai.OpenAIError 而非 APIError，必须显式判断，并用 OpenAIError 做总闸。
-    from openai import (
-        APIConnectionError,
-        APITimeoutError,
-        ContentFilterFinishReasonError,
-        LengthFinishReasonError,
-        OpenAIError,
-        PermissionDeniedError,
-        RateLimitError,
-    )
-
-    if isinstance(exc, PermissionDeniedError):
-        print("\n模型 API 额度已用完（403）。请到阿里云百炼控制台充值或关闭\"仅使用免费额度\"后重试。\n")
-    elif isinstance(exc, RateLimitError):
-        print("\n模型 API 限流中，请稍等片刻后重试。\n")
-    elif isinstance(exc, (APIConnectionError, APITimeoutError)):
-        print("\n模型 API 网络连接失败，请检查网络后重试。\n")
-    elif isinstance(exc, LengthFinishReasonError):
-        # 服务器返回 200 但输出被长度上限截断，JSON 解析失败
-        print("\n模型输出超长被截断（JSON 不完整），请重试。\n")
-    elif isinstance(exc, ContentFilterFinishReasonError):
-        print("\n模型输出触发内容审核被截断，请调整输入后重试。\n")
-    elif isinstance(exc, OpenAIError):
-        # 总闸：兜住 openai 库里尚未单独处理的所有异常（含 APIError 家族）
-        print(f"\n模型 API 返回错误（HTTP {getattr(exc, 'status_code', '?')}），请稍后重试。\n")
-    else:
-        return False
-    return True
-
-
 def main() -> int:
     timer = SessionTimer()
     # token 消耗默认打印；--no-tokens 关闭
@@ -191,14 +101,14 @@ def main() -> int:
         try:
             result = agent.invoke({"messages": [HumanMessage(question)]})
         except Exception as exc:
-            if not _print_api_error(exc):
+            if not print_api_error(exc):
                 raise
-            _record_total(timer)
+            record_total(timer.elapsed_text())
             return 1
-        _print_reply(result, question)
+        print_reply(result, question)
         if show_tokens:
-            _print_token_usage(result["messages"])
-        _record_total(timer)
+            print_token_usage(result["messages"])
+        record_total(timer.elapsed_text())
         return 0
     print("微信群聊总结 Agent（输入 exit 退出）")
     while True:
@@ -212,16 +122,16 @@ def main() -> int:
         try:
             result = agent.invoke({"messages": history})
         except Exception as exc:
-            if not _print_api_error(exc):
+            if not print_api_error(exc):
                 raise
             continue  # 会话保活，等用户换问题或稍后重试
         # invoke 返回的 messages 已包含本轮"模型决策→工具执行→结果回填"的完整
         # 往返记录，直接作为下一轮输入，即实现多轮追问的记忆能力。
         history = result["messages"]
-        _print_reply(result, question)
+        print_reply(result, question)
         if show_tokens:
-            _print_token_usage(result["messages"])
-    _record_total(timer)
+            print_token_usage(result["messages"])
+    record_total(timer.elapsed_text())
     return 0
 
 
