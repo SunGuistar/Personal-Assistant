@@ -29,12 +29,19 @@ class Settings(BaseSettings):
     log_dir: Path | None = None  # 默认 data_dir/logs
 
     news_refresh_minutes: int = 30
+    # 阅读管理：笔记附件上传限制（PRD §2.4）
+    upload_max_mb: int = 50
+
     # 阶段 3 使用：WeChatDataAnalysis 桌面程序路径（D5，仅启动经配置与校验的程序）
     wechat_analysis_exe: str = ""
 
     @property
     def logs_path(self) -> Path:
         return self.log_dir or (self.data_dir / "logs")
+
+    @property
+    def reading_notes_dir(self) -> Path:
+        return self.data_dir / "reading_notes"
 
     @property
     def db_url(self) -> str:

@@ -1,4 +1,6 @@
 export { HomePage } from "./HomePage";
+export { PlansPage } from "./PlansPage";
+export { ReadingPage } from "./ReadingPage";
 
 function Placeholder({ title, note }: { title: string; note: string }) {
   return (
@@ -25,24 +27,6 @@ export function NewsPage() {
     <Placeholder
       title="技术资讯"
       note="阶段 4 提供：资讯列表、筛选排序、收藏与已读。当前为占位页。"
-    />
-  );
-}
-
-export function PlansPage() {
-  return (
-    <Placeholder
-      title="计划管理"
-      note="阶段 2 提供：长期计划、每日任务、移至次日。当前为占位页。"
-    />
-  );
-}
-
-export function ReadingPage() {
-  return (
-    <Placeholder
-      title="阅读管理"
-      note="阶段 2 提供：书籍管理、云记笔记文件关联与预览。当前为占位页。"
     />
   );
 }

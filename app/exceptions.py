@@ -31,6 +31,16 @@ class TaskConflict(DomainError):
     code = "task_conflict"
 
 
+class BookHasNotes(DomainError):
+    """书籍存在关联笔记，禁止删除（PRD §2.4 删除规则）。"""
+
+    status_code = 409
+    code = "book_has_notes"
+
+    def __init__(self) -> None:
+        super().__init__("该书籍存在关联笔记，请先删除全部笔记后再删除书籍。")
+
+
 class NotFoundError(DomainError):
     status_code = 404
     code = "not_found"

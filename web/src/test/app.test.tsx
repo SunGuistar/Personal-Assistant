@@ -35,7 +35,7 @@ describe("App 骨架", () => {
   });
 
   it("前端路由切换到占位页", () => {
-    renderApp("/plans");
-    expect(screen.getByText(/长期计划、每日任务、移至次日/)).toBeInTheDocument();
+    renderApp("/news");
+    expect(screen.getByText(/资讯列表、筛选排序、收藏与已读/)).toBeInTheDocument();
   });
 });

@@ -3,7 +3,18 @@
 from __future__ import annotations
 
 from .chat import ChatMessage, ChatSession
+from .plan import DailyTask, LongTermPlan
+from .reading import Book, BookNote
 from .task import Task
 from .token_usage import TokenUsage
 
-__all__ = ["ChatMessage", "ChatSession", "Task", "TokenUsage"]
+__all__ = [
+    "Book",
+    "BookNote",
+    "ChatMessage",
+    "ChatSession",
+    "DailyTask",
+    "LongTermPlan",
+    "Task",
+    "TokenUsage",
+]

@@ -53,6 +53,21 @@ def client(app_settings):
     app.state.engine.dispose()
 
 
+@pytest.fixture()
+def fclient(tmp_path):
+    """函数级隔离客户端：每个用例独立的临时库（API 集成测试用）。"""
+
+    from app.config import Settings
+    from app.main import create_app
+
+    settings = Settings(data_dir=tmp_path / "data", static_dir=ROOT_DIR / "web" / "dist")
+    _run_alembic_upgrade(settings.db_url)
+    app = create_app(settings)
+    with TestClient(app) as test_client:
+        yield test_client
+    app.state.engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def task_runner(client):
     return client.app.state.task_runner

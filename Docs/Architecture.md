@@ -93,7 +93,7 @@ news_sources 表配置源(默认种子见 PRD §2.2) → FeedFetcher(httpx, 超�
 
 ### 3.3 计划与阅读模块
 
-标准 CRUD 服务：long_term_plans → daily_tasks（plan_id 可空，sort_order 手动排序，**"移至下一天"= 更新 task_date + 记录 moved_from_date**，不复制副本）；books / book_notes（文件落盘 `data/reading_notes/<book_id>/`，库中存路径与元数据，上传校验扩展名与大小，PDF/PNG 浏览器直开）。
+标准 CRUD 服务：long_term_plans → daily_tasks（plan_id 可空，sort_order 手动排序，**"移至下一天"= 更新 task_date + 记录 moved_from_date**，不复制副本）；books / book_notes（文件落盘 `data/reading_notes/<book_id>/`，库中存路径与元数据，上传校验扩展名与大小，PDF/PNG 浏览器直开）。**书籍删除规则（PRD §2.4，已确定）**：存在关联笔记的书籍禁止删除——Service 层删除事务内检查 `book_notes`，存在即抛 409 `book_has_notes`；不级联、不自动解除关联、不依赖前端校验。后台任务状态查询端点为 `/api/jobs/{id}`（与每日任务 `/api/tasks/*` 区分，阶段 2 起生效）。
 
 ### 3.4 清理审核模块（三层状态机，D4）
 
@@ -132,7 +132,7 @@ news_sources 表配置源(默认种子见 PRD §2.2) → FeedFetcher(httpx, 超�
 
 - 风格：REST-ish，`/api/<模块>/<资源>`，JSON 出入参，字段 snake_case 全项目统一；列表统一 `{items, total, page?}`。
 - 错误：统一 `{detail: {code, message}}`；HTTP 状态语义化（409 冲突/未确认清理 run、422 参数、502 外部源失败、504 外部超时）。
-- 长任务：POST 返回 `task_id`；`GET /api/tasks/{id}` 返回 `{status, progress, error, result}`；问答流式用 SSE（`sse-starlette`），会话经 `session_id`。
+- 长任务：POST 返回 `task_id`；`GET /api/jobs/{id}` 返回 `{status, progress, error, result}`（后台任务状态查询在 jobs 命名空间，与每日任务区分）；问答流式用 SSE（`sse-starlette`），会话经 `session_id`。
 - 版本：第一版不加 `/v1` 前缀，破坏性变更时再引入。
 
 ## 5. 数据模型与命名规范

@@ -61,7 +61,7 @@ def test_duplicate_submit_rejected(task_runner):
 def test_task_api_roundtrip(client, task_runner):
     task = task_runner.submit("test.api", None, lambda cb: {"ok": True})
     finished = _wait_finished(task_runner, task.id)
-    response = client.get(f"/api/tasks/{finished.id}")
+    response = client.get(f"/api/jobs/{finished.id}")
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "success"
@@ -70,6 +70,6 @@ def test_task_api_roundtrip(client, task_runner):
 
 
 def test_task_api_not_found(client):
-    response = client.get("/api/tasks/999999")
+    response = client.get("/api/jobs/999999")
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "not_found"
