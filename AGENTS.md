@@ -84,5 +84,6 @@ Docs/           规划与架构文档
 
 ## 10. 提交规范
 
-- commit message 用中文简述变更意图；阶段节点打 tag（stage-N）。
+- **未经用户明确要求，不得执行 git commit / push / tag**（用户指令优先级最高；完成开发后只汇报，等用户指示是否提交）。
+- 用户要求提交时：commit message 用中文简述变更意图；阶段节点打 tag（stage-N）。
 - 文档与代码同 PR 更新（改了行为就改对应 Docs/AGENTS.md）。
