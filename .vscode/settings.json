@@ -1,0 +1,10 @@
+{
+  // Python 解释器来自环境变量，避免把个人电脑的绝对路径提交进 Git。
+  // 本机使用前先设置用户级环境变量 PH_HUB_PYTHON，例如：
+  //   setx PH_HUB_PYTHON "D:\\miniconda\\envs\\agent\\python.exe"
+  // 未设置时 VS Code 会提示手动选择一次解释器（选 Conda agent 即可，存于用户设置）。
+  "python.defaultInterpreterPath": "${env:PH_HUB_PYTHON}",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "python.testing.unittestEnabled": false
+}

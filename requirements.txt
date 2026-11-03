@@ -1,0 +1,20 @@
+# Personal Hub V1.0 后端依赖（精简版，替代 requirements_full.txt）
+# 统一使用 Conda `agent` 环境（解释器路径经启动器解析，见 launcher/launch.py）。
+# 安装：conda run -n agent python -m pip install -r requirements.txt
+# 版本基线与 agent 环境对齐，勿随意升级 LangGraph/LangChain/ChromaDB 等核心依赖。
+
+fastapi==0.135.1
+uvicorn[standard]==0.46.0
+sqlalchemy==2.0.48
+alembic==1.20.1
+pydantic-settings==2.12.0
+python-dotenv==1.2.1
+httpx==0.28.1
+sse-starlette==3.3.4
+feedparser>=6.0            # 阶段 4 需要时再装（agent 环境当前未装）
+chromadb==1.5.9
+
+# 测试
+pytest==9.0.3
+pytest-asyncio==1.4.1.post1
+respx==0.23.1

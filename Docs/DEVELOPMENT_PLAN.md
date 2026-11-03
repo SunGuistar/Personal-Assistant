@@ -13,6 +13,8 @@
 
 ## 阶段 1：后端基础设施 + 前端框架 + Windows 启动器
 
+> 状态：**已完成**（2026-11-03）。验收结果：pytest 10 passed（含数据隔离守卫）；Vitest 2 passed；`npm run build` 通过；`launch.py` 启动服务后 `GET /` 返回首页、`/api/health` 200、`/api/*` 未命中返回统一 JSON 404、前端路由 SPA 回退正常；Alembic 空库初始化通过（revision 0001）。
+
 - 依赖：阶段 0 审核通过。
 - 创建：
   - `app/`：FastAPI 装配、`config.py`（pydantic-settings，默认端口 8620）、`db.py` + Alembic 初始化、`api/health`、统一错误格式、隐私白名单日志、任务框架（`tasks/` 表 + 进程内执行器）、`token_usage` 埋点、`chat_sessions/chat_messages` 表。

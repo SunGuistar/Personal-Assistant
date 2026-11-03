@@ -24,9 +24,9 @@ from typing import Any
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from dotenv import load_dotenv
+from env_bootstrap import load_hub_env
 
-load_dotenv(ROOT_DIR / ".env")  # 独立运行时也能读到 DASHSCOPE_API_KEY
+load_hub_env()  # 独立运行时也能读到 DASHSCOPE_API_KEY（权威源在用户目录，见 env_bootstrap）
 
 from Tool.structured_message import StructuredMessage, from_raw_rows, to_llm_text  # noqa: E402
 

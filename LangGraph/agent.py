@@ -18,9 +18,9 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from dotenv import load_dotenv
+from env_bootstrap import load_hub_env
 
-load_dotenv(ROOT_DIR / ".env")
+load_hub_env()  # 用户目录 ~/.personal-hub/.env 为权威源，项目 .env 可选覆盖
 
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage

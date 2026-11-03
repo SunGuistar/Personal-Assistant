@@ -29,14 +29,15 @@ from pathlib import Path
 
 import chromadb
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from dotenv import load_dotenv
 
 from .chunking import Chunk, chunk_messages
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-load_dotenv(ROOT_DIR / ".env")  # 独立运行（建索引脚本）也能读到 DASHSCOPE_API_KEY
+from env_bootstrap import load_hub_env
+
+load_hub_env()  # 独立运行（建索引脚本）也能读到 DASHSCOPE_API_KEY（权威源在用户目录）
 
 logger = logging.getLogger(__name__)
 
