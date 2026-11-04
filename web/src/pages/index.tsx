@@ -1,4 +1,5 @@
 export { HomePage } from "./HomePage";
+export { NewsPage } from "./NewsPage";
 export { PlansPage } from "./PlansPage";
 export { ReadingPage } from "./ReadingPage";
 export { WechatPage } from "./WechatPage";
@@ -11,15 +12,6 @@ function Placeholder({ title, note }: { title: string; note: string }) {
         {note}
       </div>
     </div>
-  );
-}
-
-export function NewsPage() {
-  return (
-    <Placeholder
-      title="技术资讯"
-      note="阶段 4 提供：资讯列表、筛选排序、收藏与已读。当前为占位页。"
-    />
   );
 }
 

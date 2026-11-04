@@ -55,6 +55,8 @@
 
 ## 阶段 4：技术资讯中心
 
+> 状态：**已完成，待人工验收**（2026-11-10）。结果：pytest 134 passed（新增资讯 28：评分纯函数 10、适配器解析 4、service 7、API 集成 7；全部 Mock/respx，零真实外网）；Vitest 16 passed（新增资讯页 5）；`npm run build` 通过；真实来源冒烟 7/7 可用（HN 30 条、GitHub Blog 10、Python Insider 50、TypeScript Blog 10、OpenAI News 100、阮一峰周刊 3、Hugging Face 100；LangChain RSS 与 Anthropic 旧地址经实测不可用已替换/淘汰）。实施要点：迁移 0004 两表（url 规范化唯一 + title_hash 去重索引）；HN 走官方 Algolia API、其余走 feedparser；评分纯函数（norm_heat 分来源归一化，RSS 中性 0.5；半衰期 48h 时效衰减；关键词主题规则）；刷新走 TaskRunner（kind news.refresh，同 kind 409 防重，单源失败记录后继续）；过期仅判定不删除（阶段 5 衔接）。待人工验收：真实联网刷新、收藏/已读、筛选排序与首页卡片展示。
+
 - 依赖：阶段 1、2（前端组件模式）。
 - 创建：`adapters/news_*`（HN API、RSS feedparser、GitHub 官方 RSS；按 D6 内置默认来源种子；Trending 不接）、`services/news_service.py`（去重、归一化热度、规则评分、刷新调度）、`models` news 两表、前端资讯页（列表/筛选/排序/收藏/已读/刷新/上次更新时间）。
 - 完成标准：PRD §2.2 全部达成；默认来源开箱可用、可在设置中增删；离线时页面给出明确提示而非白屏。

@@ -81,7 +81,8 @@ Docs/                 # 本文档等
 ### 3.2 资讯模块
 
 ```
-news_sources 表配置源(默认种子见 PRD §2.2) → FeedFetcher(httpx, 超时/重试/UA)
+news_sources 表配置源(默认种子见 news_service.DEFAULT_SOURCES) → 按 kind 分派适配器
+(news_hn 官方 Algolia API / news_rss feedparser；news_common 统一 httpx 超时/重试/UA)
 → 归一化为 NewsItem(title, url, source, published_at, raw_summary, heat_raw)
 → 去重(url 规范化+标题哈希) → 归一化热度(按来源函数) → 规则评分
 → news_items 落库 → 过期判定(7天,未收藏) → 清理候选
@@ -147,8 +148,8 @@ news_sources 表配置源(默认种子见 PRD §2.2) → FeedFetcher(httpx, 超�
 | `daily_tasks` | plan_id→long_term_plans NULL, task_date, title, done, sort_order, moved_from_date NULL |
 | `books` | title, author, note, status(todo/reading/done) |
 | `book_notes` | book_id→books, filename, path, size, uploaded_at |
-| `news_items` | title, url UNIQUE(规范化), source, published_at, raw_summary, norm_heat, score, is_favorite, is_read, fetched_at |
-| `news_sources` | name, kind(rss/hn/github), endpoint, enabled, weight（默认种子见 PRD §2.2） |
+| `news_items` | title, url UNIQUE(规范化), source, published_at(UTC ISO), raw_summary, norm_heat, score, is_favorite, is_read, fetched_at, topic, title_hash(索引) |
+| `news_sources` | name UNIQUE, kind(rss/hn), endpoint, enabled, weight（默认种子见 news_service.DEFAULT_SOURCES，冒烟验证见 DEVELOPMENT_PLAN 阶段 4） |
 | `sync_cursors` | scope(chat_id) PK, last_timestamp, last_msg_id, updated_at |
 | `chat_sessions` | id, title, created_at, updated_at（微信对话会话） |
 | `chat_messages` | session_id→chat_sessions, role(user/assistant), content, created_at（会话级历史，支撑多轮上下文） |

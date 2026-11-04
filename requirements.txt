@@ -11,7 +11,7 @@ pydantic-settings==2.12.0
 python-dotenv==1.2.1
 httpx==0.28.1
 sse-starlette==3.3.4
-feedparser>=6.0            # 阶段 4 需要时再装（agent 环境当前未装）
+feedparser>=6.0            # 阶段 4 资讯中心：RSS/Atom 解析（已装 agent 环境）
 chromadb==1.5.9
 
 # 测试

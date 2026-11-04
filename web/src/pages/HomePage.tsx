@@ -5,6 +5,7 @@ import { MessageSquareText } from "lucide-react";
 import { api, todayStr } from "../lib/api";
 import { DailyTask } from "../api/plans";
 import { BOOK_STATUS_LABELS, Book } from "../api/reading";
+import { useNewsItems } from "../api/news";
 import { Button } from "../components/ui/button";
 
 type HealthResponse = { status: string; service: string; version: string };
@@ -58,7 +59,7 @@ export function HomePage() {
           <ReadingCard books={reading.data} loading={reading.isLoading} error={reading.isError} />
         </div>
         <div className="space-y-4">
-          <PlaceholderCard title="最新资讯" note="阶段 4 起接入" to="/news" />
+          <NewsCard />
         </div>
       </div>
     </div>
@@ -136,14 +137,29 @@ function ReadingCard({
   );
 }
 
-function PlaceholderCard({ title, note, to }: { title: string; note: string; to: string }) {
+function NewsCard() {
+  const news = useNewsItems({ page: 1, page_size: 5, sort: "top" });
   return (
     <Link
-      to={to}
-      className="block rounded-lg border border-dashed border-neutral-300 bg-white p-4 transition-shadow hover:shadow-sm"
+      to="/news"
+      className="block rounded-lg border border-neutral-200 bg-white p-4 transition-shadow hover:shadow-sm"
     >
-      <div className="text-sm font-medium text-neutral-700">{title}</div>
-      <div className="mt-1 text-xs text-neutral-400">{note}</div>
+      <div className="text-sm font-medium">最新资讯</div>
+      <div className="mt-1 text-xs text-neutral-500">
+        {news.isLoading && "加载中…"}
+        {news.isError && "后端未连接"}
+        {!news.isLoading && !news.isError && (news.data?.total ? `${news.data.total} 条` : "还没有资讯，去资讯页刷新")}
+      </div>
+      {!news.isLoading && !news.isError && news.data && news.data.items.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {news.data.items.map((item) => (
+            <li key={item.id} className="truncate text-xs text-neutral-600">
+              · {item.title}
+              <span className="ml-1 text-neutral-400">（{item.source}）</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </Link>
   );
 }

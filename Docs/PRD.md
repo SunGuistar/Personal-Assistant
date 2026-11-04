@@ -103,7 +103,7 @@
 | 来源 | 方式 | 说明 |
 |---|---|---|
 | Hacker News | 官方 Algolia Search API / Firebase API | 免费、无 Key |
-| RSS 订阅 | feedparser 解析 RSS/Atom | 默认种子：GitHub 官方博客、Python Insider、TypeScript 官方博客及 2–3 个中文 AI 技术媒体；存 `news_sources` 表可增删改 |
+| RSS 订阅 | feedparser 解析 RSS/Atom | 默认种子（D6）：Hacker News（官方 Algolia API）、GitHub 官方博客、Python Insider、TypeScript 官方博客、OpenAI News、Hugging Face Blog、阮一峰的网络日志；存 `news_sources` 表可增删改，实测可用清单见 DEVELOPMENT_PLAN 阶段 4 |
 | GitHub | 官方博客 RSS + 仓库 Search API | Trending 无官方 API，第一版不接；后续作为可选增强评估 |
 
 接入原则：先少量高质量源（默认 5–8 个），来源配置存库可增删；RSSHub 仅作未来扩展手段，不作为依赖。

@@ -34,8 +34,8 @@ describe("App 骨架", () => {
     expect(screen.getByText("设置")).toBeInTheDocument();
   });
 
-  it("前端路由切换到占位页", () => {
+  it("前端路由切换到资讯页", async () => {
     renderApp("/news");
-    expect(screen.getByText(/资讯列表、筛选排序、收藏与已读/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "技术资讯" })).toBeInTheDocument();
   });
 });
