@@ -31,7 +31,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col md:flex-row">
       <aside className="border-b border-neutral-200 bg-white md:min-h-screen md:w-52 md:border-b-0 md:border-r">
-        <div className="px-4 pb-2 pt-4 text-base font-semibold">Personal Hub</div>
+        <div className="px-4 pb-2 pt-4 text-base font-semibold">个人助手</div>
         <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:px-3 md:py-2">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink

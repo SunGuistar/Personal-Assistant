@@ -45,7 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings.ensure_dirs()
     setup_logging(settings.logs_path)
 
-    app = FastAPI(title="Personal Hub", version="0.1.0")
+    app = FastAPI(title="个人助手", version="0.1.0")
     register_exception_handlers(app)
 
     engine = make_engine(settings.db_url)

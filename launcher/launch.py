@@ -1,4 +1,4 @@
-"""Personal Hub Windows 启动器（ARCH §3.5）。
+"""个人助手 Windows 启动器（ARCH §3.5）。
 
 流程：健康检查（默认 http://127.0.0.1:8620/api/health）→ 已运行则直接开浏览器；
 未运行则拉起 uvicorn → 轮询就绪（默认 30s 超时）→ 打开默认浏览器首页。
@@ -149,7 +149,7 @@ def ensure_service() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Personal Hub 启动器")
+    parser = argparse.ArgumentParser(description="个人助手启动器")
     parser.add_argument("--no-browser", action="store_true", help="只启动服务，不打开浏览器")
     args = parser.parse_args()
 

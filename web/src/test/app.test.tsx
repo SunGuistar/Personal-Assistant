@@ -24,7 +24,7 @@ function renderApp(initialPath = "/") {
 describe("App 骨架", () => {
   it("渲染主导航与首页", () => {
     renderApp();
-    expect(screen.getByText("Personal Hub")).toBeInTheDocument();
+    expect(screen.getByText("个人助手")).toBeInTheDocument();
     expect(screen.getByText("首页工作台")).toBeInTheDocument();
     expect(screen.getByText("微信助手")).toBeInTheDocument();
     expect(screen.getByText("技术资讯")).toBeInTheDocument();

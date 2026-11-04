@@ -1,10 +1,10 @@
-# AGENTS.md — Personal Hub 开发规范
+# AGENTS.md — 个人助手开发规范
 
 本文件约束所有在本仓库工作的开发者与 AI 编码助手。规划类文档见 `Docs/`（PRD=V1.0 需求、ARCHITECTURE=设计约束、DEVELOPMENT_PLAN=V1.0 任务、TEST_PLAN=测试、**ROADMAP=V1.0 之后规划的唯一权威来源**）；`wechat-chat-summary/` 是独立上游项目（已被 .gitignore 忽略），不适用本规范。
 
 ## 1. 仓库定位与现状
 
-- 主项目：基于 LangGraph 的微信聊天 Agent（已能运行），正在扩展为 Personal Hub（FastAPI + React 个人管家）。
+- 主项目：基于 LangGraph 的微信聊天 Agent（已能运行），正在扩展为个人助手（FastAPI + React 个人管家）。
 - 现有微信链路：`GetWechatInfo/`（API 客户端 + 原始快照库）→ `Tool/structured_message.py`（归一化）→ 归一化 SQLite + Chroma 向量 → `LangGraph/`（Agent 工具 + 总结流水线）。
 - 已知问题（修改相关代码前必读）：
   1. ~~`normalize_snapshot.py` 源码缺失~~ → **阶段 3.4 已重建**（`app/wechat_agent/data_api/normalize_snapshot.py`，与历史库逐行对拍验证）。

@@ -5,7 +5,7 @@ wechat-chat-summary
 Output
 GetWechatInfo/VectorStore/
 
-# Personal Hub V1.0 运行时与构建产物（AGENTS §2：新增运行时数据禁止入库）
+# 个人助手 V1.0 运行时与构建产物（AGENTS §2：新增运行时数据禁止入库）
 .venv/
 data/
 web/node_modules/

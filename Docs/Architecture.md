@@ -1,4 +1,4 @@
-# Personal Hub 架构设计文档
+# 个人助手架构设计文档
 
 版本：v0.2（已含用户决策 D1–D8）
 配套文档：`PRD.md`（需求）、`DEVELOPMENT_PLAN.md`（计划）、`TEST_PLAN.md`（测试）

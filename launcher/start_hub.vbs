@@ -1,4 +1,4 @@
-' Personal Hub silent launcher (invoked by start_hub.bat)
+' Personal Assistant silent launcher (invoked by the .bat wrapper)
 ' Runs launch.py through the Conda agent env; falls back to pythonw on PATH.
 ' NOTE: keep this file pure ASCII - the VBScript engine reads it in the
 ' system ANSI codepage (GBK on zh-CN Windows) and UTF-8 Chinese bytes break

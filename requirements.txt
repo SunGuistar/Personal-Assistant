@@ -1,4 +1,4 @@
-# Personal Hub V1.0 后端依赖（精简版，替代 requirements_full.txt）
+# 个人助手 V1.0 后端依赖（精简版，替代 requirements_full.txt）
 # 统一使用 Conda `agent` 环境（解释器路径经启动器解析，见 launcher/launch.py）。
 # 安装：conda run -n agent python -m pip install -r requirements.txt
 # 版本基线与 agent 环境对齐，勿随意升级 LangGraph/LangChain/ChromaDB 等核心依赖。

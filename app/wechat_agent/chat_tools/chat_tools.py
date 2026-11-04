@@ -214,7 +214,7 @@ def summarize_chat(date: str, chat_id: str = "") -> str:
     # 延迟导入：普通问答不触发流水线的依赖加载
     from .summarizer import run_summary
 
-    # 优先走后台任务（Personal Hub 服务模式）：Agent 决策调用本工具后，
+    # 优先走后台任务（个人助手服务模式）：Agent 决策调用本工具后，
     # 总结流水线在 job 线程执行，进度经 jobs 表可查、刷新/断连可恢复；
     # 任务执行器未配置时（独立 CLI 使用）回退为同步执行，行为与历史一致。
     from ...services import wechat_jobs
