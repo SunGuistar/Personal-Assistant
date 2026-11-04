@@ -28,7 +28,7 @@ export function SettingsPage() {
   return (
     <Placeholder
       title="基础设置"
-      note="后续提供：模型配置、WeChatDataAnalysis 路径、资讯来源管理。当前为占位页。"
+      note="后续提供：模型配置、WeChatDataAnalysis 路径。当前为占位页。"
     />
   );
 }

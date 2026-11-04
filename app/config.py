@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     static_dir: Path = ROOT_DIR / "web" / "dist"
     log_dir: Path | None = None  # 默认 data_dir/logs
 
-    news_refresh_minutes: int = 30
+    news_refresh_minutes: int = 30  # 已废弃：自建资讯聚合下线（PRD §2.2 调整），保留字段兼容已有配置
     # 阅读管理：笔记附件上传限制（PRD §2.4）
     upload_max_mb: int = 50
 

@@ -33,10 +33,9 @@ app/                  # FastAPI 后端包（personal_hub 核心）
 ├── config.py         # pydantic-settings：端口(默认8620)、路径、更新间隔、模型、来源配置
 ├── db.py             # engine、session、Alembic 环境
 ├── api/              # 路由薄层：参数校验(in schema) → 调 service → 出 schema
-│   ├── dashboard.py  ├── wechat.py  ├── news.py
-│   ├── plans.py      ├── reading.py ├── cleanup.py  └── settings.py
+│   ├── wechat.py  ├── plans.py  ├── reading.py  └── jobs.py（health/tasks 同层）
 ├── services/         # 纯业务逻辑，不依赖 FastAPI 对象（可单测）
-├── adapters/         # wechat_api(复用现有client) / news_hn / news_rss / launcher
+├── adapters/         # wechat_api（复用现有 client，阶段 3 迁入）
 ├── wechat_agent/     # 阶段 3 迁入：原 LangGraph/ GetWechatInfo/ Tool/（D3）
 ├── tasks/            # 任务注册、执行器、状态落库；进程内 asyncio 执行
 ├── cleanup/          # 候选生成、审核流程、三层删除状态机、chunk 局部重建、审计
@@ -78,19 +77,18 @@ Docs/                 # 本文档等
 5. `rag_store.incremental_index()`：计数**减少**才全群重建；增长/不变走尾部增量（边界 chunk 重切，未变化向量复用，零重复 Embedding）。
 6. 对账：同步后按日比对原始/归一化计数，差异日自动重建补录；重叠窗口之外的历史修正用 `POST /api/wechat/sync {start, end}` 范围重导（重新拉取 API，幂等）。
 
-### 3.2 资讯模块
+### 3.2 资讯模块（外部导航，2026-11 产品调整）
 
 ```
-news_sources 表配置源(默认种子见 news_service.DEFAULT_SOURCES) → 按 kind 分派适配器
-(news_hn 官方 Algolia API / news_rss feedparser；news_common 统一 httpx 超时/重试/UA)
-→ 归一化为 NewsItem(title, url, source, published_at, raw_summary, heat_raw)
-→ 去重(url 规范化+标题哈希) → 归一化热度(按来源函数) → 规则评分
-→ news_items 落库 → 过期判定(7天,未收藏) → 清理候选
+前端静态导航清单（web/src/lib/newsNav.ts，4 个默认入口）
+→ /news 页卡片展示（favicon + 简介 + 打开按钮）
+→ 新标签页直达第三方网站（target=_blank + rel=noopener noreferrer；禁止 iframe）
+首页"技术资讯导航"同清单取前 4 个入口，零 API 依赖
 ```
 
-- 调度：应用启动时 + 运行中每 N 分钟（可配，默认 30）检查一次新鲜度；应用关闭不运行（不驻留）。
-- 评分：`score = norm_heat(source, heat_raw) * source_weight * age_decay(published_at)`；各来源 `norm_heat` 为独立纯函数，单元测试覆盖。
-- LLM 不参与新闻链路。
+- 不自建抓取/评分/存储/刷新；无新闻后端 API、无后台任务；导航配置为前端静态清单，不入库。
+- 历史新闻表 `news_sources`/`news_items`（迁移 0004）按保守策略保留：停止写入、不删除、不参与清理；模型定义继续注册以维持 metadata 与库结构一致。
+- LLM 不参与资讯链路。
 
 ### 3.3 计划与阅读模块
 
@@ -101,7 +99,7 @@ news_sources 表配置源(默认种子见 news_service.DEFAULT_SOURCES) → 按 
 ```
 [周日/下次启动] 生成器扫描过期数据 → cleanup_candidates
   (week_id, item_type, ref_id, description, date_range, size_estimate, state)
-  · item_type: normalized_msgs / snapshot_msgs / news_items
+  · item_type: normalized_msgs / snapshot_msgs（新闻清理需求已取消，不含 news_items）
   · 微信消息候选按"同一天地三库关联"归为一个候选项，一次勾选三层同删
         │
   用户在审核页勾选 → cleanup_runs(week_id, confirmed_at)  ← 无 confirmed run，执行器拒绝执行
@@ -148,8 +146,8 @@ news_sources 表配置源(默认种子见 news_service.DEFAULT_SOURCES) → 按 
 | `daily_tasks` | plan_id→long_term_plans NULL, task_date, title, done, sort_order, moved_from_date NULL |
 | `books` | title, author, note, status(todo/reading/done) |
 | `book_notes` | book_id→books, filename, path, size, uploaded_at |
-| `news_items` | title, url UNIQUE(规范化), source, published_at(UTC ISO), raw_summary, norm_heat, score, is_favorite, is_read, fetched_at, topic, title_hash(索引) |
-| `news_sources` | name UNIQUE, kind(rss/hn), endpoint, enabled, weight（默认种子见 news_service.DEFAULT_SOURCES，冒烟验证见 DEVELOPMENT_PLAN 阶段 4） |
+| `news_items` | **（历史遗留，2026-11 调整）** title, url UNIQUE, source, published_at, raw_summary, norm_heat, score, is_favorite, is_read, fetched_at, topic, title_hash(索引)；停止写入，保留备查，不参与清理 |
+| `news_sources` | **（历史遗留）** name UNIQUE, kind, endpoint, enabled, weight；同保留策略 |
 | `sync_cursors` | scope(chat_id) PK, last_timestamp, last_msg_id, updated_at |
 | `chat_sessions` | id, title, created_at, updated_at（微信对话会话） |
 | `chat_messages` | session_id→chat_sessions, role(user/assistant), content, created_at（会话级历史，支撑多轮上下文） |

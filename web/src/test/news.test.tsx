@@ -1,149 +1,84 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { NewsPage } from "../pages/NewsPage";
+import { HomePage } from "../pages/HomePage";
+import { NEWS_NAV_SITES } from "../lib/newsNav";
 
-const ITEMS = [
-  {
-    id: 1,
-    title: "Python 3.14 released",
-    url: "https://python.example/3.14",
-    source: "Python Insider",
-    source_id: 3,
-    topic: "python",
-    published_at: new Date(Date.now() - 3600_000).toISOString(),
-    raw_summary: "What's new",
-    norm_heat: 0.5,
-    score: 0.42,
-    is_favorite: false,
-    is_read: false,
-    fetched_at: new Date().toISOString(),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 2,
-    title: "New agent framework",
-    url: "https://acme.dev/agent",
-    source: "Hacker News",
-    source_id: 1,
-    topic: "agent",
-    published_at: new Date(Date.now() - 7200_000).toISOString(),
-    raw_summary: "",
-    norm_heat: 0.75,
-    score: 0.6,
-    is_favorite: true,
-    is_read: true,
-    fetched_at: new Date().toISOString(),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
-
-const SOURCES = [{ id: 1, name: "Hacker News", kind: "hn", endpoint: "x", enabled: true, weight: 1, created_at: "", updated_at: "" }];
-
-function makeFetchMock(patchSpy: (body: unknown, url: string) => void) {
-  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url.includes("/api/news/items/") && init?.method === "PATCH") {
-      patchSpy(JSON.parse(String(init.body)), url);
-      const id = Number(url.split("/").pop());
-      const item = ITEMS.find((i) => i.id === id)!;
-      return new Response(JSON.stringify({ ...item, ...JSON.parse(String(init.body)) }), { status: 200 });
-    }
-    if (url.includes("/api/news/items")) {
-      return new Response(JSON.stringify({ items: ITEMS, total: 2, page: 1, page_size: 50 }), { status: 200 });
-    }
-    if (url === "/api/news/sources") {
-      return new Response(JSON.stringify(SOURCES), { status: 200 });
-    }
-    if (url === "/api/news/status") {
-      return new Response(
-        JSON.stringify({ last_refresh: { refreshed_at: new Date().toISOString(), new_items: 2, sources: 2, failures: [] }, refresh_minutes: 30, stale: false }),
-        { status: 200 }
-      );
-    }
-    return new Response("not found", { status: 404 });
-  });
-}
-
-function renderPage() {
+function renderPage(page: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <NewsPage />
-      </MemoryRouter>
+      <MemoryRouter>{page}</MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-describe("技术资讯页面", () => {
+describe("技术资讯导航页", () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  it("渲染资讯列表与来源/主题信息", async () => {
-    vi.stubGlobal("fetch", makeFetchMock(() => {}));
-    renderPage();
-
-    expect(await screen.findByText("Python 3.14 released")).toBeInTheDocument();
-    expect(screen.getByText("New agent framework")).toBeInTheDocument();
-    expect(screen.getByText("Python Insider")).toBeInTheDocument();
-    expect(screen.getByText("综合热度")).toBeInTheDocument();
+  it("渲染四个默认网站入口（名称、介绍、打开按钮）", () => {
+    renderPage(<NewsPage />);
+    for (const site of NEWS_NAV_SITES) {
+      expect(screen.getAllByText(site.name).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(site.description)).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("link", { name: /打开网站/ })).toHaveLength(NEWS_NAV_SITES.length);
   });
 
-  it("收藏与已读通过 PATCH 更新", async () => {
-    const patches: unknown[] = [];
-    vi.stubGlobal("fetch", makeFetchMock((body) => patches.push(body)));
-    renderPage();
-
-    const favButtons = await screen.findAllByRole("button", { name: "收藏" });
-    fireEvent.click(favButtons[0]);
-    await waitFor(() => expect(patches).toContainEqual({ is_favorite: true }));
-
-    const unreadButton = screen.getByRole("button", { name: "标记未读" });
-    fireEvent.click(unreadButton);
-    await waitFor(() => expect(patches).toContainEqual({ is_read: false }));
+  it("外部链接地址正确且在新标签页安全打开", () => {
+    renderPage(<NewsPage />);
+    const links = screen.getAllByRole("link", { name: /打开网站/ });
+    const hrefs = links.map((link) => link.getAttribute("href"));
+    expect(hrefs).toEqual(NEWS_NAV_SITES.map((s) => s.url));
+    for (const link of links) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toContain("noopener");
+    }
   });
 
-  it("主题筛选改变请求参数", async () => {
-    const urls: string[] = [];
-    const fetchMock = makeFetchMock(() => {});
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      urls.push(String(input));
-      return fetchMock(input, init);
-    }));
-    renderPage();
-
-    await screen.findByText("Python 3.14 released");
-    fireEvent.change(screen.getByLabelText("主题筛选"), { target: { value: "python" } });
-    await waitFor(() => expect(urls.some((u) => u.includes("topic=python"))).toBe(true));
+  it("无需新闻 API 即可渲染（零请求）", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage(<NewsPage />);
+    expect(screen.getAllByText(NEWS_NAV_SITES[0].name).length).toBeGreaterThanOrEqual(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
+});
 
-  it("空数据显示提示与手动刷新按钮", async () => {
+describe("首页技术资讯导航", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+
+  it("展示主要入口且不影响其他模块请求", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes("/api/news/items")) {
-          return new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 50 }), { status: 200 });
-        }
-        if (url === "/api/news/sources") return new Response(JSON.stringify(SOURCES), { status: 200 });
-        if (url === "/api/news/status") {
-          return new Response(JSON.stringify({ last_refresh: null, refresh_minutes: 30, stale: false }), { status: 200 });
+        if (url.includes("/api/tasks/daily")) return new Response(JSON.stringify([]), { status: 200 });
+        if (url.includes("/api/books")) return new Response(JSON.stringify([]), { status: 200 });
+        if (url === "/api/health") {
+          return new Response(JSON.stringify({ status: "ok", service: "personal-assistant", version: "0.1.0" }), { status: 200 });
         }
         return new Response("not found", { status: 404 });
       })
     );
-    renderPage();
-    expect(await screen.findByText(/暂无资讯/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /刷新/ })).toBeInTheDocument();
-  });
+    renderPage(<HomePage />);
 
-  it("后端未连接时显示错误提示", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("err", { status: 500 })));
-    renderPage();
-    expect(await screen.findByText(/后端未连接/)).toBeInTheDocument();
+    expect(await screen.findByText("技术资讯导航")).toBeInTheDocument();
+    // 3-4 个入口，全部新标签页打开
+    const links = screen.getAllByRole("link", { name: /daily\.dev|LLM Digest|HotAI\.news|Edition/ });
+    expect(links.length).toBeGreaterThanOrEqual(3);
+    expect(links.length).toBeLessThanOrEqual(4);
+    for (const link of links) {
+      expect(link.getAttribute("target")).toBe("_blank");
+    }
+    // 首页不应请求任何新闻抓取 API
+    const requested = (vi.mocked(fetch).mock.calls.map((c) => String(c[0])) as string[]);
+    expect(requested.some((u) => u.includes("/api/news/"))).toBe(false);
+    // 其他模块照常
+    expect(screen.getByText("今日计划")).toBeInTheDocument();
+    expect(screen.getByText("正在阅读")).toBeInTheDocument();
   });
 });
