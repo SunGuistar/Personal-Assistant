@@ -4,11 +4,12 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { PlansPage } from "../pages/PlansPage";
+import { todayStr } from "../lib/api";
 
 const TASK = {
   id: 1,
   plan_id: null,
-  task_date: "2026-11-03",
+  task_date: todayStr(),
   title: "写文档",
   done: false,
   sort_order: 1,
@@ -81,5 +82,27 @@ describe("计划管理页面", () => {
     const body = posts[0] as { title: string; task_date: string };
     expect(body.title).toBe("新任务");
     expect(body.task_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("展示来自更早日期的未完成任务", async () => {
+    const overdue = { ...TASK, id: 2, task_date: todayStr(-1), title: "逾期的任务" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/tasks/daily")) {
+          return new Response(JSON.stringify([overdue, TASK]), { status: 200 });
+        }
+        if (url === "/api/plans") return new Response(JSON.stringify([]), { status: 200 });
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+
+    expect(await screen.findByText("未完成 · 来自更早日期")).toBeInTheDocument();
+    expect(screen.getByText("逾期的任务")).toBeInTheDocument();
+    expect(screen.getByText("写文档")).toBeInTheDocument();
+    // 逾期任务不参与当日排序（只有今日任务的行才有排序按钮）
+    expect(screen.getAllByRole("button", { name: "上移" })).toHaveLength(1);
   });
 });

@@ -43,7 +43,6 @@ class PlanOut(BaseModel):
     description: str
     status: str
     target_date: str | None
-    progress: float
     created_at: str
     updated_at: str
 

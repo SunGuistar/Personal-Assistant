@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from ..exceptions import DomainError, NotFoundError
@@ -24,10 +24,16 @@ def task_to_dict(task: DailyTask) -> dict:
 
 
 def list_daily(session: Session, task_date: str) -> list[dict]:
+    """某日任务视图：当日任务 + 更早日期未完成的任务（逾期延续显示，PRD §2.3）。
+
+    已完成的任务只在其归属日期显示，之后日期不再出现。
+    """
+
     rows = session.execute(
         select(DailyTask)
-        .where(DailyTask.task_date == task_date)
-        .order_by(DailyTask.sort_order, DailyTask.id)
+        .where(DailyTask.task_date <= task_date)
+        .where(or_(DailyTask.task_date == task_date, DailyTask.done == 0))
+        .order_by(DailyTask.task_date, DailyTask.sort_order, DailyTask.id)
     ).scalars().all()
     return [task_to_dict(row) for row in rows]
 

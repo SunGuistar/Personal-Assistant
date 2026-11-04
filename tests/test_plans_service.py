@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
@@ -11,7 +11,6 @@ from alembic.config import Config
 
 from app.db import Base
 from app.exceptions import DomainError, NotFoundError
-from app.models import DailyTask, LongTermPlan
 from app.services import plans_service, tasks_service
 
 
@@ -40,17 +39,13 @@ def _make_task(session, date="2026-11-03", title="T", plan_id=None):
 
 # ---------- 计划 ----------
 
-def test_plan_crud_and_progress(session):
+def test_plan_crud(session):
     plan = _make_plan(session)
-    assert plan["progress"] == 0.0  # 无任务 = 0
+    assert plan["status"] == "in_progress"
 
     _make_task(session, plan_id=plan["id"])
-    _make_task(session, plan_id=plan["id"])
-    assert plans_service.get_plan(session, plan["id"])["progress"] == 0.0
-
-    tasks = session.execute(select(DailyTask)).scalars().all()
-    tasks_service.update_task(session, tasks[0].id, {"done": True})
-    assert plans_service.get_plan(session, plan["id"])["progress"] == 0.5
+    detail = plans_service.get_plan(session, plan["id"])
+    assert detail["task_ids"] and len(detail["task_ids"]) == 1
 
 
 def test_update_plan(session):
@@ -115,6 +110,23 @@ def test_move_to_same_date_noop(session):
     task = _make_task(session)
     moved = tasks_service.move_task(session, task["id"], "2026-11-03")
     assert moved["moved_from_date"] is None
+
+
+def test_unfinished_task_carries_over(session):
+    """未完成任务在后续日期持续显示；已完成任务不跨日期（PRD §2.3）。"""
+
+    overdue = _make_task(session, date="2026-11-02", title="逾期")
+    done_prev = _make_task(session, date="2026-11-02", title="已完成")
+    today = _make_task(session, date="2026-11-03", title="今日")
+    tasks_service.update_task(session, done_prev["id"], {"done": True})
+
+    daily = tasks_service.list_daily(session, "2026-11-03")
+    assert [t["id"] for t in daily] == [overdue["id"], today["id"]]
+
+    tasks_service.update_task(session, overdue["id"], {"done": True})
+    assert [t["id"] for t in tasks_service.list_daily(session, "2026-11-03")] == [today["id"]]
+    # 历史日期仍显示当日全部任务
+    assert len(tasks_service.list_daily(session, "2026-11-02")) == 2
 
 
 def test_task_done_toggle(session):

@@ -12,7 +12,6 @@ def test_plans_crud_roundtrip(fclient):
     assert created.status_code == 201
     plan = created.json()
     assert plan["status"] == "in_progress"
-    assert plan["progress"] == 0.0
 
     plan_id = plan["id"]
     assert fclient.get(f"/api/plans/{plan_id}").status_code == 200
@@ -26,13 +25,22 @@ def test_plans_crud_roundtrip(fclient):
     assert fclient.get(f"/api/plans/{plan_id}").status_code == 404
 
 
-def test_plan_progress_via_api(fclient):
-    plan = fclient.post("/api/plans", json={"title": "P"}).json()
-    t1 = fclient.post("/api/tasks", json={"task_date": DATE, "title": "a", "plan_id": plan["id"]}).json()
-    fclient.post("/api/tasks", json={"task_date": DATE, "title": "b", "plan_id": plan["id"]})
-    assert fclient.get(f"/api/plans/{plan['id']}").json()["progress"] == 0.0
-    fclient.patch(f"/api/tasks/{t1['id']}", json={"done": True})
-    assert fclient.get(f"/api/plans/{plan['id']}").json()["progress"] == 0.5
+def test_tasks_unfinished_carry_over(fclient):
+    """未完成任务在后续日期持续显示；已完成任务不在之后日期显示（PRD §2.3）。"""
+
+    prev = "2026-11-02"
+    unfinished = fclient.post("/api/tasks", json={"task_date": prev, "title": "未完成"}).json()
+    finished = fclient.post("/api/tasks", json={"task_date": prev, "title": "已完成"}).json()
+    fclient.patch(f"/api/tasks/{finished['id']}", json={"done": True})
+
+    daily = fclient.get(f"/api/tasks/daily?date={DATE}").json()
+    assert [t["id"] for t in daily] == [unfinished["id"]]
+
+    # 完成逾期任务后，当天视图不再显示
+    fclient.patch(f"/api/tasks/{unfinished['id']}", json={"done": True})
+    assert fclient.get(f"/api/tasks/daily?date={DATE}").json() == []
+    # 历史日期仍显示当日任务（含已完成）
+    assert len(fclient.get(f"/api/tasks/daily?date={prev}").json()) == 2
 
 
 def test_plan_404_and_422(fclient):

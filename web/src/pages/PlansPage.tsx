@@ -122,6 +122,11 @@ function DailyPanel({
     );
   };
 
+  // 未完成任务自归属日期起持续显示；已完成任务只在归属日期显示
+  const overdue = tasks.filter((t) => t.task_date < date && !t.done);
+  const todayTasks = tasks.filter((t) => t.task_date === date);
+  const todayIds = todayTasks.map((t) => t.id);
+
   return (
     <section className="rounded-lg border border-neutral-200 bg-white p-4">
       <h2 className="mb-3 text-sm font-semibold">每日计划 · {date}</h2>
@@ -154,19 +159,40 @@ function DailyPanel({
       ) : tasks.length === 0 ? (
         <div className="py-6 text-center text-sm text-neutral-400">这一天还没有任务</div>
       ) : (
-        <ul className="space-y-1">
-          {tasks.map((task, index) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              date={date}
-              plans={plans}
-              canUp={index > 0}
-              canDown={index < tasks.length - 1}
-              allIds={tasks.map((t) => t.id)}
-            />
-          ))}
-        </ul>
+        <>
+          {overdue.length > 0 && (
+            <>
+              <div className="mb-1 px-2 text-xs font-medium text-neutral-400">未完成 · 来自更早日期</div>
+              <ul className="mb-3 space-y-1">
+                {overdue.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    date={date}
+                    plans={plans}
+                    overdue
+                    canUp={false}
+                    canDown={false}
+                    allIds={[]}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+          <ul className="space-y-1">
+            {todayTasks.map((task, index) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                date={date}
+                plans={plans}
+                canUp={index > 0}
+                canDown={index < todayTasks.length - 1}
+                allIds={todayIds}
+              />
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
@@ -176,6 +202,7 @@ function TaskRow({
   task,
   date,
   plans,
+  overdue = false,
   canUp,
   canDown,
   allIds,
@@ -183,6 +210,7 @@ function TaskRow({
   task: DailyTask;
   date: string;
   plans: Plan[];
+  overdue?: boolean;
   canUp: boolean;
   canDown: boolean;
   allIds: number[];
@@ -261,18 +289,28 @@ function TaskRow({
                 {plan.title}
               </span>
             )}
-            {task.moved_from_date && (
-              <span className="ml-2 text-xs text-neutral-400" title="来自移入">
-                ↳ {task.moved_from_date}
+            {overdue ? (
+              <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-600">
+                {task.task_date}
               </span>
+            ) : (
+              task.moved_from_date && (
+                <span className="ml-2 text-xs text-neutral-400" title="来自移入">
+                  ↳ {task.moved_from_date}
+                </span>
+              )
             )}
           </span>
-          <button onClick={() => swap(-1)} disabled={!canUp} aria-label="上移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
-            <ArrowUp className="h-4 w-4" />
-          </button>
-          <button onClick={() => swap(1)} disabled={!canDown} aria-label="下移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
-            <ArrowDown className="h-4 w-4" />
-          </button>
+          {!overdue && (
+            <>
+              <button onClick={() => swap(-1)} disabled={!canUp} aria-label="上移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
+                <ArrowUp className="h-4 w-4" />
+              </button>
+              <button onClick={() => swap(1)} disabled={!canDown} aria-label="下移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
+                <ArrowDown className="h-4 w-4" />
+              </button>
+            </>
+          )}
           <button
             onClick={() => {
               setMoveDate(todayStr(1));
@@ -367,7 +405,6 @@ function PlansPanel({ plans }: { plans: Plan[] }) {
 function PlanCard({ plan, onEdit }: { plan: Plan; onEdit: () => void }) {
   const deletePlan = useDeletePlan();
   const updatePlan = useUpdatePlan();
-  const percent = Math.round(plan.progress * 100);
 
   return (
     <li className="rounded-md border border-neutral-200 p-3">
@@ -398,12 +435,6 @@ function PlanCard({ plan, onEdit }: { plan: Plan; onEdit: () => void }) {
         >
           <Trash2 className="h-4 w-4" />
         </button>
-      </div>
-      <div className="mt-2 flex items-center gap-2">
-        <div className="h-2 flex-1 overflow-hidden rounded bg-neutral-100">
-          <div className="h-full bg-neutral-800" style={{ width: `${percent}%` }} />
-        </div>
-        <span className="w-10 text-right text-xs text-neutral-500">{percent}%</span>
       </div>
       <div className="mt-1 text-xs text-neutral-400">
         {plan.target_date ? `目标 ${plan.target_date}` : "未设目标日期"}

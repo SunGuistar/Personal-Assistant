@@ -8,7 +8,6 @@ export interface Plan {
   description: string;
   status: string;
   target_date: string | null;
-  progress: number;
 }
 
 export interface DailyTask {

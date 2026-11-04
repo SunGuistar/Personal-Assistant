@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from ..exceptions import NotFoundError
@@ -10,26 +10,13 @@ from ..models import DailyTask, LongTermPlan
 from ..models.plan import PLAN_STATUS
 
 
-def _plan_progress(session: Session, plan_id: int) -> float:
-    """关联每日任务的完成比例（0-1）；无任务返回 0.0。"""
-
-    row = session.execute(
-        select(func.count(DailyTask.id), func.coalesce(func.sum(DailyTask.done), 0)).where(
-            DailyTask.plan_id == plan_id
-        )
-    ).one()
-    total, done = int(row[0]), int(row[1])
-    return round(done / total, 4) if total else 0.0
-
-
-def plan_to_dict(session: Session, plan: LongTermPlan) -> dict:
+def plan_to_dict(plan: LongTermPlan) -> dict:
     return {
         "id": plan.id,
         "title": plan.title,
         "description": plan.description,
         "status": plan.status,
         "target_date": plan.target_date,
-        "progress": _plan_progress(session, plan.id),
         "created_at": plan.created_at,
         "updated_at": plan.updated_at,
     }
@@ -37,14 +24,14 @@ def plan_to_dict(session: Session, plan: LongTermPlan) -> dict:
 
 def list_plans(session: Session) -> list[dict]:
     plans = session.execute(select(LongTermPlan).order_by(LongTermPlan.id)).scalars().all()
-    return [plan_to_dict(session, plan) for plan in plans]
+    return [plan_to_dict(plan) for plan in plans]
 
 
 def get_plan(session: Session, plan_id: int) -> dict:
     plan = session.get(LongTermPlan, plan_id)
     if plan is None:
         raise NotFoundError(f"长期计划不存在: {plan_id}")
-    data = plan_to_dict(session, plan)
+    data = plan_to_dict(plan)
     tasks = session.execute(
         select(DailyTask).where(DailyTask.plan_id == plan_id).order_by(DailyTask.task_date, DailyTask.sort_order)
     ).scalars().all()
@@ -66,7 +53,7 @@ def create_plan(
     session.add(plan)
     session.commit()
     session.refresh(plan)
-    return plan_to_dict(session, plan)
+    return plan_to_dict(plan)
 
 
 def update_plan(session: Session, plan_id: int, fields: dict) -> dict:
@@ -78,7 +65,7 @@ def update_plan(session: Session, plan_id: int, fields: dict) -> dict:
             setattr(plan, key, fields[key])
     session.commit()
     session.refresh(plan)
-    return plan_to_dict(session, plan)
+    return plan_to_dict(plan)
 
 
 def delete_plan(session: Session, plan_id: int) -> None:
