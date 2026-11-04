@@ -45,7 +45,7 @@ from .semantic_search import (
 # 注意：@tool 函数的 docstring 和参数签名会被 LangGraph 直接暴露给 LLM，
 # 作为模型判断"何时调用本工具、传什么参数"的依据。改动 docstring = 改变模型行为。
 DEFAULT_DB_PATH = (
-    Path(__file__).resolve().parent.parent.parent
+    Path(__file__).resolve().parent.parent.parent.parent
     / "GetWechatInfo" / "DataInfo" / "chat_snapshot_normalized.sqlite3"
 )
 
@@ -200,17 +200,36 @@ def search_messages(keyword: str, date: str = "", limit: int = 30) -> str:
 
 
 @tool
-def summarize_chat(date: str) -> str:
-    """生成指定日期的群聊总结报告（仿日报版式的 HTML，可选 PNG），返回报告文件路径。
+def summarize_chat(date: str, chat_id: str = "") -> str:
+    """生成指定日期、指定群的群聊总结报告（仿日报版式的 HTML，可选 PNG），返回报告文件路径。
     用户要求"总结/日报/回顾"某天聊天时必须使用本工具——内部是确定性 map/reduce 流水线，
     覆盖率与格式有保证；不要改用 get_messages 自己逐片翻消息。
 
     Args:
         date: 日期，格式 YYYY-MM-DD，例如 2026-10-27。
+        chat_id: 可选，群聊 ID。库里有多群时必须传入（先用 list_chats 查询群 ID）；
+            单群时可省略。总结结果按该群过滤，不混入其他群消息。
     """
 
     # 延迟导入：普通问答不触发流水线的依赖加载
     from .summarizer import run_summary
+
+    # 优先走后台任务（Personal Hub 服务模式）：Agent 决策调用本工具后，
+    # 总结流水线在 job 线程执行，进度经 jobs 表可查、刷新/断连可恢复；
+    # 任务执行器未配置时（独立 CLI 使用）回退为同步执行，行为与历史一致。
+    from ...services import wechat_jobs
+    from ...exceptions import TaskConflict
+
+    if wechat_jobs.is_configured():
+        try:
+            job_id = wechat_jobs.submit_summary(date.strip(), chat_id.strip() or None)
+        except TaskConflict:
+            return "已有一个总结任务正在执行，请等待完成后再试。"
+        return (
+            f"{wechat_jobs.JOB_MARKER}{job_id} "
+            f"总结任务已启动（任务 {job_id}），完成后可在历史报告中查看；"
+            "请向用户告知任务已启动，生成期间可继续其他提问。"
+        )
 
     # openai 错误（dashscope 走 OpenAI 兼容模式，额度/限流/网络问题都以这些异常抛出）
     # 注意：LengthFinishReasonError / ContentFilterFinishReasonError 直接继承
@@ -226,7 +245,7 @@ def summarize_chat(date: str) -> str:
     )
 
     try:
-        paths = run_summary(date.strip())
+        paths = run_summary(date.strip(), chat_id=chat_id.strip() or None)
     except (RuntimeError, ValueError) as exc:
         return f"生成报告失败: {exc}"
     except PermissionDeniedError:

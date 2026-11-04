@@ -67,7 +67,7 @@ def test_book_note_count(session, notes_dir):
     book = _make_book(session)
     assert book["note_count"] == 0
     _add_note(session, book["id"], notes_dir)
-    _add_note(session, book["id"], notes_dir, name="m.png", data=b"\x89PNG")
+    _add_note(session, book["id"], notes_dir, name="m.png", data=b"\x89PNG\r\n\x1a\nfake")
     assert reading_service.list_books(session)[0]["note_count"] == 2
 
 
@@ -90,7 +90,7 @@ def test_delete_book_with_one_note_rejected(session, notes_dir):
 def test_delete_book_with_multiple_notes_rejected(session, notes_dir):
     book = _make_book(session)
     _add_note(session, book["id"], notes_dir)
-    _add_note(session, book["id"], notes_dir, name="a.png", data=b"\x89PNG")
+    _add_note(session, book["id"], notes_dir, name="a.png", data=b"\x89PNG\r\n\x1a\nfake")
     with pytest.raises(BookHasNotes):
         reading_service.delete_book(session, book["id"])
 
@@ -169,9 +169,9 @@ def test_upload_duplicate_name_gets_unique_file(session, notes_dir):
 
 def test_note_roundtrip_and_missing_file(session, notes_dir):
     book = _make_book(session)
-    note = _add_note(session, book["id"], notes_dir, data=b"hello-bytes")
+    note = _add_note(session, book["id"], notes_dir, data=b"%PDF-hello-bytes")
     path = reading_service.note_file_path(session, note["id"], notes_dir)
-    assert path.read_bytes() == b"hello-bytes"
+    assert path.read_bytes() == b"%PDF-hello-bytes"
     reading_service.delete_note(session, note["id"], notes_dir)
     with pytest.raises(NotFoundError):
         reading_service.note_file_path(session, note["id"], notes_dir)

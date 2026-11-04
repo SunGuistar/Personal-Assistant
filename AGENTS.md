@@ -7,8 +7,8 @@
 - 主项目：基于 LangGraph 的微信聊天 Agent（已能运行），正在扩展为 Personal Hub（FastAPI + React 个人管家）。
 - 现有微信链路：`GetWechatInfo/`（API 客户端 + 原始快照库）→ `Tool/structured_message.py`（归一化）→ 归一化 SQLite + Chroma 向量 → `LangGraph/`（Agent 工具 + 总结流水线）。
 - 已知问题（修改相关代码前必读）：
-  1. `normalize_snapshot.py` 被多个模块引用但**源码缺失**，按 DEVELOPMENT_PLAN 阶段 3.4 重建（迁移后建于 `app/wechat_agent/` 内）。
-  2. `LangGraph/` 目录名与 pip 包 `langgraph` 冲突。**D3 已批准**：阶段 3 按"回归测试→目录迁移→验证→其他改造"的顺序迁入 `app/wechat_agent/`，不再征求意见；此前 `app/` 新代码一律不得 import 该目录。
+  1. ~~`normalize_snapshot.py` 源码缺失~~ → **阶段 3.4 已重建**（`app/wechat_agent/data_api/normalize_snapshot.py`，与历史库逐行对拍验证）。
+  2. ~~`LangGraph/` 目录名与 pip 包 `langgraph` 冲突~~ → **阶段 3.2 已迁移**至 `app/wechat_agent/`，旧路径零残留；此前 `app/` 新代码一律不得 import 该目录的规定相应废止。
   3. Agent 工具的 docstring 就是提示词，**改 docstring = 改模型行为**，任何修改须先在 TEST_PLAN 框架内验证。
   4. 聊天相关 SQLite 一律 `mode=ro` 打开，Agent 层只读是硬约束。
 - 常驻决策（不必再问）：总结统一经 Agent（见 §4.7）；第一版无备份功能，以 §5 数据隔离规范替代（D1）；允许自动启动设置中配置的 WeChatDataAnalysis（D5）。
@@ -21,7 +21,7 @@ web/            React + TS + Vite 前端
 launcher/       Windows 启动器
 data/           运行时数据（hub.db、logs/、reading_notes/），新增运行时数据禁止入库
 tests/          pytest
-LangGraph/ GetWechatInfo/ Tool/   现有微信模块（阶段 3 迁入 app/wechat_agent/ 后删除原目录）
+GetWechatInfo/  仅保留聊天数据（DataInfo/ 两库 + VectorStore/），代码已迁至 app/wechat_agent/
 Docs/           规划与架构文档
 ```
 

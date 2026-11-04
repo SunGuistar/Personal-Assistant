@@ -17,7 +17,7 @@ from datetime import datetime
 
 from langchain_core.tools import tool
 
-from ..Normal_Tools import rag_store
+from ..normal_tools import rag_store
 
 _MAX_IDS = 500  # 单次按 ID 查询的消息数上限，防注入超长列表
 

@@ -1,6 +1,7 @@
 export { HomePage } from "./HomePage";
 export { PlansPage } from "./PlansPage";
 export { ReadingPage } from "./ReadingPage";
+export { WechatPage } from "./WechatPage";
 
 function Placeholder({ title, note }: { title: string; note: string }) {
   return (
@@ -10,15 +11,6 @@ function Placeholder({ title, note }: { title: string; note: string }) {
         {note}
       </div>
     </div>
-  );
-}
-
-export function WechatPage() {
-  return (
-    <Placeholder
-      title="微信聊天助手"
-      note="阶段 3 提供：对话框（流式问答、快捷输入）、一键同步、总结报告。当前为占位页。"
-    />
   );
 }
 

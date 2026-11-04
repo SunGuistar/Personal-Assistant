@@ -9,6 +9,7 @@ from .jobs import router as jobs_router
 from .plans import router as plans_router
 from .reading import notes_router, router as reading_router
 from .tasks import router as tasks_router
+from .wechat import router as wechat_router
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health_router)
@@ -17,3 +18,4 @@ api_router.include_router(tasks_router)
 api_router.include_router(jobs_router)
 api_router.include_router(reading_router)
 api_router.include_router(notes_router)
+api_router.include_router(wechat_router)

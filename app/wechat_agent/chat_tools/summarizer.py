@@ -21,14 +21,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from env_bootstrap import load_hub_env
 
 load_hub_env()  # 独立运行时也能读到 DASHSCOPE_API_KEY（权威源在用户目录，见 env_bootstrap）
 
-from Tool.structured_message import StructuredMessage, from_raw_rows, to_llm_text  # noqa: E402
+from ..structured.structured_message import StructuredMessage, from_raw_rows, to_llm_text  # noqa: E402
 
 DEFAULT_DB_PATH = ROOT_DIR / "GetWechatInfo" / "DataInfo" / "chat_snapshot_normalized.sqlite3"
 OUTPUT_ROOT = ROOT_DIR / "Output"
@@ -56,20 +56,35 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return connection
 
 
-def load_day_messages(db_path: Path, date: str) -> tuple[str, list[StructuredMessage]]:
-    """读取指定日期的全部消息（含跨群名校验）。"""
+def load_day_messages(
+    db_path: Path, date: str, chat_id: str | None = None
+) -> tuple[str, list[StructuredMessage]]:
+    """读取指定日期的全部消息。
+
+    chat_id 显式给出时按该群过滤；未给出且库中恰有一个群时取该群
+    （与历史单群行为一致）；多群且未指定时报错（阶段 3.5 多群适配）。
+    """
 
     day = datetime.strptime(date.strip(), "%Y-%m-%d")
     start_ts = int(day.replace(hour=0, minute=0, second=0).timestamp())
     end_ts = int(day.replace(hour=23, minute=59, second=59).timestamp())
     with _connect(db_path) as connection:
-        chat = connection.execute(
-            "SELECT chat_id, display_name FROM chats LIMIT 2"
+        chats = connection.execute(
+            "SELECT chat_id, display_name FROM chats"
         ).fetchall()
-        if len(chat) != 1:
-            raise RuntimeError(f"库里应有且仅有 1 个群，实际 {len(chat)} 个，暂不支持多群总结。")
-        chat_id = str(chat[0]["chat_id"])
-        chat_name = str(chat[0]["display_name"])
+        if chat_id:
+            match = [row for row in chats if str(row["chat_id"]) == chat_id]
+            if not match:
+                raise RuntimeError(f"聊天库中找不到群: {chat_id}（先用 list_chats 查询）")
+            chat_row = match[0]
+        elif len(chats) == 1:
+            chat_row = chats[0]
+        else:
+            raise RuntimeError(
+                f"库里存在 {len(chats)} 个群，请通过 chat_id 指定要总结的群（先用 list_chats 查询）。"
+            )
+        chat_id = str(chat_row["chat_id"])
+        chat_name = str(chat_row["display_name"])
         rows = connection.execute(
             """SELECT message_id, chat_id, timestamp, time, sender, text, msg_type, render_type
                FROM messages WHERE chat_id = ? AND timestamp >= ? AND timestamp <= ?
@@ -226,16 +241,38 @@ def _local_stats(messages: list[StructuredMessage]) -> dict[str, Any]:
     }
 
 
-def run_pipeline(chat_name: str, messages: list[StructuredMessage]) -> dict[str, Any]:
-    """执行 map/reduce/final，返回报告数据字典。"""
+def run_pipeline(
+    chat_name: str,
+    messages: list[StructuredMessage],
+    progress_cb: Any = None,
+) -> dict[str, Any]:
+    """执行 map/reduce/final，返回报告数据字典。
+
+    progress_cb：可选进度回调（0-100 整数）；默认 None 行为与历史版本一致。
+    """
 
     llm = _build_llm()
     chunks = build_chunks(messages)
     print(f"[summarizer] 切分为 {len(chunks)} 个 chunk")
 
+    def emit_progress(value: int) -> None:
+        if progress_cb is not None:
+            progress_cb(value)
+
+    emit_progress(5)
+
     # map：4 路并发，每个 chunk 独立结构化分析
+    done_count = 0
+
+    def map_one(chunk):
+        nonlocal done_count
+        result = _map_chunk(llm, chat_name, chunk)
+        done_count += 1
+        emit_progress(5 + int(done_count / max(len(chunks), 1) * 80))
+        return result
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        map_results = list(executor.map(lambda c: _map_chunk(llm, chat_name, c), chunks))
+        map_results = list(executor.map(map_one, chunks))
     print(f"[summarizer] map 完成：{len(map_results)} 份时段分析")
 
     # reduce：份数过多时逐级合并；不超过阈值则跳过直接进 final
@@ -257,6 +294,7 @@ def run_pipeline(chat_name: str, messages: list[StructuredMessage]) -> dict[str,
     report["chat_name"] = chat_name
     report["date"] = datetime.fromtimestamp(messages[0].timestamp).strftime("%Y-%m-%d")
     report["activity"] = stats
+    emit_progress(95)
     print("[summarizer] final 完成")
     return report
 
@@ -284,13 +322,22 @@ def _final_with_retry(llm, user: str, max_attempts: int = 2) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- 入口
 
-def run_summary(date: str, db_path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
-    """跑完整流水线并渲染落盘，返回 {'html': ..., 'png': ...}。"""
+def run_summary(
+    date: str,
+    db_path: Path = DEFAULT_DB_PATH,
+    chat_id: str | None = None,
+    progress_cb: Any = None,
+) -> dict[str, str]:
+    """跑完整流水线并渲染落盘，返回 {'html': ..., 'png': ...}。
 
-    from ..Normal_Tools.report_render import export_png, render_html
+    chat_id 指定群（多群必传）；不传且单群时行为与历史版本一致。
+    progress_cb 为可选进度回调，透传给流水线。
+    """
 
-    chat_name, messages = load_day_messages(db_path, date)
-    report = run_pipeline(chat_name, messages)
+    from ..normal_tools.report_render import export_png, render_html
+
+    chat_name, messages = load_day_messages(db_path, date, chat_id=chat_id)
+    report = run_pipeline(chat_name, messages, progress_cb=progress_cb)
 
     # 输出目录：Output/<群名>/YYYY-MM-DD群聊总结_YYYYMMDDHHMM.html(.png)
     # 文件名带生成时间戳，用于区分同一日期多次生成的报告

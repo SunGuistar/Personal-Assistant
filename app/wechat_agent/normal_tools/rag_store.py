@@ -32,7 +32,7 @@ from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 from .chunking import Chunk, chunk_messages
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from env_bootstrap import load_hub_env
@@ -267,10 +267,13 @@ def build_index(chat_id: str | None = None) -> dict[str, int]:
 
 
 def incremental_index() -> dict[str, int]:
-    """增量索引所有群的新消息。返回 {chat_id: 新增chunk数}。
+    """增量索引所有群的新消息。返回 {chat_id: 新增chunk数（-1=失败）}。
 
-    每群独立处理：单群失败只记日志、跳过，绝不影响其他群和已有索引。
-    消息总数与已索引数不一致（历史数据被改）时，回落为该群全量重建。
+    每群独立处理：单群失败只记日志、跳过（返回 -1），绝不影响其他群
+    和已有索引，下次调用自动重试尾部。
+    计数策略：总数**减少**才全量重建（历史数据被删/改）；总数不变或
+    **增长**（同步新增）都走尾部增量——重叠窗口内边界 chunk 自动重切，
+    未变化 chunk 的向量全部复用（阶段 3.6 调整，避免每次同步全群重建）。
     """
 
     stats: dict[str, int] = {}
@@ -282,8 +285,9 @@ def incremental_index() -> dict[str, int]:
                 stats[cid] = build_index(cid)[cid]
                 continue
             total = _chat_message_count(cid)
-            if int(state.get("total_msgs", -1)) != total:
-                logger.warning("%s 消息总数变化(%s->%d)，全量重建该群索引", cid, state.get("total_msgs"), total)
+            indexed = int(state.get("total_msgs", -1))
+            if indexed > total:
+                logger.warning("%s 消息总数减少(%s->%d)，全量重建该群索引", cid, indexed, total)
                 stats[cid] = build_index(cid)[cid]
                 continue
 
@@ -351,7 +355,11 @@ def delete_index() -> None:
 
 
 def index_exists() -> bool:
-    return any(c == COLLECTION_NAME for c in _client().list_collections())
+    # chroma>=1.5 的 list_collections() 返回 Collection 对象而非字符串，按名称比较
+    return any(
+        getattr(collection, "name", collection) == COLLECTION_NAME
+        for collection in _client().list_collections()
+    )
 
 
 # ---------------------------------------------------------------- 语义检索
@@ -401,7 +409,7 @@ def search(
 
 
 if __name__ == "__main__":
-    """命令行入口：python -m LangGraph.Chat_tools.rag_store [build|incremental|rebuild|delete|status]"""
+    """命令行入口：python -m app.wechat_agent.normal_tools.rag_store [build|incremental|rebuild|delete|status]"""
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     command = sys.argv[1] if len(sys.argv) > 1 else "status"

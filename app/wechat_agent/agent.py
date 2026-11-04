@@ -15,7 +15,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from env_bootstrap import load_hub_env
@@ -25,16 +25,16 @@ load_hub_env()  # 用户目录 ~/.personal-hub/.env 为权威源，项目 .env �
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-from LangGraph.Chat_tools.chat_tools import ALL_TOOLS
-from LangGraph.llm_config import build_llm
-from LangGraph.Normal_Tools.console_output import (
+from .chat_tools.chat_tools import ALL_TOOLS
+from .llm_config import build_llm
+from .normal_tools.console_output import (
     print_api_error,
     print_reply,
     print_token_usage,
     record_total,
 )
-from LangGraph.Normal_Tools.time_utils import SessionTimer
-from LangGraph.Normal_Tools.tracing_config import configure_tracing
+from .normal_tools.time_utils import SessionTimer
+from .normal_tools.tracing_config import configure_tracing
 
 configure_tracing()  # 收敛 langsmith 报错日志、增强后台上传重试，须在首次追踪前调用
 
@@ -44,7 +44,8 @@ configure_tracing()  # 收敛 langsmith 报错日志、增强后台上传重试�
 SYSTEM_PROMPT = """你是微信群聊天记录分析助手，通过工具读取本地聊天库，只进行分析，绝不修改任何数据。
 
 工作规则：
-1. 回答前先用 list_chats 确认库里有哪些群；涉及具体日期时先用 get_stats 看当天概况。
+1. 回答前先用 list_chats 确认库里有哪些群；涉及具体群或日期时先用 get_stats 看当天概况。
+   库里有多群时，凡涉及总结/检索的请求必须通过 chat_id 参数限定群（chat_id 从 list_chats 获取）。
 2. 一天的消息量可达数千条，单次读取会被工具限制在几百条。做全天总结时，按小时段分多次调用 get_messages（例如 0-5 点、6-11 点、12-17 点、18-23 点），先分别总结每个时段，最后汇总成完整总结。
 3. 回答"谁说了什么/某话题"类问题时，不要全量翻消息：内容涉及确切名称、固定说法的
    用 search_messages 精确定位；涉及情绪、态度、观点、隐含表达等语义内容的用

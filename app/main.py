@@ -55,6 +55,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.task_runner = TaskRunner(session_factory)
 
+    from .services import wechat_jobs
+
+    wechat_jobs.configure(app.state.task_runner)  # summarize_chat 工具经此提交后台总结任务
+
     app.include_router(api_router)
 
     dist: Path = settings.static_dir

@@ -53,12 +53,12 @@ Personal Hub 是运行在 Windows 本地的个人管家系统，以网页为交�
 
 #### 复用现状（已确认实现，见代码审查）
 
-- WeChatDataAnalysis 本地 API 客户端（`GetWechatInfo/wechat_data_api.py`）
-- 原始消息快照库（`GetWechatInfo/message_store.py`，幂等 upsert）
-- 消息归一化（`Tool/structured_message.py`）
+- WeChatDataAnalysis 本地 API 客户端（`app/wechat_agent/data_api/wechat_data_api.py`）
+- 原始消息快照库（`app/wechat_agent/data_api/message_store.py`，幂等 upsert）
+- 消息归一化（`app/wechat_agent/structured/structured_message.py`）+ 归一化脚本（`data_api/normalize_snapshot.py`，阶段 3.4 重建）
 - LangGraph 问答 Agent（8 个只读工具）
-- 确定性总结流水线 map/reduce/final（`LangGraph/Chat_tools/summarizer.py`）
-- Chroma 语义检索 + DashScope Embedding + 增量索引（`LangGraph/Normal_Tools/rag_store.py`）
+- 确定性总结流水线 map/reduce/final（`app/wechat_agent/chat_tools/summarizer.py`）
+- Chroma 语义检索 + DashScope Embedding + 增量索引（`app/wechat_agent/normal_tools/rag_store.py`）
 - HTML/PNG 日报渲染
 
 #### 需求功能
@@ -88,10 +88,9 @@ Personal Hub 是运行在 Windows 本地的个人管家系统，以网页为交�
 - 总结等长任务异步执行，提供任务状态查询；失败有明确错误信息。
 - 问答记录按 D8 处理：默认不落 Output Markdown；会话历史存应用库。
 
-#### 已知缺口（代码审查发现，阶段 3 处理）
+#### 已知缺口
 
-- `normalize_snapshot.py` 在代码库中不存在（多个模块报错信息引用它），归一化库是历史提交直接放入的二进制文件。**需要重建该脚本**（逻辑可由 `structured_message.from_raw_rows` + 归一化库 Schema 推导；在目录迁移完成后建于新包内，顺序见 DEVELOPMENT_PLAN 阶段 3）。
-- 总结流水线当前硬限制"库中只能有 1 个群"，多群场景需要适配（先按群过滤再总结）。
+（阶段 3 已全部解决：`normalize_snapshot.py` 于 3.4 重建并与历史库对拍一致；多群于 3.5 支持，按 chat_id 过滤；`index_exists()` 兼容性 bug 于 3.0 修复。）
 
 ### 2.2 技术资讯中心
 

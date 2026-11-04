@@ -69,14 +69,14 @@ Docs/                 # 本文档等
 
 **多群适配**：总结流水线的"单群限制"在服务层解决——总结请求必须显式携带 chat_id，service 按群过滤消息后再进流水线；Agent 系统提示词补充群选择约束。不改变流水线内部行为。
 
-**同步流程（游标统一设计，`sync_cursors` 为唯一游标口径）**：
+**同步流程（重叠窗口 + 游标后置，`sync_cursors` 为唯一游标口径）**：
 
 1. `GET /api/wechat/source/status` → 探测 WeChatDataAnalysis（读 `/api/chat/accounts`）。
-2. 未运行 → launcher 适配器按配置路径启动桌面程序（D5）→ 轮询 API 就绪（超时返回明确错误）。
-3. 读取 `sync_cursors`（scope=chat_id，字段 `last_timestamp` + `last_msg_id`），拉取 `(timestamp, message_id) > 游标` 的消息（成对比较，**避免同一秒多条消息漏拉**）；首次全量。
-4. 原始行幂等 upsert（PK 冲突即跳过）→ 归一化（指纹去重）→ 更新游标（与消息写入同事务提交，**中断恢复不重复不遗漏**）。
-5. 调用 `rag_store.incremental_index()`（chunk_id 确定性，天然幂等）。
-6. **迟到历史消息对账**：同步完成后按日比对原始库与归一化库计数，差异区间重导该日范围（游标不后退，靠幂等兜底）。
+2. 未运行 → WechatSourceAdapter 按配置路径启动桌面程序（D5，仅启动经配置与校验的 exe）→ 轮询 API 就绪（超时返回明确错误）。
+3. 增量：以 `sync_cursors(chat_id)` 为游标，拉取 `[游标时间 - 24h 重叠窗口, 现在]` 的全部分页（API 仅支持 offset 分页 + desc 排序 + 客户端时间过滤）；按 `(timestamp, message_id)` 稳定 ID 主键幂等 upsert 原始库。
+4. 归一化（区间 upsert + 指纹去重，独立提交）→ **游标只在两步都成功后推进**（hub.db，同事务）；任一步失败游标不动，重试安全。
+5. `rag_store.incremental_index()`：计数**减少**才全群重建；增长/不变走尾部增量（边界 chunk 重切，未变化向量复用，零重复 Embedding）。
+6. 对账：同步后按日比对原始/归一化计数，差异日自动重建补录；重叠窗口之外的历史修正用 `POST /api/wechat/sync {start, end}` 范围重导（重新拉取 API，幂等）。
 
 ### 3.2 资讯模块
 

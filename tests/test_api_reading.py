@@ -96,7 +96,7 @@ def test_api_rejects_book_delete_with_notes(fclient):
 
     book2 = _make_book(fclient, title="带笔记的书")
     _upload(fclient, book2["id"], name="one.pdf")
-    _upload(fclient, book2["id"], name="two.png", data=b"\x89PNGfake")
+    _upload(fclient, book2["id"], name="two.png", data=b"\x89PNG\r\n\x1a\nfake")
 
     rejected = fclient.delete(f"/api/books/{book2['id']}")
     assert rejected.status_code == 409

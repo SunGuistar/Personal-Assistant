@@ -25,6 +25,26 @@ ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg"})
 _ILLEGAL_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 BOOK_HAS_NOTES_MESSAGE = "该书籍存在关联笔记，请先删除全部笔记后再删除书籍。"
 
+# 文件头签名：扩展名与实际内容不符时拒绝上传（云记导出为真实文件，误杀风险低）
+_FILE_SIGNATURES: dict[str, tuple[bytes, str]] = {
+    ".pdf": (b"%PDF-", "PDF"),
+    ".png": (b"\x89PNG\r\n\x1a\n", "PNG"),
+    ".jpg": (b"\xff\xd8\xff", "JPEG"),
+    ".jpeg": (b"\xff\xd8\xff", "JPEG"),
+}
+
+
+def verify_file_signature(filename: str, data: bytes) -> None:
+    """校验文件头签名与扩展名一致（防伪造扩展名）。"""
+
+    signature, kind = _FILE_SIGNATURES[Path(filename).suffix.lower()]
+    if not data.startswith(signature):
+        raise DomainError(
+            f"文件内容与扩展名不符：不是有效的 {kind} 文件",
+            code="signature_mismatch",
+            status_code=400,
+        )
+
 
 def book_to_dict(session: Session, book: Book) -> dict:
     note_count = session.execute(
@@ -160,6 +180,7 @@ def save_note(
             code="file_too_large",
             status_code=400,
         )
+    verify_file_signature(safe_name, data)
 
     book_dir = notes_dir / str(book_id)
     book_dir.mkdir(parents=True, exist_ok=True)

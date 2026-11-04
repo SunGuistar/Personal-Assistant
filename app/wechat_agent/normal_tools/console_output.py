@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 def save_reply(question: str, reply: str) -> Path:

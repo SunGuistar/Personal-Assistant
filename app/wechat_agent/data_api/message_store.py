@@ -32,7 +32,10 @@ except ImportError:  # pragma: no cover - 直接作为脚本运行时触发
 
 
 DATABASE_SCHEMA_VERSION = 1
-DEFAULT_DB_PATH = Path(__file__).resolve().parent / "chat_snapshot.sqlite3"
+DEFAULT_DB_PATH = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "GetWechatInfo" / "DataInfo" / "chat_snapshot.sqlite3"
+)
 
 BASE_SCHEMA_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS chats (
