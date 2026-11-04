@@ -5,7 +5,8 @@ import { MessageSquareText } from "lucide-react";
 import { api, todayStr } from "../lib/api";
 import { DailyTask } from "../api/plans";
 import { BOOK_STATUS_LABELS, Book } from "../api/reading";
-import { NEWS_NAV_HOME_SITES } from "../lib/newsNav";
+import { useNewsTop } from "../api/news";
+import { TopNewsList } from "../components/news/TopNewsList";
 import { Button } from "../components/ui/button";
 
 type HealthResponse = { status: string; service: string; version: string };
@@ -34,6 +35,7 @@ export function HomePage() {
   const health = useQuery({ queryKey: ["health"], queryFn: fetchHealth, retry: 1 });
   const tasks = useTodayTasks();
   const reading = useReadingBooks();
+  const news = useNewsTop();
 
   return (
     <div className="space-y-4">
@@ -54,14 +56,18 @@ export function HomePage() {
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-4">
-          <TodayPlanCard tasks={tasks.data} loading={tasks.isLoading} error={tasks.isError} />
-          <ReadingCard books={reading.data} loading={reading.isLoading} error={reading.isError} />
-        </div>
-        <div className="space-y-4">
-          <NewsCard />
-        </div>
+        <TodayPlanCard tasks={tasks.data} loading={tasks.isLoading} error={tasks.isError} />
+        <ReadingCard books={reading.data} loading={reading.isLoading} error={reading.isError} />
       </div>
+      <section className="rounded-lg border border-neutral-200 bg-white p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold">近期热门资讯 TOP 10</h2>
+          <Link to="/news" className="text-xs text-neutral-400 hover:text-neutral-700">
+            查看资讯导航 →
+          </Link>
+        </div>
+        <TopNewsList items={news.data?.items} loading={news.isLoading} error={news.isError} />
+      </section>
     </div>
   );
 }
@@ -134,32 +140,5 @@ function ReadingCard({
         </ul>
       )}
     </Link>
-  );
-}
-
-function NewsCard() {
-  return (
-    <div className="rounded-lg border border-neutral-200 bg-white p-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">技术资讯导航</div>
-        <Link to="/news" className="text-xs text-neutral-400 hover:text-neutral-700">
-          全部入口 →
-        </Link>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {NEWS_NAV_HOME_SITES.map((site) => (
-          <a
-            key={site.name}
-            href={site.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-md border border-neutral-200 px-3 py-2 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
-          >
-            {site.name}
-            <span className="block truncate font-normal text-neutral-400">{site.description}</span>
-          </a>
-        ))}
-      </div>
-    </div>
   );
 }

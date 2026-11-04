@@ -77,18 +77,20 @@ Docs/                 # 本文档等
 5. `rag_store.incremental_index()`：计数**减少**才全群重建；增长/不变走尾部增量（边界 chunk 重切，未变化向量复用，零重复 Embedding）。
 6. 对账：同步后按日比对原始/归一化计数，差异日自动重建补录；重叠窗口之外的历史修正用 `POST /api/wechat/sync {start, end}` 范围重导（重新拉取 API，幂等）。
 
-### 3.2 资讯模块（外部导航，2026-11 产品调整）
+### 3.2 资讯模块（近期热门 TOP 10 + 外部导航，2026-11 定稿）
 
 ```
-前端静态导航清单（web/src/lib/newsNav.ts，4 个默认入口）
-→ /news 页卡片展示（favicon + 简介 + 打开按钮）
-→ 新标签页直达第三方网站（target=_blank + rel=noopener noreferrer；禁止 iframe）
-首页"技术资讯导航"同清单取前 4 个入口，零 API 依赖
+news_sources 默认种子(news_service.DEFAULT_SOURCES) → 按 kind 分派适配器
+(news_hn 官方 Algolia API / news_rss feedparser；news_common 统一 httpx 超时/重试/UA)
+→ 归一化为 RawNewsItem → 去重(url 规范化+标题哈希) → 评分(综合分)
+→ news_items 短期缓存（只增不删）
+→ GET /news/top：rank_top_items 纯查询（24h 优先/72h 回退/单源上限 4）
+→ 首页与 /news 共用 TopNewsList 组件；/news 另有外部导航静态清单
 ```
 
-- 不自建抓取/评分/存储/刷新；无新闻后端 API、无后台任务；导航配置为前端静态清单，不入库。
-- 历史新闻表 `news_sources`/`news_items`（迁移 0004）按保守策略保留：停止写入、不删除、不参与清理；模型定义继续注册以维持 metadata 与库结构一致。
-- LLM 不参与资讯链路。
+- 刷新：TaskRunner 后台任务（kind news.refresh，同 kind 409 防重），单源失败记录后继续；缓存有效期默认 30 分钟（PH_NEWS_REFRESH_MINUTES）；首页只读缓存不触发抓取。
+- 评分：有效分 = norm_heat(分来源归一化，RSS 中性 0.5) × source_weight × age_decay(48h 半衰期) × (1 + 0.5 × 主题相关度)；排名键 (有效分↓, 发布时间↓, id↑)。LLM 不参与。
+- 收藏/已读字段为历史遗留，业务零读写；新闻不参与阶段 5 清理。
 
 ### 3.3 计划与阅读模块
 
@@ -146,8 +148,8 @@ Docs/                 # 本文档等
 | `daily_tasks` | plan_id→long_term_plans NULL, task_date, title, done, sort_order, moved_from_date NULL |
 | `books` | title, author, note, status(todo/reading/done) |
 | `book_notes` | book_id→books, filename, path, size, uploaded_at |
-| `news_items` | **（历史遗留，2026-11 调整）** title, url UNIQUE, source, published_at, raw_summary, norm_heat, score, is_favorite, is_read, fetched_at, topic, title_hash(索引)；停止写入，保留备查，不参与清理 |
-| `news_sources` | **（历史遗留）** name UNIQUE, kind, endpoint, enabled, weight；同保留策略 |
+| `news_items` | 短期资讯缓存：title, url UNIQUE(规范化), source, published_at(UTC ISO), raw_summary, norm_heat, score, topic, title_hash(索引)；is_favorite/is_read 为历史遗留字段（业务零读写）；刷新只增不删 |
+| `news_sources` | 默认来源种子 7 个（news_service.DEFAULT_SOURCES）：name UNIQUE, kind(rss/hn), endpoint, enabled, weight |
 | `sync_cursors` | scope(chat_id) PK, last_timestamp, last_msg_id, updated_at |
 | `chat_sessions` | id, title, created_at, updated_at（微信对话会话） |
 | `chat_messages` | session_id→chat_sessions, role(user/assistant), content, created_at（会话级历史，支撑多轮上下文） |

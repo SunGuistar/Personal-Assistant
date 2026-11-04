@@ -1,0 +1,93 @@
+import { useState } from "react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+
+import { NewsTopItem } from "../../api/news";
+
+export function relativeTime(iso: string): string {
+  const then = new Date(iso);
+  const diffMinutes = Math.max(Math.floor((Date.now() - then.getTime()) / 60000), 0);
+  if (diffMinutes < 60) return `${diffMinutes} 分钟前`;
+  if (diffMinutes < 60 * 24) return `${Math.floor(diffMinutes / 60)} 小时前`;
+  return `${Math.floor(diffMinutes / (60 * 24))} 天前`;
+}
+
+function NewsRow({ item }: { item: NewsTopItem }) {
+  const [open, setOpen] = useState(false);
+  const hasSummary = item.raw_summary.trim().length > 0;
+
+  return (
+    <li className="border-b border-neutral-100 py-2 last:border-b-0">
+      <div className="flex items-center gap-2">
+        <span className="w-6 shrink-0 text-center text-xs font-semibold text-neutral-400">
+          {item.rank}
+        </span>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="min-w-0 flex-1 truncate text-left text-sm font-medium text-neutral-900 hover:underline"
+        >
+          {item.title}
+        </button>
+        {hasSummary &&
+          (open ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          ))}
+      </div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 pl-8 text-xs text-neutral-400">
+        <span>{item.source}</span>
+        <span>·</span>
+        <span>{relativeTime(item.published_at)}</span>
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-0.5 text-neutral-400 hover:text-neutral-700"
+        >
+          查看原文 <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+      {open && (
+        <p className="mt-1 pl-8 text-xs leading-relaxed text-neutral-600">
+          {hasSummary ? item.raw_summary : "来源未提供摘要"}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** 首页与资讯页共用的热门 TOP 10 榜单组件（同一份 API 数据）。 */
+export function TopNewsList({
+  items,
+  loading,
+  error,
+  refreshing = false,
+}: {
+  items?: NewsTopItem[];
+  loading: boolean;
+  error: boolean;
+  refreshing?: boolean;
+}) {
+  if (loading) {
+    return <div className="py-6 text-center text-sm text-neutral-400">加载中…</div>;
+  }
+  if (error) {
+    return <div className="py-6 text-center text-sm text-neutral-500">资讯暂不可用（后端未连接）</div>;
+  }
+  if (!items || items.length === 0) {
+    return (
+      <div className="py-6 text-center text-sm text-neutral-400">
+        还没有资讯{refreshing ? "，正在抓取…" : "，到资讯页点「刷新」获取"}
+      </div>
+    );
+  }
+  return (
+    <ul>
+      {items.map((item) => (
+        <NewsRow key={item.id} item={item} />
+      ))}
+    </ul>
+  );
+}

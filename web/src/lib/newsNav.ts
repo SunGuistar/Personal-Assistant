@@ -33,6 +33,3 @@ export const NEWS_NAV_SITES: NewsNavSite[] = [
     description: "Hacker News、GitHub Trending 与 RSS 聚合阅读",
   },
 ];
-
-/** 首页导航区展示前 4 个入口。 */
-export const NEWS_NAV_HOME_SITES = NEWS_NAV_SITES.slice(0, 4);

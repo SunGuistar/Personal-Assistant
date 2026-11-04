@@ -1,9 +1,8 @@
 """SQLAlchemy 模型（hub.db，均经 Alembic 迁移创建）。
 
-news 两表为历史遗留（2026-11 产品调整：资讯改为外部导航，PRD §2.2）：
-表与数据按保守策略保留在库中，模型定义继续注册以保持 Base.metadata
-与库结构一致（防止未来 autogenerate 对现存表生成 DROP），但业务代码
-不再读写它们。
+news 两表为短期资讯缓存（PRD §2.2 最终版：近期热门 TOP 10 + 外部导航）。
+收藏/已读字段为历史遗留，平台功能已取消，业务代码不再读写；
+模型继续注册以维持 Base.metadata 与库结构一致。
 """
 
 from __future__ import annotations

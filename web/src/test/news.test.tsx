@@ -1,11 +1,54 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { NewsPage } from "../pages/NewsPage";
 import { HomePage } from "../pages/HomePage";
 import { NEWS_NAV_SITES } from "../lib/newsNav";
+
+const TOP = {
+  items: Array.from({ length: 10 }, (_, i) => ({
+    id: i + 1,
+    title: `热门资讯第 ${i + 1} 条`,
+    url: `https://example.com/news-${i + 1}`,
+    source: i % 2 === 0 ? "Hacker News" : "GitHub Blog",
+    topic: "ai",
+    published_at: new Date(Date.now() - (i + 1) * 3600_000).toISOString(),
+    raw_summary: `这是第 ${i + 1} 条的原始摘要。`,
+    score: 0.9 - i * 0.05,
+    effective_score: 1.0 - i * 0.05,
+    rank: i + 1,
+  })),
+  total: 10,
+  generated_at: new Date().toISOString(),
+};
+
+function makeFetchMock(overrides: { top?: unknown } = {}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/news/top")) {
+      const payload = overrides.top ?? TOP;
+      return new Response(JSON.stringify(payload), { status: 200 });
+    }
+    if (url === "/api/news/status") {
+      return new Response(
+        JSON.stringify({
+          last_refresh: { refreshed_at: new Date().toISOString(), new_items: 10, sources: 7, failures: [] },
+          refresh_minutes: 30,
+          stale: false,
+        }),
+        { status: 200 }
+      );
+    }
+    if (url === "/api/tasks/daily") return new Response(JSON.stringify([]), { status: 200 });
+    if (url.includes("/api/books")) return new Response(JSON.stringify([]), { status: 200 });
+    if (url === "/api/health") {
+      return new Response(JSON.stringify({ status: "ok", service: "personal-assistant", version: "0.1.0" }), { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  });
+}
 
 function renderPage(page: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -16,47 +59,79 @@ function renderPage(page: React.ReactElement) {
   );
 }
 
-describe("技术资讯导航页", () => {
+describe("技术资讯页 TOP 10 + 导航", () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  it("渲染四个默认网站入口（名称、介绍、打开按钮）", () => {
+  it("渲染完整 TOP 10 与四个导航入口，且不含废弃 UI", async () => {
+    vi.stubGlobal("fetch", makeFetchMock());
     renderPage(<NewsPage />);
+
+    // TOP 10 完整（10 条，带排名）
+    for (let i = 1; i <= 10; i++) {
+      expect(await screen.findByText(`热门资讯第 ${i} 条`)).toBeInTheDocument();
+    }
+    expect(screen.getByText("1")).toBeInTheDocument();
+    // 导航入口
     for (const site of NEWS_NAV_SITES) {
       expect(screen.getAllByText(site.name).length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText(site.description)).toBeInTheDocument();
     }
     expect(screen.getAllByRole("link", { name: /打开网站/ })).toHaveLength(NEWS_NAV_SITES.length);
+    // 废弃 UI 不存在：收藏/已读/筛选
+    expect(screen.queryByRole("button", { name: "收藏" })).not.toBeInTheDocument();
+    expect(screen.queryByText("标记已读")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("主题筛选")).not.toBeInTheDocument();
   });
 
-  it("外部链接地址正确且在新标签页安全打开", () => {
+  it("点击标题展开/收起摘要，原文链接安全打开", async () => {
+    vi.stubGlobal("fetch", makeFetchMock());
     renderPage(<NewsPage />);
-    const links = screen.getAllByRole("link", { name: /打开网站/ });
-    const hrefs = links.map((link) => link.getAttribute("href"));
-    expect(hrefs).toEqual(NEWS_NAV_SITES.map((s) => s.url));
-    for (const link of links) {
-      expect(link.getAttribute("target")).toBe("_blank");
-      expect(link.getAttribute("rel")).toContain("noopener");
-    }
+
+    const title = await screen.findByText("热门资讯第 1 条");
+    expect(screen.queryByText("这是第 1 条的原始摘要。")).not.toBeInTheDocument(); // 默认折叠
+
+    fireEvent.click(title);
+    expect(screen.getByText("这是第 1 条的原始摘要。")).toBeInTheDocument(); // 展开
+
+    fireEvent.click(title);
+    expect(screen.queryByText("这是第 1 条的原始摘要。")).not.toBeInTheDocument(); // 收起
+
+    const original = screen.getAllByRole("link", { name: /查看原文/ })[0];
+    expect(original.getAttribute("href")).toBe("https://example.com/news-1");
+    expect(original.getAttribute("target")).toBe("_blank");
+    expect(original.getAttribute("rel")).toContain("noopener");
   });
 
-  it("无需新闻 API 即可渲染（零请求）", () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+  it("榜单为空时显示空状态提示", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeFetchMock({ top: { items: [], total: 0, generated_at: new Date().toISOString() } })
+    );
     renderPage(<NewsPage />);
-    expect(screen.getAllByText(NEWS_NAV_SITES[0].name).length).toBeGreaterThanOrEqual(1);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await screen.findByText(/还没有资讯/)).toBeInTheDocument();
   });
 });
 
-describe("首页技术资讯导航", () => {
+describe("首页 TOP 10", () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  it("展示主要入口且不影响其他模块请求", async () => {
+  it("首页完整展示与资讯页相同的 TOP 10", async () => {
+    vi.stubGlobal("fetch", makeFetchMock());
+    renderPage(<HomePage />);
+
+    for (let i = 1; i <= 10; i++) {
+      expect(await screen.findByText(`热门资讯第 ${i} 条`)).toBeInTheDocument();
+    }
+    expect(screen.getByText("近期热门资讯 TOP 10")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /查看资讯导航/ })).toHaveAttribute("href", "/news");
+  });
+
+  it("资讯接口失败不影响首页其他模块", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes("/api/tasks/daily")) return new Response(JSON.stringify([]), { status: 200 });
+        if (url.includes("/api/news/")) return new Response("boom", { status: 500 });
+        if (url === "/api/tasks/daily") return new Response(JSON.stringify([]), { status: 200 });
         if (url.includes("/api/books")) return new Response(JSON.stringify([]), { status: 200 });
         if (url === "/api/health") {
           return new Response(JSON.stringify({ status: "ok", service: "personal-assistant", version: "0.1.0" }), { status: 200 });
@@ -65,20 +140,10 @@ describe("首页技术资讯导航", () => {
       })
     );
     renderPage(<HomePage />);
-
-    expect(await screen.findByText("技术资讯导航")).toBeInTheDocument();
-    // 3-4 个入口，全部新标签页打开
-    const links = screen.getAllByRole("link", { name: /daily\.dev|LLM Digest|HotAI\.news|Edition/ });
-    expect(links.length).toBeGreaterThanOrEqual(3);
-    expect(links.length).toBeLessThanOrEqual(4);
-    for (const link of links) {
-      expect(link.getAttribute("target")).toBe("_blank");
-    }
-    // 首页不应请求任何新闻抓取 API
-    const requested = (vi.mocked(fetch).mock.calls.map((c) => String(c[0])) as string[]);
-    expect(requested.some((u) => u.includes("/api/news/"))).toBe(false);
-    // 其他模块照常
+    // 资讯区显示错误提示，其他模块照常
+    expect(await screen.findByText(/资讯暂不可用/)).toBeInTheDocument();
     expect(screen.getByText("今日计划")).toBeInTheDocument();
     expect(screen.getByText("正在阅读")).toBeInTheDocument();
+    expect(screen.getByText(/已连接/)).toBeInTheDocument();
   });
 });
