@@ -80,7 +80,18 @@ Docs/                 # 本文档等
 - 互斥与重启安全：cleanup ↔ wechat.sync 双向 409；同 kind 409；启动钩子把遗留 pending/running 任务标记 failed（僵尸任务不永久阻塞，不依赖进程内锁）。
 - 无任何自动删除入口；未确认执行 409；候选/预览零副作用。
 
-### 3.5 启动器
+### 3.5 每周回顾模块（阶段一，迁移 0009）
+
+`app/review_agent/`（LangGraph Agent，与 wechat_agent 同装配模式）+ `app/services/review_stats.py`（确定性周统计）+ `app/services/review_service.py`（草稿/建议/确认状态机）+ `app/api/reviews.py`（SSE 路由）。只读分析 + 人工确认，Agent 无任何写工具。
+
+- **统计口径**（`review_stats`）：自然周周一至周日，任意日期归一化到所在周周一；完成周看 `completed_at`（NULL 不计）、归属周看 `task_date`；周末逾期 = 周日快照（`task_date <= 周日` 且未完成或晚于周日完成，含历史积压）；默认周期为上一个完整自然周。
+- **Agent**：`create_agent` 单 Agent + 六个只读工具（任务统计/任务明细/计划/备忘/重要信息/阅读，工厂绑定 Session 与周期）；系统提示词注入本机日期与周期；LLM 经 `build_llm(temperature=0.2, stream_usage=True)`（stream_usage 使流式响应回传真实 token 用量）。
+- **建议生成**：独立结构化调用（JSON Mode），上下文 = 对话历史 + `stats_json` 快照 + 重新读取的业务事实 + 用户补充；basis 逐条经 `validate_basis` 校验（记录存在 + 理由非空 + daily_task 须与周期有交集），通过者回填 `fact` 事实摘要，无效剔除（basis 空数组 = 一般性建议）；生成并发由 per-review 非阻塞锁保证（409）；已处置建议禁止重生成覆盖；失败不破坏已有草稿。
+- **状态机**：`weekly_reviews` draft → confirmed（单向；`ux_weekly_reviews_confirmed_week` 部分唯一索引保证同周仅一份正式周报，IntegrityError → 409）；`weekly_review_suggestions` pending → accepted/modified/rejected；确认前正文（analysis_md/user_notes）可编辑，确认时由确定性代码组装 `report_md`（统计 + 分析 + 补充 + 已处置建议，拒绝项留痕）。
+- **对话持久化**：`weekly_review_messages`（刷新可恢复）；SSE 事件协议与微信问答一致（token/done/error，建议生成另有 step 事件）；LLM 用量经 `llm_usage` 落 `token_usage`（`weekly_review:chat:{id}` / `weekly_review:suggest:{id}`）。
+- 第一版不接微信与资讯数据；不用 Chroma 存周报；周报长期保留不参与清理。
+
+### 3.6 启动器
 
 `launcher/launch.py`：请求 `/api/health` 通则直接开浏览器；否则启动 uvicorn（隐藏窗口 .vbs）→ 轮询健康检查（超时 30s 报错）→ 打开浏览器。默认端口 8620（避开 WeChatDataAnalysis 的 10392）。`.bat/.vbs/.ini` 文件必须纯 ASCII（AGENTS §5）。
 

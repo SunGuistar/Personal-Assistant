@@ -7,6 +7,7 @@ import {
   NewsPage,
   PlansPage,
   ReadingPage,
+  ReviewPage,
   SettingsPage,
   WechatPage,
 } from "./pages";
@@ -19,6 +20,7 @@ export function AppRoutes() {
       <Route path="/wechat" element={<WechatPage />} />
       <Route path="/news" element={<NewsPage />} />
       <Route path="/plans" element={<PlansPage />} />
+      <Route path="/review" element={<ReviewPage />} />
       <Route path="/reading" element={<ReadingPage />} />
       <Route path="/cleanup" element={<CleanupPage />} />
       <Route path="/settings" element={<SettingsPage />} />
