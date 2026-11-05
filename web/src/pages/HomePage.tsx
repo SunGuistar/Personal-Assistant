@@ -82,10 +82,10 @@ function TodayPlanCard({
   error: boolean;
 }) {
   const today = todayStr();
-  // X/Y 统计口径：今日（task_date == 今天）已完成/总数
-  const todayTasks = tasks?.filter((t) => t.task_date === today) ?? [];
-  const doneCount = todayTasks.filter((t) => t.done).length;
-  // 只展示未完成的重要任务（含逾期延续的重要任务，按计划管理排序展示）
+  // X/Y 统计口径 = 计划管理"今天"视图中看到的全部任务（当日 + 更早日期未完成）
+  const total = tasks?.length ?? 0;
+  const doneCount = tasks?.filter((t) => t.done).length ?? 0;
+  // 只展示未完成的重要任务（按计划管理排序展示，逾期带日期徽标）
   const importantPending = tasks?.filter((t) => !t.done && t.is_important) ?? [];
 
   return (
@@ -97,10 +97,11 @@ function TodayPlanCard({
         <div className="text-sm font-medium">计划管理</div>
         <span className="text-xs text-neutral-400">查看全部 →</span>
       </div>
-      <div className="mt-1 text-xs text-neutral-500">
+      <div className="mt-2 text-xs font-medium text-neutral-600">今日计划</div>
+      <div className="mt-0.5 text-xs text-neutral-500">
         {loading && "加载中…"}
         {error && "后端未连接"}
-        {!loading && !error && `${doneCount}/${todayTasks.length} 已完成`}
+        {!loading && !error && `${doneCount}/${total} 已完成`}
       </div>
       {!loading && !error && importantPending.length > 0 && (
         <ul className="mt-2 space-y-1">
