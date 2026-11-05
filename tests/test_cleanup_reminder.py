@@ -114,6 +114,36 @@ def test_banner_shows_pending(hub, env):
     assert banner["review_id"] == review.id and banner["status"] == "pending"
 
 
+def test_no_banner_when_zero_candidates(hub, tmp_path):
+    """候选为 0（全部受保护/无过期数据）→ 不下发横幅；审核页仍可手动进入。"""
+    messages = make_messages(CHAT, PROTECTED_DATE, 3)  # 全部受保护日期
+    environment = build_env(tmp_path, messages)
+    review = service.ensure_review(hub, today=date(2026, 11, 1), protected=PROTECTED, paths=environment.paths)
+    status = service.cleanup_status(hub)
+    assert status["banner"] is None
+    # 审核记录仍在列表中（保留手动查看入口）
+    assert any(r["id"] == review.id for r in status["reviews"])
+
+
+def test_next_cycle_reevaluates_banner(hub, tmp_path):
+    """跨周期重新评估：新日期达标进入新审核周期时横幅重新出现。
+
+    （旧周期已出现过的 ref 按跨周去重不重复生成，已有专测覆盖。）
+    """
+    messages = make_messages(CHAT, PROTECTED_DATE, 2) + make_messages(CHAT, "2026-10-31", 3)
+    environment = build_env(tmp_path, messages)
+
+    # 第一周（11-01 周日）：10-31 的消息尚未满 7 天 → 无候选 → 无横幅
+    first = service.ensure_review(hub, today=date(2026, 11, 1), protected=PROTECTED, paths=environment.paths)
+    assert service.cleanup_status(hub)["banner"] is None
+
+    # 第二周（11-08 周日）：10-31 已满 7 天（严格早于 11-01 边界）→ 新周期出现候选 → 重新提醒
+    second = service.ensure_review(hub, today=date(2026, 11, 8), protected=PROTECTED, paths=environment.paths)
+    banner = service.cleanup_status(hub)["banner"]
+    assert banner is not None and banner["review_id"] == second.id and banner["status"] == "pending"
+    assert first.id != second.id
+
+
 # ---------- 启动陈旧任务清理（重启安全） ----------
 
 def test_startup_marks_stale_tasks_failed(fclient):

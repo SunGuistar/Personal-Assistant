@@ -558,12 +558,15 @@ def cleanup_status(session: Session) -> dict:
                 CleanupCandidate.review_id == latest.id, CleanupCandidate.state == "pending"
             )
         ).scalars().all()
-        banner = {
-            "review_id": latest.id,
-            "week_id": latest.week_id,
-            "status": latest.status,
-            "candidate_groups": len(pending_count),
-        }
+        # 无可清理候选时不提醒：不展示横幅（审核页仍可手动进入）；
+        # 受保护数据的处理规则与此无关，恒先生效
+        if pending_count:
+            banner = {
+                "review_id": latest.id,
+                "week_id": latest.week_id,
+                "status": latest.status,
+                "candidate_groups": len(pending_count),
+            }
     return {
         "banner": banner,
         "reviews": [review_to_dict(session, r) for r in reviews[:5]],

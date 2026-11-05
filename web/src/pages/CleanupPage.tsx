@@ -327,7 +327,6 @@ export function CleanupBanner() {
       <span className="flex items-center gap-2 text-amber-800">
         <RefreshCw className="h-4 w-4" />
         本周待清理数据审核：{banner.candidate_groups} 组超过 7 天的微信聊天缓存
-        {banner.candidate_groups === 0 && "（数据全部受保护或无过期数据）"}
       </span>
       <span className="flex gap-2">
         <Button asChild size="sm">
