@@ -2,6 +2,8 @@
 
 运行在 Windows 本地的个人信息与事务管理平台：FastAPI 后端 + React 前端，浏览器访问，本地优先、单用户。**当前版本仅面向 PC 浏览器**。
 
+**核心定位：个人数据驱动的智能工作助手**——整合计划、备忘、重要信息、阅读记录及未来接入的 GitHub 等个人数据，利用 AI 进行信息整理、关联分析、总结和建议（规划见 `Docs/DEVELOPMENT_PLAN.md`）。
+
 ## 主要功能
 
 - **首页工作台**：今日计划、正在读的书、近期热门资讯、系统状态一览
@@ -52,5 +54,5 @@ cd web && npm test && npx tsc --noEmit && npm run build
 - [AGENTS.md](AGENTS.md) — 开发规范：架构铁律、数据安全、命名、测试与提交
 - [Docs/PRD.md](Docs/PRD.md) — 产品需求与业务规则的权威来源（含 D1–D8 决策）
 - [Docs/Architecture.md](Docs/Architecture.md) — 技术架构的权威来源（模块边界、存储设计、接口约定）
-- [Docs/DEVELOPMENT_PLAN.md](Docs/DEVELOPMENT_PLAN.md) — 开发阶段、完成状态与后续规划
+- [Docs/DEVELOPMENT_PLAN.md](Docs/DEVELOPMENT_PLAN.md) — 下一阶段开发阶段规划（V1 计划已归档至 [Docs/archive/DEVELOPMENT_PLAN_V1.md](Docs/archive/DEVELOPMENT_PLAN_V1.md)）
 - [Docs/ADR/](Docs/ADR/) — 重大技术决策记录（按需创建，当前为空）

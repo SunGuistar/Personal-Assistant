@@ -5,6 +5,7 @@
 ## 1. 项目定位与运行环境
 
 - 个人使用的 Windows PC 应用：FastAPI + React，浏览器访问（默认 127.0.0.1:8620），**仅面向 PC，不做移动端适配**（V2.0 需求）。
+- 核心定位：**个人数据驱动的智能工作助手**——整合计划、备忘、重要信息、阅读记录及未来接入的 GitHub 等个人数据，利用 AI 进行信息整理、关联分析、总结和建议（目标与原则见 `Docs/DEVELOPMENT_PLAN.md`）。
 - 运行环境：Conda 环境 `agent`（Python 3.13）；前端 `cd web && npm install && npm run build`。
 - 当前版本含：微信聊天助手（Agent 对话/总结/同步）、技术资讯 TOP 10、计划管理、阅读管理、三栏工作台（右侧栏=重要信息 SQLite + 随手备忘 SQLite 多条记录，可与每日任务双向转换；旧 `~/.personal-hub/memo.md` 已废弃，启动时幂等迁移、原文件保留不入 Git）。
 - 微信模块已迁入 `app/wechat_agent/`；`GetWechatInfo/` 仅保留聊天数据（DataInfo/ 两库 + VectorStore/）。原 `LangGraph/`、`Tool/` 目录已不存在。
@@ -28,7 +29,7 @@
 5. 微信检索/总结/向量逻辑零重写，只做接口适配（Agent 工具 docstring = 提示词，**改 docstring = 改模型行为**，改动须先跑回归冒烟）。
 6. **总结统一经 Agent（D2）**：所有总结请求必须经 Agent 的 `summarize_chat` 工具触发；禁止 Service 直调 `run_summary` 的旁路。
 7. **禁止自动删除**：任何数据删除必须经清理审核流程人工勾选 + 确认；系统不得存在自动删除入口（清理审核见 Architecture §3.4）。
-8. **未来需求不进当前计划**：未经用户明确批准，不得把 `Docs/DEVELOPMENT_PLAN.md` "后续规划"中的需求排入当前开发或提前实现。
+8. **未来需求不进当前计划**：未经用户明确批准，不得把 `Docs/DEVELOPMENT_PLAN.md` "未批准的后续规划"与"阶段四：候选功能"中的需求排入当前开发或提前实现。
 
 ## 4. 数据与安全（最高优先级）
 

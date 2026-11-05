@@ -110,6 +110,10 @@ Docs/                 # 本文档等
 
 局域网访问（0.0.0.0 + Bearer Token）→ HTTPS 反代 → 移动端同步（服务器为唯一写者 + 移动端纯 API 客户端）；备份恢复（D1）与同步服务一并设计。具体形态待 V2.0 评估；当前纯 API 设计已满足复用前提。
 
+## 7.1 下一阶段演进方向（仅规划，未实现）
+
+规划见 `DEVELOPMENT_PLAN.md`：每周回顾 Agent、每日工作简报、跨数据源检索与长期记忆、GitHub 数据集成、模型调用成本优化、执行追踪与效果评测。落地时应遵循本文档分层约定（新业务入 services/、外部数据源入 adapters/、长任务走 tasks/ 状态机、LLM 出口统一 `llm_config.build_llm` 并落 `token_usage`），并在实现时补充本文件相应章节，当前不代表已实现。
+
 ## 8. 部署形态
 
 单个 Windows 目录 + 桌面快捷方式；源码运行 `uvicorn --factory app.main:create_app` + 已构建 `web/dist`；默认端口 8620。
