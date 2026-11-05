@@ -98,7 +98,9 @@ news_sources 默认种子(news_service.DEFAULT_SOURCES) → 按 kind 分派适�
 
 ### 3.3 计划与阅读模块
 
-标准 CRUD 服务：long_term_plans → daily_tasks（plan_id 可空，**UI 已移除关联入口**、字段与存量关联保留兼容，两模块按相互独立使用）。**排序（每日/长期一致）：重要状态（is_important）> 手动排序（sort_order）**；长期计划 `PUT /plans/reorder` 提交完整活动计划顺序，取消重要自动回落普通区域；每日任务 `PUT /tasks/reorder` 按 `scope=today/overdue` 分别重排当日分区与逾期（更早日期未完成）分区。**完成机制**：长期计划经 `POST /plans/{id}/complete` 标记完成（记 `completed_at`，离开当前列表）；历史视图 `GET /plans/history`（完成时间倒序、未知排最后显示"完成时间未知"），历史删除同活动删除语义（不级联任务、仅解除关联）。每日任务完成/取消完成同步维护 `completed_at`；历史 `GET /tasks/history` 与 daily_tasks 同表（按完成时间倒序、可按归属日期筛选）。"移至下一天" = 更新 task_date + 记录 moved_from_date，不复制副本；books / book_notes（文件落盘 `data/reading_notes/<book_id>/`，库中存路径与元数据，上传校验扩展名与大小，PDF/PNG 浏览器直开）。**书籍删除规则（PRD §2.4，已确定）**：存在关联笔记的书籍禁止删除——Service 层删除事务内检查 `book_notes`，存在即抛 409 `book_has_notes`；不级联、不自动解除关联、不依赖前端校验。后台任务状态查询端点为 `/api/jobs/{id}`（与每日任务 `/api/tasks/*` 区分，阶段 2 起生效）。
+标准 CRUD 服务。**长期计划与每日任务完全独立**（迁移 0006 已移除 plan_id 列与外键，经核查 0 条历史关联）：long_term_plans（含 goal 具体目标、重要标记）与 daily_tasks 之间无任何关联/进度逻辑。**排序（每日/长期/书籍一致）：重要状态（is_important）> 手动排序/默认序**；长期计划 `PUT /plans/reorder` 提交完整活动计划顺序，取消重要自动回落普通区域；每日任务 `PUT /tasks/reorder` 为**统一待办排序**——ordered_ids 覆盖某日视图全部可见任务（当日 + 更早日期未完成），今日与逾期可自由穿插，仅写 sort_order，列表仍按（重要 > sort_order）返回。**完成机制**：长期计划经 `POST /plans/{id}/complete` 标记完成（记 `completed_at`，离开当前列表）；历史视图 `GET /plans/history`（完成时间倒序、未知排最后显示"完成时间未知"）。每日任务完成后记 `completed_at`；**历史只读**：不允许恢复未完成（service 层 409 `history_readonly`，旧 PATCH 入口同受限）；历史 `GET /tasks/history` 与 daily_tasks 同表（按完成时间倒序、可按归属日期筛选）。"移至下一天" = 更新 task_date + 记录 moved_from_date，不复制副本；books / book_notes（文件落盘 `data/reading_notes/<book_id>/`，库中存路径与元数据，上传校验扩展名与大小，PDF/PNG 浏览器直开；书籍重要标记筛选内置顶）。
+
+**右侧常驻栏（PC 三栏工作台）**：`GET/POST/PATCH/DELETE /api/infos` + `PUT /api/infos/reorder`（important_infos 表，长期保留不参与清理）；`GET/PUT /api/memo`（**本地文件 `~/.personal-hub/memo.md`**，UTF-8、临时文件 + os.replace 原子替换、进程内锁 + expected 比对防乱序覆盖、512KB 上限、显式报错）。前端 AppLayout 三栏（左导航 192px / 中央 flex ≥650px 独立滚动 / 右栏 340px 折叠态存 localStorage 且折叠不卸载组件），右侧栏上部 ImportantInfosPanel（约 40%）+ 下部 MemoPanel（约 60%）各自独立滚动；SafeMarkdown 组件先转义再解析（标题/列表/代码块/粗斜体/行内代码，链接仅 http/https），XSS 安全。**书籍删除规则（PRD §2.4，已确定）**：存在关联笔记的书籍禁止删除——Service 层删除事务内检查 `book_notes`，存在即抛 409 `book_has_notes`；不级联、不自动解除关联、不依赖前端校验。后台任务状态查询端点为 `/api/jobs/{id}`（与每日任务 `/api/tasks/*` 区分，阶段 2 起生效）。
 
 ### 3.4 清理审核模块（三层状态机，D4）
 
@@ -148,9 +150,10 @@ news_sources 默认种子(news_service.DEFAULT_SOURCES) → 按 kind 分派适�
 
 | 表 | 关键字段 |
 |---|---|
-| `long_term_plans` | title, description, status, target_date, is_important（重要置顶）, sort_order（手动排序）, completed_at（完成时间，可空=未知） |
-| `daily_tasks` | plan_id→long_term_plans NULL（UI 入口已移除，存量关联保留）, task_date, title, done, sort_order, is_important, completed_at（完成时间，可空）, moved_from_date NULL |
-| `books` | title, author, note, status(todo/reading/done) |
+| `long_term_plans` | title, description, goal（具体目标，可空）, status, target_date（可空）, is_important（重要置顶）, sort_order（手动排序）, completed_at（完成时间，可空=未知） |
+| `daily_tasks` | task_date, title, done, sort_order, is_important, completed_at（完成时间，可空）, moved_from_date NULL（与长期计划无任何关联） |
+| `important_infos` | title, content（基础 Markdown）, sort_order（手动排序）, created_at, updated_at（右侧栏"重要信息"，长期保留不参与清理） |
+| `books` | title, author, note, status(todo/reading/done), is_important（重要置顶） |
 | `book_notes` | book_id→books, filename, path, size, uploaded_at |
 | `news_items` | 短期资讯缓存：title, url UNIQUE(规范化), source, published_at(UTC ISO), raw_summary, title_zh/summary_zh/translate_status（''=未尝试/done/failed，中文翻译缓存）, norm_heat, score, topic, title_hash(索引)；is_favorite/is_read 为历史遗留字段（业务零读写）；刷新只增不删 |
 | `news_sources` | 默认来源种子 7 个（news_service.DEFAULT_SOURCES）：name UNIQUE, kind(rss/hn), endpoint, enabled, weight |

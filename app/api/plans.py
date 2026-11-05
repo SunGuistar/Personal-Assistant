@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ..schemas.plan import PlanDetailOut, PlanIn, PlanOut, PlanPatch, PlanReorderIn
+from ..schemas.plan import PlanIn, PlanOut, PlanPatch, PlanReorderIn
 from ..services import plans_service
 from .deps import get_session
 
@@ -34,7 +34,7 @@ def create_plan(payload: PlanIn, session: Session = Depends(get_session)):
     return plans_service.create_plan(session, **payload.model_dump())
 
 
-@router.get("/{plan_id}", response_model=PlanDetailOut)
+@router.get("/{plan_id}", response_model=PlanOut)
 def get_plan(plan_id: int, session: Session = Depends(get_session)):
     return plans_service.get_plan(session, plan_id)
 

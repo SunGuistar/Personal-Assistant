@@ -115,3 +115,28 @@ def test_api_rejects_book_delete_with_notes(fclient):
         assert fclient.delete(f"/api/books/{book2['id']}/notes/{note['id']}").status_code == 204
     assert fclient.delete(f"/api/books/{book2['id']}").status_code == 204
     assert fclient.get(f"/api/books/{book2['id']}").status_code == 404
+
+
+def test_book_important_pinned_and_persist(fclient):
+    """需求十：重要书籍置顶（筛选内）、切换持久化，不影响既有删除规则。"""
+    normal = fclient.post("/api/books", json={"title": "普通书"}).json()
+    important = fclient.post(
+        "/api/books", json={"title": "重要书", "status": "reading", "is_important": True}
+    ).json()
+    assert important["is_important"] is True
+
+    listed = fclient.get("/api/books").json()
+    assert [b["id"] for b in listed] == [important["id"], normal["id"]]  # 重要置顶
+
+    # 状态筛选内同样置顶
+    reading = fclient.get("/api/books?status=reading").json()
+    assert [b["id"] for b in reading] == [important["id"]]
+
+    # 取消重要 → 回落默认顺序
+    fclient.patch(f"/api/books/{important['id']}", json={"is_important": False})
+    listed = fclient.get("/api/books").json()
+    assert [b["id"] for b in listed] == [normal["id"], important["id"]]
+
+    # 重新标记（持久化）
+    fclient.patch(f"/api/books/{normal['id']}", json={"is_important": True})
+    assert fclient.get("/api/books").json()[0]["id"] == normal["id"]

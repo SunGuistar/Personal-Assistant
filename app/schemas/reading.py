@@ -14,6 +14,7 @@ class BookIn(BaseModel):
     author: str = ""
     note: str = ""
     status: BookStatus = "todo"
+    is_important: bool = False
 
 
 class BookPatch(BaseModel):
@@ -21,6 +22,7 @@ class BookPatch(BaseModel):
     author: str | None = None
     note: str | None = None
     status: BookStatus | None = None
+    is_important: bool | None = None
 
 
 class BookOut(BaseModel):
@@ -29,6 +31,7 @@ class BookOut(BaseModel):
     author: str
     note: str
     status: str
+    is_important: bool
     note_count: int
     created_at: str
     updated_at: str

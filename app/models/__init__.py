@@ -8,6 +8,7 @@ news 两表为短期资讯缓存（PRD §2.2 最终版：近期热门 TOP 10 + �
 from __future__ import annotations
 
 from .chat import ChatMessage, ChatSession
+from .important_info import ImportantInfo
 from .news import NewsItem, NewsSource
 from .plan import DailyTask, LongTermPlan
 from .reading import Book, BookNote
@@ -21,6 +22,7 @@ __all__ = [
     "ChatMessage",
     "ChatSession",
     "DailyTask",
+    "ImportantInfo",
     "LongTermPlan",
     "NewsItem",
     "NewsSource",

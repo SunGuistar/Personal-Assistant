@@ -3,6 +3,7 @@ import { BookOpen, FileText, Pencil, Plus, Trash2, Upload } from "lucide-react";
 
 import { ApiError } from "../lib/api";
 import { Button } from "../components/ui/button";
+import { StarButton, importantRowClass } from "../components/StarButton";
 import {
   Dialog,
   DialogContent,
@@ -118,6 +119,7 @@ function BookCard({
   onBlocked: (message: string) => void;
 }) {
   const deleteBook = useDeleteBook();
+  const updateBook = useUpdateBook();
 
   const attemptDelete = () => {
     // 前端预检：有笔记直接提示（与后端 409 规则一致的文案）
@@ -138,11 +140,15 @@ function BookCard({
   };
 
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white p-4">
+    <div className={`rounded-lg border border-neutral-200 bg-white p-4 ${importantRowClass(book.is_important)}`}>
       <div className="flex items-start gap-2">
-        <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
+        <StarButton
+          important={book.is_important}
+          onToggle={() => updateBook.mutate({ id: book.id, is_important: !book.is_important })}
+        />
+        <BookOpen className="mt-1.5 h-4 w-4 shrink-0 text-neutral-400" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{book.title}</div>
+          <div className={`truncate text-sm font-medium ${book.is_important ? "text-red-700" : ""}`}>{book.title}</div>
           <div className="truncate text-xs text-neutral-500">{book.author || "未知作者"}</div>
         </div>
         <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600">

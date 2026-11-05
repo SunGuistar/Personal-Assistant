@@ -76,14 +76,13 @@ def test_plan_history_ordering_and_unknown_time(fclient):
 
 
 def test_delete_history_plan_keeps_tasks(fclient):
-    """删除历史长期计划：关联每日任务保留、仅解除关联（需求二.4.3）。"""
+    """删除历史长期计划不影响每日任务（两模块完全独立）。"""
     plan = fclient.post("/api/plans", json={"title": "P"}).json()
-    task = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t", "plan_id": plan["id"]}).json()
+    task = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t"}).json()
     fclient.post(f"/api/plans/{plan['id']}/complete")
 
     assert fclient.delete(f"/api/plans/{plan['id']}").status_code == 204
-    kept = fclient.get(f"/api/tasks/{task['id']}").json()
-    assert kept["plan_id"] is None  # 任务保留，仅解除关联
+    assert fclient.get(f"/api/tasks/{task['id']}").status_code == 200
     assert fclient.get("/api/plans/history").json() == []
 
 
@@ -102,32 +101,49 @@ def test_task_important_pinned_and_toggle(fclient):
     assert all(t["is_important"] is False for t in daily)  # 回落普通区域
 
 
-def test_overdue_tasks_reorderable_without_side_effects(fclient):
-    """需求四：历史未完成任务可上下调整，且不改日期/状态。"""
+def test_unified_reorder_today_and_overdue_interleaved(fclient):
+    """需求二：今日任务与逾期任务统一排序、可自由穿插，且不改日期/状态。"""
     o1 = fclient.post("/api/tasks", json={"task_date": PREV, "title": "o1"}).json()
     o2 = fclient.post("/api/tasks", json={"task_date": PREV, "title": "o2"}).json()
-    today = fclient.post("/api/tasks", json={"task_date": DATE, "title": "today"}).json()
+    t1 = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t1"}).json()
+    t2 = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t2"}).json()
 
-    # 逾期分区重排（scope=overdue）
+    # 今日任务插到逾期任务之前：[t1, o1, t2, o2]
     result = fclient.put(
         "/api/tasks/reorder",
-        json={"date": DATE, "scope": "overdue", "ordered_ids": [o2["id"], o1["id"]]},
+        json={"date": DATE, "ordered_ids": [t1["id"], o1["id"], t2["id"], o2["id"]]},
     )
     assert result.status_code == 200
-    overdue = [t for t in result.json() if t["task_date"] < DATE]
-    assert [t["id"] for t in overdue] == [o2["id"], o1["id"]]
+    assert [t["id"] for t in result.json()] == [t1["id"], o1["id"], t2["id"], o2["id"]]
+
+    # 逾期任务插入今日任务之间：[o1, t1, o2, t2]
+    result = fclient.put(
+        "/api/tasks/reorder",
+        json={"date": DATE, "ordered_ids": [o1["id"], t1["id"], o2["id"], t2["id"]]},
+    )
+    assert [t["id"] for t in result.json()] == [o1["id"], t1["id"], o2["id"], t2["id"]]
 
     # 只改顺序：日期、完成状态、标题不变
-    for tid, orig in [(o1["id"], o1), (o2["id"], o2)]:
+    for tid, orig in [(o1["id"], o1), (o2["id"], o2), (t1["id"], t1)]:
         row = fclient.get(f"/api/tasks/{tid}").json()
-        assert row["task_date"] == PREV and row["done"] is False and row["title"] == orig["title"]
+        assert row["task_date"] == orig["task_date"] and row["done"] is False and row["title"] == orig["title"]
 
-    # 逾期 id 不能混入 today 排序（409）
+    # 排序列表缺少可见任务 → 409
     conflict = fclient.put(
-        "/api/tasks/reorder",
-        json={"date": DATE, "scope": "today", "ordered_ids": [today["id"], o1["id"]]},
+        "/api/tasks/reorder", json={"date": DATE, "ordered_ids": [o1["id"], t1["id"]]}
     )
     assert conflict.status_code == 409
+
+
+def test_unified_reorder_does_not_break_important_priority(fclient):
+    """重要任务始终排在普通任务之前，普通上移/下移不突破重要优先级。"""
+    normal = fclient.post("/api/tasks", json={"task_date": DATE, "title": "n"}).json()
+    imp = fclient.post("/api/tasks", json={"task_date": DATE, "title": "i", "is_important": True}).json()
+    # 普通任务排第一、重要排最后提交，列表仍应重要在前
+    result = fclient.put(
+        "/api/tasks/reorder", json={"date": DATE, "ordered_ids": [normal["id"], imp["id"]]}
+    )
+    assert [t["id"] for t in result.json()] == [imp["id"], normal["id"]]
 
 
 def test_overdue_important_still_pinned(fclient):
@@ -140,8 +156,8 @@ def test_overdue_important_still_pinned(fclient):
 
 # ---------- 每日任务：历史 ----------
 
-def test_task_history_records_and_un_done(fclient):
-    """需求六：完成记录完成时间、进历史；取消完成同步离开历史。"""
+def test_task_history_records_and_readonly(fclient):
+    """需求四/六：完成记录完成时间、进历史；历史只读，不可恢复未完成。"""
     t = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t"}).json()
     fclient.patch(f"/api/tasks/{t['id']}", json={"done": True})
     row = fclient.get(f"/api/tasks/{t['id']}").json()
@@ -152,20 +168,17 @@ def test_task_history_records_and_un_done(fclient):
 
     # 未完成的过去日期任务不进入已完成历史
     unfinished = fclient.post("/api/tasks", json={"task_date": PREV, "title": "u"}).json()
-    assert fclient.get("/api/tasks/history").json()[0]["id"] == t["id"]
     assert all(h["id"] != unfinished["id"] for h in fclient.get("/api/tasks/history").json())
+
+    # 历史只读：旧入口（PATCH done=false）同样被拒绝，不能绕过
+    conflict = fclient.patch(f"/api/tasks/{t['id']}", json={"done": False})
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "history_readonly"
+    assert fclient.get("/api/tasks/history").json()[0]["id"] == t["id"]  # 仍在历史
 
     # 按日期筛选
     assert fclient.get(f"/api/tasks/history?date={DATE}").json()[0]["id"] == t["id"]
     assert fclient.get(f"/api/tasks/history?date={PREV}").json() == []
-
-    # 取消完成：离开历史、回到当日视图
-    fclient.patch(f"/api/tasks/{t['id']}", json={"done": False})
-    assert fclient.get("/api/tasks/history").json() == []
-    row = fclient.get(f"/api/tasks/{t['id']}").json()
-    assert row["completed_at"] is None
-    daily = fclient.get(f"/api/tasks/daily?date={DATE}").json()
-    assert any(x["id"] == t["id"] and x["done"] is False for x in daily)
 
 
 def test_task_history_ordering_completed_at_desc(fclient):

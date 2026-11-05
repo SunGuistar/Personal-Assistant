@@ -95,7 +95,7 @@ describe("计划管理页面", () => {
     expect(screen.queryByLabelText("关联长期计划")).not.toBeInTheDocument();
   });
 
-  it("展示来自更早日期的未完成任务，且逾期任务同样可调整顺序（需求四）", async () => {
+  it("今日与逾期任务统一列表展示、统一排序按钮（需求二）", async () => {
     const overdue = {
       ...TASK,
       id: 2,
@@ -116,12 +116,33 @@ describe("计划管理页面", () => {
     );
     renderPage();
 
-    expect(await screen.findByText("未完成 · 来自更早日期")).toBeInTheDocument();
-    expect(screen.getByText("逾期的任务")).toBeInTheDocument();
-    expect(screen.getByText("写文档")).toBeInTheDocument();
-    // 逾期分区与今日分区都有上移/下移按钮（逾期分区 1 个、今日分区 1 个）
+    // 统一列表：逾期任务直接展示并带原始日期徽标（不再有独立分区标题）
+    expect(await screen.findByText("逾期的任务")).toBeInTheDocument();
+    expect(screen.getByText(todayStr(-1))).toBeInTheDocument();
+    expect(screen.queryByText("未完成 · 来自更早日期")).not.toBeInTheDocument();
+    // 两行都可上移/下移（共 2 套按钮），可自由穿插
     expect(screen.getAllByRole("button", { name: "上移" })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "下移" })).toHaveLength(2);
+  });
+
+  it("已完成的任务复选框禁用（历史只读，需求四）", async () => {
+    const done = { ...TASK, done: true };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/tasks/daily")) {
+          return new Response(JSON.stringify([done]), { status: 200 });
+        }
+        if (url === "/api/plans") return new Response(JSON.stringify([]), { status: 200 });
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+
+    expect(await screen.findByText("写文档")).toBeInTheDocument();
+    const checkbox = screen.getByRole("button", { name: "已完成（历史只读）" });
+    expect(checkbox).toBeDisabled();
   });
 
   it("重要任务红色强调并可切换（需求一）", async () => {

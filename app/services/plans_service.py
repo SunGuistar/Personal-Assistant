@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..exceptions import DomainError, NotFoundError
-from ..models import DailyTask, LongTermPlan
+from ..models import LongTermPlan
 from ..models.plan import PLAN_STATUS
 
 
@@ -26,6 +26,7 @@ def plan_to_dict(plan: LongTermPlan) -> dict:
         "id": plan.id,
         "title": plan.title,
         "description": plan.description,
+        "goal": plan.goal,
         "status": plan.status,
         "target_date": plan.target_date,
         "is_important": bool(plan.is_important),
@@ -69,12 +70,7 @@ def get_plan(session: Session, plan_id: int) -> dict:
     plan = session.get(LongTermPlan, plan_id)
     if plan is None:
         raise NotFoundError(f"长期计划不存在: {plan_id}")
-    data = plan_to_dict(plan)
-    tasks = session.execute(
-        select(DailyTask).where(DailyTask.plan_id == plan_id).order_by(DailyTask.task_date, DailyTask.sort_order)
-    ).scalars().all()
-    data["task_ids"] = [task.id for task in tasks]
-    return data
+    return plan_to_dict(plan)
 
 
 def create_plan(
@@ -82,6 +78,7 @@ def create_plan(
     *,
     title: str,
     description: str = "",
+    goal: str | None = None,
     status: str = "in_progress",
     target_date: str | None = None,
     is_important: bool = False,
@@ -92,6 +89,7 @@ def create_plan(
     plan = LongTermPlan(
         title=title,
         description=description,
+        goal=goal or None,
         status=status,
         target_date=target_date,
         is_important=1 if is_important else 0,
@@ -110,6 +108,8 @@ def update_plan(session: Session, plan_id: int, fields: dict) -> dict:
     for key in ("title", "description", "status", "target_date"):
         if key in fields and fields[key] is not None:
             setattr(plan, key, fields[key])
+    if "goal" in fields:
+        plan.goal = fields["goal"] or None  # 传 null/空串清空目标
     # 经 PATCH 直接置为已完成时同样补记完成时间（UI 主通道为"标记完成"按钮）
     if plan.status == "completed" and plan.completed_at is None:
         plan.completed_at = _now()
@@ -157,11 +157,10 @@ def reorder_plans(session: Session, ordered_ids: list[int]) -> list[dict]:
 
 
 def delete_plan(session: Session, plan_id: int) -> None:
-    """删除长期计划（活动与历史通用）：关联每日任务的 plan_id 置空保留（不删任务、不级联）。"""
+    """删除长期计划（活动与历史通用）。与每日任务完全独立：无关联需要解除。"""
 
     plan = session.get(LongTermPlan, plan_id)
     if plan is None:
         raise NotFoundError(f"长期计划不存在: {plan_id}")
-    session.execute(update(DailyTask).where(DailyTask.plan_id == plan_id).values(plan_id=None))
     session.execute(delete(LongTermPlan).where(LongTermPlan.id == plan_id))
     session.commit()

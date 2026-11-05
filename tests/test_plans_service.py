@@ -33,8 +33,8 @@ def _make_plan(session, title="P1"):
     return plans_service.create_plan(session, title=title)
 
 
-def _make_task(session, date="2026-11-03", title="T", plan_id=None):
-    return tasks_service.create_task(session, task_date=date, title=title, plan_id=plan_id)
+def _make_task(session, date="2026-11-03", title="T"):
+    return tasks_service.create_task(session, task_date=date, title=title)
 
 
 # ---------- 计划 ----------
@@ -42,10 +42,15 @@ def _make_task(session, date="2026-11-03", title="T", plan_id=None):
 def test_plan_crud(session):
     plan = _make_plan(session)
     assert plan["status"] == "in_progress"
+    assert plan["goal"] is None
+    assert plans_service.get_plan(session, plan["id"])["id"] == plan["id"]
 
-    _make_task(session, plan_id=plan["id"])
-    detail = plans_service.get_plan(session, plan["id"])
-    assert detail["task_ids"] and len(detail["task_ids"]) == 1
+
+def test_plan_goal_clear(session):
+    plan = plans_service.create_plan(session, title="英语", goal="每天阅读 20 分钟")
+    assert plan["goal"] == "每天阅读 20 分钟"
+    cleared = plans_service.update_plan(session, plan["id"], {"goal": ""})
+    assert cleared["goal"] is None
 
 
 def test_update_plan(session):
@@ -57,15 +62,14 @@ def test_update_plan(session):
     assert updated["target_date"] == "2026-12-31"
 
 
-def test_delete_plan_keeps_tasks_with_null_plan(session):
+def test_delete_plan_independent_from_tasks(session):
+    """两模块完全独立：删除计划不涉及任何任务操作。"""
     plan = _make_plan(session)
-    task = _make_task(session, plan_id=plan["id"])
+    task = _make_task(session)
     plans_service.delete_plan(session, plan["id"])
     with pytest.raises(NotFoundError):
         plans_service.get_plan(session, plan["id"])
-    remaining = tasks_service.list_daily(session, task["task_date"])
-    assert len(remaining) == 1
-    assert remaining[0]["plan_id"] is None
+    assert len(tasks_service.list_daily(session, task["task_date"])) == 1
 
 
 def test_plan_not_found(session):
@@ -129,9 +133,12 @@ def test_unfinished_task_carries_over(session):
     assert len(tasks_service.list_daily(session, "2026-11-02")) == 2
 
 
-def test_task_done_toggle(session):
+def test_task_done_then_history_readonly(session):
+    """完成后进入历史；历史只读，恢复未完成被拒绝（409）。"""
     task = _make_task(session)
     updated = tasks_service.update_task(session, task["id"], {"done": True})
-    assert updated["done"] is True
-    updated = tasks_service.update_task(session, task["id"], {"done": False})
-    assert updated["done"] is False
+    assert updated["done"] is True and updated["completed_at"]
+    with pytest.raises(DomainError) as exc_info:
+        tasks_service.update_task(session, task["id"], {"done": False})
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "history_readonly"

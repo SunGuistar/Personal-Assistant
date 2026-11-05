@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 
 export interface Book {
+  is_important: boolean;
   id: number;
   title: string;
   author: string;

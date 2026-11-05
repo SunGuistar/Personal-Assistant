@@ -56,6 +56,7 @@ def book_to_dict(session: Session, book: Book) -> dict:
         "author": book.author,
         "note": book.note,
         "status": book.status,
+        "is_important": bool(book.is_important),
         "note_count": int(note_count),
         "created_at": book.created_at,
         "updated_at": book.updated_at,
@@ -73,7 +74,8 @@ def note_to_dict(note: BookNote) -> dict:
 
 
 def list_books(session: Session, status: str | None = None) -> list[dict]:
-    statement = select(Book).order_by(Book.id)
+    # 排序规则（2026-11 优化轮）：重要置顶，组内沿用默认（id）顺序
+    statement = select(Book).order_by(Book.is_important.desc(), Book.id)
     if status:
         statement = statement.where(Book.status == status)
     books = session.execute(statement).scalars().all()
@@ -88,11 +90,11 @@ def get_book(session: Session, book_id: int) -> Book:
 
 
 def create_book(
-    session: Session, *, title: str, author: str = "", note: str = "", status: str = "todo"
+    session: Session, *, title: str, author: str = "", note: str = "", status: str = "todo", is_important: bool = False
 ) -> dict:
     if status not in BOOK_STATUS:
         raise DomainError(f"非法阅读状态: {status}", code="invalid_status", status_code=400)
-    book = Book(title=title, author=author, note=note, status=status)
+    book = Book(title=title, author=author, note=note, status=status, is_important=1 if is_important else 0)
     session.add(book)
     session.commit()
     session.refresh(book)
@@ -106,6 +108,8 @@ def update_book(session: Session, book_id: int, fields: dict) -> dict:
     for key in ("title", "author", "note", "status"):
         if key in fields and fields[key] is not None:
             setattr(book, key, fields[key])
+    if fields.get("is_important") is not None:
+        book.is_important = 1 if fields["is_important"] else 0
     session.commit()
     session.refresh(book)
     return book_to_dict(session, book)

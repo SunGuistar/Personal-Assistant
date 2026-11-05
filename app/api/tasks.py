@@ -51,4 +51,4 @@ def move_task(task_id: int, payload: MoveTaskIn, session: Session = Depends(get_
 
 @router.put("/reorder", response_model=list[DailyTaskOut])
 def reorder_tasks(payload: ReorderIn, session: Session = Depends(get_session)):
-    return tasks_service.reorder_tasks(session, payload.date, payload.ordered_ids, payload.scope)
+    return tasks_service.reorder_tasks(session, payload.date, payload.ordered_ids)

@@ -6,6 +6,7 @@ export interface Plan {
   id: number;
   title: string;
   description: string;
+  goal: string | null;
   status: string;
   target_date: string | null;
   is_important: boolean;
@@ -16,7 +17,6 @@ export interface Plan {
 
 export interface DailyTask {
   id: number;
-  plan_id: number | null;
   task_date: string;
   title: string;
   done: boolean;
@@ -57,7 +57,7 @@ export function useTaskHistory(date: string | null, enabled: boolean) {
 export function useCreatePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { title: string; description?: string; target_date?: string | null; is_important?: boolean }) =>
+    mutationFn: (body: { title: string; description?: string; goal?: string | null; target_date?: string | null; is_important?: boolean }) =>
       api<Plan>("/plans", { method: "POST", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["plans"] }),
   });
@@ -119,7 +119,7 @@ export function useCreateTask(date: string) {
 export function useUpdateTask(date: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number } & Partial<Pick<DailyTask, "title" | "done" | "plan_id" | "is_important">>) =>
+    mutationFn: ({ id, ...body }: { id: number } & Partial<Pick<DailyTask, "title" | "done" | "is_important">>) =>
       api<DailyTask>(`/tasks/${id}`, { method: "PATCH", json: body }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-tasks", date] });
@@ -153,11 +153,11 @@ export function useMoveTask(fromDate: string) {
   });
 }
 
-export function useReorderTasks(date: string, scope: "today" | "overdue") {
+export function useReorderTasks(date: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (ordered_ids: number[]) =>
-      api<DailyTask[]>("/tasks/reorder", { method: "PUT", json: { date, scope, ordered_ids } }),
+      api<DailyTask[]>("/tasks/reorder", { method: "PUT", json: { date, ordered_ids } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["daily-tasks", date] }),
   });
 }

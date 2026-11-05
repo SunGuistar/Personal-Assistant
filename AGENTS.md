@@ -5,6 +5,7 @@
 ## 1. 仓库定位与现状
 
 - 主项目：基于 LangGraph 的微信聊天 Agent（已能运行），正在扩展为个人助手（FastAPI + React 个人管家）。
+- **当前版本仅面向 PC 浏览器**：三栏工作台（左导航 192px / 中央 ≥650px / 右栏 340px 可折叠），不做移动端适配（V2.0 需求）；右栏常驻"重要信息"（SQLite，important_infos 表）与"随手备忘"（**本地 Markdown 文件 `~/.personal-hub/memo.md`，不写 SQLite、不入 Git**）。
 - 现有微信链路：`GetWechatInfo/`（API 客户端 + 原始快照库）→ `Tool/structured_message.py`（归一化）→ 归一化 SQLite + Chroma 向量 → `LangGraph/`（Agent 工具 + 总结流水线）。
 - 已知问题（修改相关代码前必读）：
   1. ~~`normalize_snapshot.py` 源码缺失~~ → **阶段 3.4 已重建**（`app/wechat_agent/data_api/normalize_snapshot.py`，与历史库逐行对拍验证）。
@@ -54,6 +55,7 @@ Docs/           规划与架构文档
 - 审计日志只记元数据（数量、类型、结果），不记聊天内容原文。
 - 禁止读写 WeChatDataAnalysis 管理的原始微信数据库；聊天快照/归一化库是本项目唯一可管理的微信数据。
 - 现有 `Output/` 历史报告与问答文件：兼容保留，未经用户确认不得清理或删除（D8）。
+- 随手备忘文件（`~/.personal-hub/memo.md`）与重要信息（important_infos）属用户私人内容：不提交 Git、不进文件日志正文、不参与清理审核。
 
 ## 6. 日志与异常
 

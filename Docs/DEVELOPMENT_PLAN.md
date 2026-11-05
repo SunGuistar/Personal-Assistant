@@ -89,6 +89,12 @@
 - 结果：pytest 146 passed（新增：计划增强 9、资讯翻译 5、API 改造若干）；Vitest 22 passed（新增/改造：重要红色强调、完成确认弹窗、逾期可排序、中文摘要默认展示、原文回退、XSS）；tsc 与构建通过。
 - 关键设计：排序统一为 `重要 > sort_order`（后端返回即展示顺序）；长期计划完成仅经 `POST /plans/{id}/complete`（PATCH 兼容并补记 completed_at）；历史与现有表同表查询（daily_tasks done=1 / long_term_plans status=completed）；翻译仅在刷新任务成功后与启动补发两条路径触发（kind news.translate），批量一次调用、落库复用、失败回退不重试；测试全部 FakeLLM/MonkeyPatch 翻译函数，零真实 Token。
 
+## 2026-11 综合优化轮（工作台布局 + 计划/阅读规则 + 右栏新功能，用户直接下达）
+
+> 范围：每日任务统一排序、计划与任务彻底独立（迁移 0006 移除 plan_id，0 条历史关联）、任务历史只读、长期计划具体目标与日期展示优化、书籍重要标记、PC 三栏工作台（右栏重要信息 + Markdown 随手备忘）。备忘存 `~/.personal-hub/memo.md`（原子写、不入库不入 Git），重要信息存 SQLite（important_infos）。
+
+- 结果：pytest 155 全绿（新增：统一排序/只读/目标/独立 7、infos+memo 5、书籍重要 1）；Vitest 29 全绿（新增/改造：右栏折叠与防抖保存、SafeMarkdown XSS、统一列表、历史只读禁用）；tsc/构建通过；真实环境冒烟通过（迁移 0006 应用，6 计划/11 任务/8 书籍无损，memo UTF-8 round-trip 精确）。
+
 ## 跨阶段约束
 
 - 每个阶段结束：代码可运行、测试绿、文档同步更新、git 打 tag（stage-N）。

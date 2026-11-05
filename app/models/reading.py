@@ -29,6 +29,7 @@ class Book(Base):
     author: Mapped[str] = mapped_column(String(128), default="")
     note: Mapped[str] = mapped_column(String(2000), default="")
     status: Mapped[str] = mapped_column(String(16), default="todo")
+    is_important: Mapped[int] = mapped_column(Integer, default=0)  # 重要置顶（筛选内 重要 > 默认排序）
     created_at: Mapped[str] = mapped_column(String(32), default=_now)
     updated_at: Mapped[str] = mapped_column(String(32), default=_now, onupdate=_now)
 

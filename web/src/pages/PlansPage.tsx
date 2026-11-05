@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "../components/ui/button";
+import { StarButton, importantRowClass } from "../components/StarButton";
 import {
   Dialog,
   DialogContent,
@@ -57,32 +58,9 @@ function completedAtLabel(completedAt: string | null): string {
   return completedAt ?? "完成时间未知";
 }
 
-/** 重要行红色强调：浅红背景 + 左侧红色标识 + 红色标题。 */
-function importantRowClass(isImportant: boolean): string {
-  return isImportant ? "border-l-2 border-red-400 bg-red-50/60" : "border-l-2 border-transparent";
-}
-
 function importantTitleClass(isImportant: boolean, done: boolean): string {
   if (done) return "text-neutral-400 line-through";
   return isImportant ? "text-red-700" : "text-neutral-900";
-}
-
-function StarButton({
-  important,
-  onToggle,
-}: {
-  important: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      aria-label={important ? "取消重要" : "标记重要"}
-      className={`p-1 ${important ? "text-red-500" : "text-neutral-300 hover:text-red-400"}`}
-    >
-      <Star className="h-4 w-4" fill={important ? "currentColor" : "none"} />
-    </button>
-  );
 }
 
 export function PlansPage() {
@@ -150,12 +128,9 @@ function DailyPanel({
     createTask.mutate({ title }, { onSuccess: () => setNewTitle("") });
   };
 
-  // 未完成任务自归属日期起持续显示；已完成任务只在归属日期显示。
-  // 重要任务整体置顶（后端已按 重要>sort_order 排序，前端按分区切分保持顺序一致）。
-  const overdue = tasks.filter((t) => t.task_date < date && !t.done);
-  const todayTasks = tasks.filter((t) => t.task_date === date);
-  const overdueIds = overdue.map((t) => t.id);
-  const todayIds = todayTasks.map((t) => t.id);
+  // 统一待办列表（后端已按 重要>sort_order 排序）：今日任务 + 更早日期未完成
+  // 任务可自由穿插排序；逾期任务带原始日期徽标；已完成任务只在其归属日期显示。
+  const taskIds = tasks.map((t) => t.id);
 
   return (
     <section className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -181,40 +156,18 @@ function DailyPanel({
       ) : tasks.length === 0 ? (
         <div className="py-6 text-center text-sm text-neutral-400">这一天还没有任务</div>
       ) : (
-        <>
-          {overdue.length > 0 && (
-            <>
-              <div className="mb-1 px-2 text-xs font-medium text-neutral-400">未完成 · 来自更早日期</div>
-              <ul className="mb-3 space-y-1">
-                {overdue.map((task, index) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    date={date}
-                    overdue
-                    scope="overdue"
-                    canUp={index > 0}
-                    canDown={index < overdue.length - 1}
-                    allIds={overdueIds}
-                  />
-                ))}
-              </ul>
-            </>
-          )}
-          <ul className="space-y-1">
-            {todayTasks.map((task, index) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                date={date}
-                scope="today"
-                canUp={index > 0}
-                canDown={index < todayTasks.length - 1}
-                allIds={todayIds}
-              />
-            ))}
-          </ul>
-        </>
+        <ul className="space-y-1">
+          {tasks.map((task, index) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              date={date}
+              canUp={index > 0}
+              canDown={index < tasks.length - 1}
+              allIds={taskIds}
+            />
+          ))}
+        </ul>
       )}
       <TaskHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
     </section>
@@ -224,16 +177,12 @@ function DailyPanel({
 function TaskRow({
   task,
   date,
-  overdue = false,
-  scope,
   canUp,
   canDown,
   allIds,
 }: {
   task: DailyTask;
   date: string;
-  overdue?: boolean;
-  scope: "today" | "overdue";
   canUp: boolean;
   canDown: boolean;
   allIds: number[];
@@ -241,7 +190,7 @@ function TaskRow({
   const updateTask = useUpdateTask(date);
   const deleteTask = useDeleteTask(date);
   const moveTask = useMoveTask(date);
-  const reorder = useReorderTasks(date, scope);
+  const reorder = useReorderTasks(date);
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
@@ -276,8 +225,10 @@ function TaskRow({
     >
       <button
         onClick={toggleDone}
-        aria-label={task.done ? "标记未完成" : "标记完成"}
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+        disabled={task.done}
+        aria-label={task.done ? "已完成（历史只读）" : "标记完成"}
+        title={task.done ? "已完成（历史只读，不可恢复未完成）" : "标记完成"}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border disabled:cursor-not-allowed ${
           task.done ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300"
         }`}
       >
@@ -311,16 +262,15 @@ function TaskRow({
             }}
           >
             {task.title}
-            {overdue ? (
+            {task.task_date !== date && (
               <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-600">
                 {task.task_date}
               </span>
-            ) : (
-              task.moved_from_date && (
-                <span className="ml-2 text-xs text-neutral-400" title="来自移入">
-                  ↳ {task.moved_from_date}
-                </span>
-              )
+            )}
+            {task.task_date === date && task.moved_from_date && (
+              <span className="ml-2 text-xs text-neutral-400" title="来自移入">
+                ↳ {task.moved_from_date}
+              </span>
             )}
           </span>
           <button onClick={() => swap(-1)} disabled={!canUp} aria-label="上移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
@@ -567,9 +517,10 @@ function PlanCard({
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
-      <div className="mt-1 pl-6 text-xs text-neutral-400">
-        {plan.target_date ? `目标 ${plan.target_date}` : "未设目标日期"}
-        {plan.description && ` · ${plan.description}`}
+      <div className="mt-1 space-y-0.5 pl-6 text-xs text-neutral-400">
+        {plan.target_date && <div>目标 {plan.target_date}</div>}
+        {plan.description && <div>{plan.description}</div>}
+        {plan.goal && <div className="whitespace-pre-wrap text-neutral-500">具体目标：{plan.goal}</div>}
       </div>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -636,6 +587,9 @@ function PlanHistoryDialog({
                   <div className="text-xs text-neutral-400">
                     完成于 {completedAtLabel(plan.completed_at)} · 创建于 {plan.created_at?.slice(0, 10) ?? "未知"}
                     {plan.description && ` · ${plan.description}`}
+                    {plan.goal && (
+                      <div className="mt-0.5 whitespace-pre-wrap text-neutral-500">具体目标：{plan.goal}</div>
+                    )}
                   </div>
                 </div>
                 <button
@@ -675,6 +629,7 @@ function PlanDialog({
   const updatePlan = useUpdatePlan();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [goal, setGoal] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [isImportant, setIsImportant] = useState(false);
 
@@ -683,6 +638,7 @@ function PlanDialog({
     if (open) {
       setTitle(plan?.title ?? "");
       setDescription(plan?.description ?? "");
+      setGoal(plan?.goal ?? "");
       setTargetDate(plan?.target_date ?? "");
       setIsImportant(plan?.is_important ?? false);
     }
@@ -692,6 +648,7 @@ function PlanDialog({
     const body = {
       title: title.trim(),
       description,
+      goal: goal.trim() || null,
       target_date: targetDate || null,
       is_important: isImportant,
     };
@@ -715,6 +672,10 @@ function PlanDialog({
           <div>
             <Label>描述</Label>
             <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <div>
+            <Label>具体目标（可选）</Label>
+            <Textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="例如：每天阅读 20 分钟英文文章" />
           </div>
           <div>
             <Label>目标日期（可选）</Label>

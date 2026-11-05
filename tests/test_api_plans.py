@@ -72,12 +72,33 @@ def test_plan_404_and_422(fclient):
     assert fclient.post("/api/plans", json={"title": "x", "target_date": "2026-13-01"}).status_code == 422
 
 
-def test_delete_plan_keeps_tasks(fclient):
+def test_plan_and_task_fully_independent(fclient):
+    """需求三：长期计划与每日任务无任何关联；删除计划不影响任务。"""
     plan = fclient.post("/api/plans", json={"title": "P"}).json()
-    fclient.post("/api/tasks", json={"task_date": DATE, "title": "t", "plan_id": plan["id"]})
-    fclient.delete(f"/api/plans/{plan['id']}")
+    task = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t"}).json()
+    # 关联参数已不再存在于 Schema（旧入参被忽略），响应不再返回 plan_id
+    assert "plan_id" not in task
+    assert fclient.delete(f"/api/plans/{plan['id']}").status_code == 204
     daily = fclient.get(f"/api/tasks/daily?date={DATE}").json()
-    assert len(daily) == 1 and daily[0]["plan_id"] is None
+    assert len(daily) == 1 and daily[0]["id"] == task["id"]
+
+
+def test_plan_goal_crud(fclient):
+    """需求八：具体目标新增、编辑、清空与持久化。"""
+    plan = fclient.post("/api/plans", json={"title": "英语", "goal": "每天阅读 20 分钟"}).json()
+    assert plan["goal"] == "每天阅读 20 分钟"
+    assert plan["target_date"] is None  # 未设日期为 null，不显示占位
+
+    updated = fclient.patch(f"/api/plans/{plan['id']}", json={"goal": "新目标"}).json()
+    assert updated["goal"] == "新目标"
+    cleared = fclient.patch(f"/api/plans/{plan['id']}", json={"goal": ""}).json()
+    assert cleared["goal"] is None
+
+    # 历史计划同样可查看目标
+    fclient.patch(f"/api/plans/{plan['id']}", json={"goal": "历史目标"})
+    fclient.post(f"/api/plans/{plan['id']}/complete")
+    history = fclient.get("/api/plans/history").json()
+    assert history[0]["goal"] == "历史目标"
 
 
 def test_tasks_daily_crud(fclient):
