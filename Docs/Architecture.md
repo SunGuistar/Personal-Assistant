@@ -1,219 +1,107 @@
 # 个人助手架构设计文档
 
-版本：v0.2（已含用户决策 D1–D8）
-配套文档：`PRD.md`（需求）、`DEVELOPMENT_PLAN.md`（计划）、`TEST_PLAN.md`（测试）
+本文档是**当前系统技术架构的权威来源**。需求与业务规则见 `PRD.md`，开发进度见 `DEVELOPMENT_PLAN.md`。
 
 ## 1. 总体架构
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ 浏览器 (React SPA, 构建产物由 FastAPI 托管)                  │
-│  首页/微信/资讯/计划/阅读/清理审核/设置                       │
+│ 浏览器 (React SPA, 构建产物由 FastAPI 托管, PC 三栏工作台)    │
 └──────────────────┬───────────────────────────────────────┘
                    │ HTTP /api/* (JSON, 127.0.0.1:8620)
 ┌──────────────────▼───────────────────────────────────────┐
 │ FastAPI 应用 (app/)                                        │
 │  api/ 路由层 → services/ 业务层 → adapters/ 外部适配层       │
-│  tasks/ 后台任务(状态机)   cleanup/ 清理审核                │
-│  models/ SQLAlchemy   db.py engine+迁移(Alembic)           │
+│  tasks/ 后台任务(状态机)   wechat_agent/ 微信模块            │
+│  models/ SQLAlchemy   db.py engine + Alembic 迁移          │
 └───┬──────────┬──────────────┬──────────────┬──────────────┘
     │          │              │              │
- SQLite     Chroma      微信模块(阶段3迁入     外部源
- hub.db   (复用现有    app/wechat_agent/)      WeChatDataAnalysis
-(业务数据)  VectorStore)                      HN/RSS/GitHub API
+ SQLite     Chroma       微信模块数据          外部源
+ hub.db   (VectorStore)  GetWechatInfo/       WeChatDataAnalysis
+(业务数据)               DataInfo/ 两库        HN/RSS 等
 ```
 
-原则：前后端彻底分离；业务逻辑集中在后端服务层；外部系统一律经适配器；长任务异步化。
+原则：前后端彻底分离；业务逻辑集中在 services 层（不依赖 FastAPI 对象，可单测）；外部系统一律经适配器；长任务异步化；复用优先（微信检索/总结/向量逻辑零重写）。
 
-## 2. 目标目录结构
+## 2. 目录结构
 
 ```
-app/                  # FastAPI 后端包（personal_hub 核心）
-├── main.py           # 应用装配：中间件、路由、静态资源、启动钩子
-├── config.py         # pydantic-settings：端口(默认8620)、路径、更新间隔、模型、来源配置
+app/                  FastAPI 后端
+├── main.py           # 应用装配：路由、静态资源、启动钩子
+├── config.py         # pydantic-settings（PH_ 前缀，默认端口 8620）
 ├── db.py             # engine、session、Alembic 环境
-├── api/              # 路由薄层：参数校验(in schema) → 调 service → 出 schema
-│   ├── wechat.py  ├── plans.py  ├── reading.py  └── jobs.py（health/tasks 同层）
-├── services/         # 纯业务逻辑，不依赖 FastAPI 对象（可单测）
-├── adapters/         # wechat_api（复用现有 client，阶段 3 迁入）
-├── wechat_agent/     # 阶段 3 迁入：原 LangGraph/ GetWechatInfo/ Tool/（D3）
-├── tasks/            # 任务注册、执行器、状态落库；进程内 asyncio 执行
-├── cleanup/          # 候选生成、审核流程、三层删除状态机、chunk 局部重建、审计
-└── static/           # React 构建产物（web/dist 拷贝或软链）
-web/                  # React + TS + Vite 前端
-launcher/             # launch.py（健康检查+拉起 uvicorn+开浏览器）+ .bat/.vbs
+├── api/              # 路由薄层：校验(in schema) → service → 出 schema
+├── services/         # 纯业务逻辑（plans/tasks/reading/news/news_translation/infos/memo/wechat…）
+├── adapters/         # wechat_source / news_hn / news_rss / news_common
+├── wechat_agent/     # 微信模块：Agent 工具、总结流水线、RAG、同步数据层（D3 迁入）
+├── tasks/            # TaskRunner：线程池执行、状态落库、同 kind 409 防重
+└── models/           # SQLAlchemy 模型（与 Alembic 迁移一一对应）
+web/                  React + TS + Vite 前端（AppLayout 三栏 + 右栏组件）
+launcher/             # Windows 启动器（launch.py + .bat/.vbs，纯 ASCII）
 data/                 # 运行时数据（gitignore）：hub.db、logs/、reading_notes/
-tests/                # pytest：单元 + 集成（Mock 外部 API 与 LLM）
+tests/                # pytest（隔离临时库，Mock LLM/外网）
 Docs/                 # 本文档等
 ```
 
-阶段 3 前，现有微信模块仍位于原路径（`LangGraph/`、`GetWechatInfo/`、`Tool/`），目录名与 pip 包 `langgraph` 存在大小写冲突隐患（Windows 下目前可运行，跨平台构建有风险），按 D3 在阶段 3 分步迁入 `app/wechat_agent/`（顺序见 DEVELOPMENT_PLAN，已批准不再征求意见）。
-
-## 3. 模块边界与复用方案
+## 3. 模块设计
 
 ### 3.1 微信模块（复用为主，适配为辅）
 
-| 现有代码 | 复用方式 |
-|---|---|
-| `GetWechatInfo/wechat_data_api.py` | 直接实例化；适配器 `WechatSourceAdapter` 封装健康检查、会话解析、消息拉取、桌面程序启动（D5，仅启动设置中配置并校验的 exe） |
-| `GetWechatInfo/message_store.py` | 作为原始快照层继续用；同步服务在其上编排 |
-| `Tool/structured_message.py` | 归一化唯一实现，重建 normalize 脚本时直接调用 |
-| `LangGraph/Chat_tools/*`（8 工具 + summarizer） | **整体原样挂入 Agent（D2）**：所有总结请求由 Agent 决策调用 `summarize_chat` 工具触发，禁止 Service 直调 `run_summary` 的旁路 |
-| `LangGraph/Normal_Tools/rag_store.py` | 增量索引导出为 service 方法；检索逻辑零改动；删除场景配合见 §3.4 |
-| `LangGraph/llm_config.py` | 继续作为 LLM 唯一出口；设置页改 `llm_config.json` + 环境变量 |
+- **对话式交互**：所有输入（含 3 个预置快捷 chips）进入同一个 Agent 流程（D2 单通道）；群名经 list_chats 解析、相对日期经系统提示词机制处理；SSE 流式返回，session_id 关联服务端会话历史（chat_sessions/chat_messages）。Service 层只做 Agent 调用封装、任务状态、报告管理——不替代 Agent 做总结决策。
+- **总结**：由 Agent 决策调用 `summarize_chat` 工具触发确定性 map/reduce/final 流水线（后台 job 执行）；禁止 Service 直调 `run_summary` 的旁路。总结按 chat_id 过滤（多群），不改变流水线内部行为。
+- **同步**（`sync_cursors` 为唯一游标口径）：重叠窗口（游标时间 -24h）分页拉取 → `(timestamp, message_id)` 稳定 ID 幂等 upsert 原始库 → 归一化（指纹去重）→ **游标只在两步都成功后推进**；随后 `rag_store.incremental_index()`（计数减少才全群重建，否则尾部增量、未变化向量复用）；按日对账补录差异。
+- **启动外部程序（D5）**：仅启动设置中配置并校验的 exe；轮询 API 就绪，超时给明确错误。
+- 重建的 `normalize_snapshot.py` 与历史归一化库对拍一致；聊天相关 SQLite 一律 `mode=ro`。
 
-**对话式交互（前端主形态）**：微信页主体为对话窗口——用户输入自然语言或点击 3 个预置快捷输入，均进入**同一个 Agent 流程**（无特殊通道）；群/日期/范围由对话指定（Agent 经 list_chats 解析群名，相对日期由系统提示词注入机制处理）；SSE 流式返回。Service 层职责仅限：Agent 调用封装（SSE 会话管理）、任务状态、报告产物收集与列表化、同步编排——**不替代 Agent 做任何总结决策**。总结在对话中内联显示执行状态，完成后回填报告卡片；同步按钮/数据范围/运行状态收进对话上方辅助区。后端对应 `POST /api/wechat/chat`（SSE，session_id 关联服务端会话历史）与 `GET /api/wechat/source/status`、`POST /api/wechat/sync`（任务化）。
+### 3.2 资讯模块
 
-**重建 `normalize_snapshot.py`**：从原始快照库读 `message_json`，经 `from_raw_rows` 归一化，幂等 upsert 进归一化库（PK: chat_id+message_id）。脚本在目录迁移（D3 第一步）完成后建于 `app/wechat_agent/` 内，与迁移同步修正所有引用它的报错文案。
+抓取（hn 官方 Algolia API / rss feedparser，统一超时重试 UA）→ 归一化 → 去重（url 规范化唯一 + 标题哈希）→ 评分（确定性，见 PRD §2.2）→ `news_items` 短期缓存（只增不删）→ `rank_top_items` 纯查询出 TOP 10（首页与资讯页共用）。
 
-**多群适配**：总结流水线的"单群限制"在服务层解决——总结请求必须显式携带 chat_id，service 按群过滤消息后再进流水线；Agent 系统提示词补充群选择约束。不改变流水线内部行为。
+- 刷新：TaskRunner 后台任务（kind `news.refresh`，同 kind 409 防重），单源失败记录后继续；首页只读缓存不触发抓取；刷新失败保留旧缓存。
+- 翻译（`news_translation`）：刷新任务成功后 + 启动补发两条路径；仅对 TOP 10 中 `translate_status=''` 的条目批量翻译一次并落库（`title_zh/summary_zh`）；中文原文直接回填；失败标 failed 不重试；成本记 `token_usage`。
+- 收藏/已读字段为历史遗留，业务零读写；新闻不参与清理审核。
 
-**同步流程（重叠窗口 + 游标后置，`sync_cursors` 为唯一游标口径）**：
+### 3.3 计划 / 阅读 / 右栏
 
-1. `GET /api/wechat/source/status` → 探测 WeChatDataAnalysis（读 `/api/chat/accounts`）。
-2. 未运行 → WechatSourceAdapter 按配置路径启动桌面程序（D5，仅启动经配置与校验的 exe）→ 轮询 API 就绪（超时返回明确错误）。
-3. 增量：以 `sync_cursors(chat_id)` 为游标，拉取 `[游标时间 - 24h 重叠窗口, 现在]` 的全部分页（API 仅支持 offset 分页 + desc 排序 + 客户端时间过滤）；按 `(timestamp, message_id)` 稳定 ID 主键幂等 upsert 原始库。
-4. 归一化（区间 upsert + 指纹去重，独立提交）→ **游标只在两步都成功后推进**（hub.db，同事务）；任一步失败游标不动，重试安全。
-5. `rag_store.incremental_index()`：计数**减少**才全群重建；增长/不变走尾部增量（边界 chunk 重切，未变化向量复用，零重复 Embedding）。
-6. 对账：同步后按日比对原始/归一化计数，差异日自动重建补录；重叠窗口之外的历史修正用 `POST /api/wechat/sync {start, end}` 范围重导（重新拉取 API，幂等）。
+- 长期计划与每日任务**完全独立**（迁移 0006 移除 plan_id，0 条历史关联）。排序统一为 重要 > sort_order：计划 `PUT /plans/reorder`、任务 `PUT /tasks/reorder`（统一待办排序，ordered_ids 覆盖某日视图全部可见任务，不一致 409）均提交完整顺序、按位置写 sort_order。长期计划完成仅经 `POST /plans/{id}/complete`（记 completed_at）；任务历史只读（恢复未完成 409 `history_readonly`）。"移至下一天" = 改 task_date + moved_from_date 溯源，不复制副本。
+- 阅读：书籍重要标记筛选内置顶；**有笔记禁删**（service 事务内检查，409 `book_has_notes`）；笔记文件落盘 `data/reading_notes/<book_id>/`，库中存相对路径与元数据，上传校验扩展名/大小/文件头签名，下载按库中路径解析（不接受用户传入路径，防穿越）。
+- 右栏：`/api/infos`（important_infos 表，CRUD + reorder，长期保留不参与清理）；`/api/memo`（**本地文件 `~/.personal-hub/memo.md`**：UTF-8、临时文件 + os.replace 原子替换、进程内锁、expected 比对防乱序覆盖、512KB 上限、显式报错）。前端 SafeMarkdown 先转义再解析（标题/列表/代码块/粗斜体/行内代码，链接仅 http/https），XSS 安全。
+- 后台任务状态查询统一在 `/api/jobs/{id}`（与每日任务 `/api/tasks/*` 区分）。
 
-### 3.2 资讯模块（近期热门 TOP 10 + 外部导航，2026-11 定稿）
+### 3.4 清理审核模块（D4，尚未实现）
 
-```
-news_sources 默认种子(news_service.DEFAULT_SOURCES) → 按 kind 分派适配器
-(news_hn 官方 Algolia API / news_rss feedparser；news_common 统一 httpx 超时/重试/UA)
-→ 归一化为 RawNewsItem → 去重(url 规范化+标题哈希) → 评分(综合分)
-→ news_items 短期缓存（只增不删）
-→ GET /news/top：rank_top_items 纯查询（24h 优先/72h 回退/单源上限 4）
-→ 首页与 /news 共用 TopNewsList 组件；/news 另有外部导航静态清单
-→ 翻译（news_translation）：刷新任务成功后 + 启动补发，对 TOP 10 中
-   translate_status='' 的条目批量翻译一次并落库（title_zh/summary_zh）；
-   中文原文直接回填；失败标 failed 回退原文不重试；成本记 token_usage
-```
-
-- 刷新：TaskRunner 后台任务（kind news.refresh，同 kind 409 防重），单源失败记录后继续；缓存有效期默认 30 分钟（PH_NEWS_REFRESH_MINUTES）；首页只读缓存不触发抓取。
-- 评分：有效分 = norm_heat(分来源归一化，RSS 中性 0.5) × source_weight × age_decay(48h 半衰期) × (1 + 0.5 × 主题相关度)；排名键 (有效分↓, 发布时间↓, id↑)。LLM 不参与评分。
-- 翻译：LLM 仅用于 TOP 10 中文标题/摘要的批量翻译（一次调用至多 10 条），结果落库（`title_zh/summary_zh/translate_status`）后纯查询复用；刷新/启动补发两条触发路径，同 kind 任务防重，不随 30 分钟缓存周期重复翻译。
-- 收藏/已读字段为历史遗留，业务零读写；新闻不参与阶段 5 清理。
-
-### 3.3 计划与阅读模块
-
-标准 CRUD 服务。**长期计划与每日任务完全独立**（迁移 0006 已移除 plan_id 列与外键，经核查 0 条历史关联）：long_term_plans（含 goal 具体目标、重要标记）与 daily_tasks 之间无任何关联/进度逻辑。**排序（每日/长期/书籍一致）：重要状态（is_important）> 手动排序/默认序**；长期计划 `PUT /plans/reorder` 提交完整活动计划顺序，取消重要自动回落普通区域；每日任务 `PUT /tasks/reorder` 为**统一待办排序**——ordered_ids 覆盖某日视图全部可见任务（当日 + 更早日期未完成），今日与逾期可自由穿插，仅写 sort_order，列表仍按（重要 > sort_order）返回。**完成机制**：长期计划经 `POST /plans/{id}/complete` 标记完成（记 `completed_at`，离开当前列表）；历史视图 `GET /plans/history`（完成时间倒序、未知排最后显示"完成时间未知"）。每日任务完成后记 `completed_at`；**历史只读**：不允许恢复未完成（service 层 409 `history_readonly`，旧 PATCH 入口同受限）；历史 `GET /tasks/history` 与 daily_tasks 同表（按完成时间倒序、可按归属日期筛选）。"移至下一天" = 更新 task_date + 记录 moved_from_date，不复制副本；books / book_notes（文件落盘 `data/reading_notes/<book_id>/`，库中存路径与元数据，上传校验扩展名与大小，PDF/PNG 浏览器直开；书籍重要标记筛选内置顶）。
-
-**右侧常驻栏（PC 三栏工作台）**：`GET/POST/PATCH/DELETE /api/infos` + `PUT /api/infos/reorder`（important_infos 表，长期保留不参与清理）；`GET/PUT /api/memo`（**本地文件 `~/.personal-hub/memo.md`**，UTF-8、临时文件 + os.replace 原子替换、进程内锁 + expected 比对防乱序覆盖、512KB 上限、显式报错）。前端 AppLayout 三栏（左导航 192px / 中央 flex ≥650px 独立滚动 / 右栏 340px 折叠态存 localStorage 且折叠不卸载组件），右侧栏上部 ImportantInfosPanel（约 40%）+ 下部 MemoPanel（约 60%）各自独立滚动；SafeMarkdown 组件先转义再解析（标题/列表/代码块/粗斜体/行内代码，链接仅 http/https），XSS 安全。**书籍删除规则（PRD §2.4，已确定）**：存在关联笔记的书籍禁止删除——Service 层删除事务内检查 `book_notes`，存在即抛 409 `book_has_notes`；不级联、不自动解除关联、不依赖前端校验。后台任务状态查询端点为 `/api/jobs/{id}`（与每日任务 `/api/tasks/*` 区分，阶段 2 起生效）。
-
-### 3.4 清理审核模块（三层状态机，D4）
-
-```
-[周日/下次启动] 生成器扫描过期数据 → cleanup_candidates
-  (week_id, item_type, ref_id, description, date_range, size_estimate, state)
-  · item_type: normalized_msgs / snapshot_msgs（新闻清理需求已取消，不含 news_items）
-  · 微信消息候选按"同一天地三库关联"归为一个候选项，一次勾选三层同删
-        │
-  用户在审核页勾选 → cleanup_runs(week_id, confirmed_at)  ← 无 confirmed run，执行器拒绝执行
-        │
-  删除执行器（可重试、断点续跑；仅由确认的 run 触发）：
-  每项: pending → normalized_deleted → chroma_done → snapshot_deleted → done
-                        │任一步失败→ failed(记录原因, 可重跑；重跑对已删步骤幂等)
-        │
-  audit_log(run_id, item_type, count, status, error, created_at)   ← 不存内容
-```
-
-- **微信消息三层删除顺序**：归一化库（按 message_id 列表删）→ Chroma chunk 处理 → 原始快照库删对应 `message_json` 行。不动 WeChatDataAnalysis 原始库；不误删总结报告。
-- **Chroma chunk 处理策略（针对 `rag_store.py` 实际实现设计，避免全群重建）**：
-  1. 识别受影响 chunk：按 `chat_id` + `date` 元数据 where 取回候选文档后**客户端过滤**——现有 metadata 中 `msg_ids` 是逗号拼接字符串，Chroma where 不支持子串匹配，无法直接按消息 ID 服务端过滤。
-  2. chunk 的消息全部在删除集内 → 直接删除该文档；
-  3. 部分命中 → 用剩余消息按现有 `chunk_messages` 规则重建（消息集合变化 → 新 chunk_id → upsert 新文档 + 删除旧文档）。**Embedding 成本仅限重建的少数 chunk，未变化 chunk 的向量全部复用**；
-  4. 删除执行器维护 `rag_state` 计数（total_msgs、chunk_count），使后续 `incremental_index()` 因计数一致而**不再触发全群全量重建**；
-  5. 保证：已删除消息不再出现在任何 chunk 文本中，语义检索检索不到。
-- **跨周候选规则**：候选按 week_id 归属；生成新一周候选时，跳过仍挂在未完结审核（未确认、未执行）中的同一 ref_id，避免同一数据同时出现在两个审核清单；用户跳过时勾选状态保留，下周不重复生成同一 ref_id；已执行完毕的审核归档留存。
-- **非授权删除防护**：候选生成器只读；执行器校验 run 已确认否则拒绝（409）；系统中不存在任何自动删除入口。
-- 新闻删除：单表单删，无关联。
-- 以上能力与对应测试在阶段 5 正式开放删除前完成（DEVELOPMENT_PLAN 阶段 5）。
+设计已定（实现见 DEVELOPMENT_PLAN 阶段 5）：每周日生成候选（cleanup_candidates，item_type 仅微信两类消息；新闻不参与）→ 用户勾选 + 确认（cleanup_runs）→ 删除执行器逐项状态机（pending → normalized_deleted → chroma_done → snapshot_deleted → done/failed，可断点续跑）→ 审计（audit_log，不存内容）。无 confirmed run 执行器拒绝（409）；chunk 部分命中按剩余消息局部重建（新 chunk_id upsert + 删旧），执行器维护 rag_state 计数使后续增量索引不再全量重建；跨周候选去重（同一 ref_id 不重复出现在未完结审核中）。
 
 ### 3.5 启动器
 
-`launcher/launch.py`：`请求 http://127.0.0.1:8620/api/health` → 通则直接开浏览器；否则启动 `uvicorn app.main:app`（隐藏窗口 .vbs）→ 轮询健康检查（超时 30s 报错）→ `webbrowser.open`。桌面快捷方式指向 .bat。服务默认端口 **8620**（避开 WeChatDataAnalysis 的 10392），可在设置中修改。
+`launcher/launch.py`：请求 `/api/health` 通则直接开浏览器；否则启动 uvicorn（隐藏窗口 .vbs）→ 轮询健康检查（超时 30s 报错）→ 打开浏览器。默认端口 8620（避开 WeChatDataAnalysis 的 10392）。`.bat/.vbs/.ini` 文件必须纯 ASCII（AGENTS §5）。
 
-## 4. API 设计约定
+## 4. API 与接口约定
 
-- 风格：REST-ish，`/api/<模块>/<资源>`，JSON 出入参，字段 snake_case 全项目统一；列表统一 `{items, total, page?}`。
-- 错误：统一 `{detail: {code, message}}`；HTTP 状态语义化（409 冲突/未确认清理 run、422 参数、502 外部源失败、504 外部超时）。
-- 长任务：POST 返回 `task_id`；`GET /api/jobs/{id}` 返回 `{status, progress, error, result}`（后台任务状态查询在 jobs 命名空间，与每日任务区分）；问答流式用 SSE（`sse-starlette`），会话经 `session_id`。
-- 版本：第一版不加 `/v1` 前缀，破坏性变更时再引入。
+- REST-ish：`/api/<模块>/<资源>`；JSON 出入参，字段 snake_case 全项目统一。
+- 错误统一 `{detail: {code, message}}`；HTTP 状态语义化（404/409/422/5xx）。
+- 长任务：POST 返回 task_id，`GET /api/jobs/{id}` 查状态；问答 SSE（sse-starlette），会话经 session_id。
+- 不加 `/v1` 前缀，破坏性变更时再引入。
 
-## 5. 数据模型与命名规范
+## 5. 数据存储设计
 
-### 5.1 应用库 `data/hub.db`（SQLAlchemy + Alembic）
-
-通用字段：`id INTEGER PK AUTOINCREMENT`、`created_at`、`updated_at`（ISO8601 文本，本地时区）。
-
-| 表 | 关键字段 |
-|---|---|
-| `long_term_plans` | title, description, goal（具体目标，可空）, status, target_date（可空）, is_important（重要置顶）, sort_order（手动排序）, completed_at（完成时间，可空=未知） |
-| `daily_tasks` | task_date, title, done, sort_order, is_important, completed_at（完成时间，可空）, moved_from_date NULL（与长期计划无任何关联） |
-| `important_infos` | title, content（基础 Markdown）, sort_order（手动排序）, created_at, updated_at（右侧栏"重要信息"，长期保留不参与清理） |
-| `books` | title, author, note, status(todo/reading/done), is_important（重要置顶） |
-| `book_notes` | book_id→books, filename, path, size, uploaded_at |
-| `news_items` | 短期资讯缓存：title, url UNIQUE(规范化), source, published_at(UTC ISO), raw_summary, title_zh/summary_zh/translate_status（''=未尝试/done/failed，中文翻译缓存）, norm_heat, score, topic, title_hash(索引)；is_favorite/is_read 为历史遗留字段（业务零读写）；刷新只增不删 |
-| `news_sources` | 默认来源种子 7 个（news_service.DEFAULT_SOURCES）：name UNIQUE, kind(rss/hn), endpoint, enabled, weight |
-| `sync_cursors` | scope(chat_id) PK, last_timestamp, last_msg_id, updated_at |
-| `chat_sessions` | id, title, created_at, updated_at（微信对话会话） |
-| `chat_messages` | session_id→chat_sessions, role(user/assistant), content, created_at（会话级历史，支撑多轮上下文） |
-| `tasks` | kind, status, progress, payload_json, result_json, error |
-| `cleanup_candidates` | week_id, item_type, ref_id, description, date_range, size_estimate, state |
-| `cleanup_runs` | week_id, confirmed_at, status |
-| `audit_log` | run_id, item_type, count, status, error |
-| `token_usage` | kind(llm/embedding), model, input_tokens, output_tokens, cost_estimate, ref |
-
-命名：表/字段 snake_case；`tasks.status` 统一 pending/running/success/failed；cleanup 逐项中态（normalized_deleted 等）见 §3.4，不受四态约束；时间戳存储 INTEGER(epoch) 或 ISO 文本（聊天库沿用 epoch，业务库用 ISO 文本，服务层负责转换）。
-
-### 5.2 Chroma（沿用现有）
-
-- `chat_chunks`：文档=chunk 文本，metadata={chat_id, date, start_ts, end_ts, msg_ids(逗号拼接字符串), senders, content_hash}；ID=chunk_id（sha1(chat_id|msg_ids)，确定性）。
-- `rag_state`：每群一条进度记录（删除场景由清理执行器维护，见 §3.4）。
-- 不新增 collection 则不动现有命名；删除按现有 metadata 过滤 + 客户端过滤（限制见 §3.4）。
-
-### 5.3 与现有库的关系
-
-- 聊天数据保留现有两库（raw snapshot + normalized），应用库只存游标/会话/任务/审计等管理数据。
-- hub.db 的 Schema 变更必须走 Alembic，且在隔离副本上验证迁移脚本后再应用于真实库（PRD §2.6）；聊天两库沿用现有 Schema，不走 Alembic。
-- 按 D1，第一版无备份功能：对真实聊天库的任何写路径在合并前必须能用隔离副本全量回放验证；不可逆操作执行前需用户批准。
+- **hub.db**（SQLAlchemy + Alembic，迁移即 Schema 权威，模型与迁移一一对应）：业务数据全部在此——计划/任务/书籍/笔记元数据/资讯缓存/会话/任务/审计/token_usage/重要信息等。Schema 变更必须走 Alembic，先在隔离副本验证再应用真实库。
+- **聊天两库**（`GetWechatInfo/DataInfo/` 快照库 + 归一化库）：沿用现有 Schema，不走 Alembic、不改表结构；应用侧只读（`mode=ro`）；原始快照层幂等 upsert 由同步流程负责。
+- **Chroma**：沿用现有 `chat_chunks`（chunk_id = sha1(chat_id|msg_ids) 确定性 ID，metadata 含 msg_ids 逗号拼接字符串——where 不支持子串匹配，删除场景需客户端过滤）与 `rag_state`；不新增 collection 则不改名。
+- 时间戳：业务库用 ISO8601 文本（本地时区）；聊天库沿用 epoch，服务层负责转换。
+- 密钥：`~/.personal-hub/.env` 为权威（`PH_USER_ENV_DIR` 可覆盖），项目根 `.env` 可选覆盖；任何提交不得含密钥。
+- 运行时数据（data/、memo.md）不入 Git；`Output/` 历史报告兼容保留（D8）。
 
 ## 6. 横切设计
 
-### 日志（隐私白名单）
+- **日志**：模块级 logging，按天滚动 `data/logs/hub.log`；文件日志只记时间/任务 ID/操作类型/数量/结果/耗时/非敏感错误摘要；聊天正文、Agent 完整回答、密钥不进文件日志。
+- **异常**：服务层抛领域异常（DomainError 体系），API 层统一映射；外部调用全部设超时 + 最多 2 次指数退避重试；任务执行器捕获一切异常落任务表，不静默死亡。
+- **Token 成本**：统一经 `llm_config.build_llm` 出口；每次 LLM/Embedding 调用写 `token_usage`（kind/model/input/output/ref）。
 
-- `logging` + 按天滚动文件 `data/logs/hub.log`。**文件日志只保存**：时间、任务 ID、操作类型、消息数量、执行结果、耗时、非敏感错误信息（错误类型与摘要，不含堆栈中的正文）。
-- **禁止**将聊天消息正文、Agent 完整回答、密钥等敏感内容从 print 机械转存到文件日志（阶段 3 收敛 print 时按此规则区分处理，不改业务行为）；含正文的内容只允许出现在对话存储（chat_messages）与报告产物中。
-- 适配器层记录外部请求（URL、耗时、状态码）。
+## 7. V2.0 演进约束（不提前实现）
 
-### 异常
+局域网访问（0.0.0.0 + Bearer Token）→ HTTPS 反代 → 移动端同步（服务器为唯一写者 + 移动端纯 API 客户端）；备份恢复（D1）与同步服务一并设计。具体形态待 V2.0 评估；当前纯 API 设计已满足复用前提。
 
-- 服务层抛领域异常（SourceUnavailable、SyncConflict、CleanupError…），API 层统一映射；外部调用全部设超时 + 有限重试（指数退避，最多 2 次）。
-- 任务执行器捕获一切异常落任务表，不让后台任务静默死亡。
+## 8. 部署形态
 
-### 备份与恢复（D1：第一版不实现，V2.0 已确定需求，仅保留设计约束）
-
-- 未来方案（V2.0 建设，权威规划见 `Docs/ROADMAP.md`）：SQLite online backup（`con.backup()`）导出 hub.db + 聊天两库 + Chroma 目录打包；恢复为离线操作（停服务→解包→校验→启动）。
-- 第一版替代保障 = PRD §2.6 数据操作安全规范（隔离副本 + 危险操作审批）。
-
-### Token 成本
-
-- 统一经 `llm_config.build_llm` 出口，包装记录 usage 到 `token_usage`；设置页展示累计与估算费用；Embedding 调用已有统计，接入同一表。
-
-## 7. 未来移动端演进（V2.0，仅保留设计约束）
-
-> 权威规划见 `Docs/ROADMAP.md`；本节仅保留 V1.0 必须遵守的设计约束，不提前实现。具体形态（PWA / 手机浏览器访问 / 独立 App）待 V2.0 启动时评估。
-
-1. 阶段一（已有）：API-first、响应式 Web、127.0.0.1:8620。
-2. 局域网访问：绑定 `0.0.0.0` + 简单 Bearer Token（settings 生成），HTTP 仅限内网。
-3. 安全远程：HTTPS（Caddy/nginx 反代或自签证书）+ 认证强化。
-4. 数据同步：SQLite 单写者限制下，移动端采用"服务器为唯一写者 + 移动端纯 API 客户端"；离线场景后续评估增量同步服务。第一版的纯 API 设计已满足复用前提。
-5. **备份与恢复系统**：V2.0 已确定需求（D1），与同步服务一并设计，权威规划见 `ROADMAP.md`。
-
-## 8. 测试、部署形态
-
-- 后端 pytest（单元/集成，Mock LLM 与外部 API，隔离数据副本）；前端 Vitest + RTL（组件级）；端到端关键路径手工 + 可选 Playwright。
-- 交付物：单个 Windows 目录 + 桌面快捷方式；源码运行 `uvicorn app.main:app` + 已构建 `web/dist`；默认端口 8620。
-- 详见 `TEST_PLAN.md`。
+单个 Windows 目录 + 桌面快捷方式；源码运行 `uvicorn --factory app.main:create_app` + 已构建 `web/dist`；默认端口 8620。
