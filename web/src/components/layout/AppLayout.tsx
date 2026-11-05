@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { ImportantInfosPanel } from "../rail/ImportantInfosPanel";
-import { MemoPanel } from "../rail/MemoPanel";
+import { MemosPanel } from "../rail/MemosPanel";
 
 const NAV_ITEMS = [
   { to: "/", label: "首页", icon: LayoutGrid },
@@ -94,7 +94,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <div className="flex h-full min-h-0 flex-col">
           <ImportantInfosPanel />
-          <MemoPanel />
+          <MemosPanel />
         </div>
       </aside>
     </div>

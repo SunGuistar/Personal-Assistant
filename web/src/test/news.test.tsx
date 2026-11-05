@@ -206,7 +206,7 @@ describe("首页 TOP 10", () => {
     renderPage(<HomePage />);
     // 资讯区显示错误提示，其他模块照常
     expect(await screen.findByText(/资讯暂不可用/)).toBeInTheDocument();
-    expect(screen.getByText("今日计划")).toBeInTheDocument();
+    expect(screen.getByText("计划管理")).toBeInTheDocument();
     expect(screen.getByText("正在阅读")).toBeInTheDocument();
     expect(screen.getByText(/已连接/)).toBeInTheDocument();
   });

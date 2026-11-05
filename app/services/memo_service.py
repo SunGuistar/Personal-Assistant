@@ -1,33 +1,34 @@
-"""随手备忘业务逻辑：单份 Markdown 便签，存本地文件（不写 SQLite）。
+"""旧版随手备忘文件（memo.md）读取与一次性迁移。
 
-存储：用户目录 `~/.personal-hub/memo.md`（可用 PH_USER_ENV_DIR 覆盖，与密钥
-权威目录同规范）；UTF-8；不入 Git。
+随手备忘已改为 SQLite 多条记录（memos 表，见 memos_service）。本模块仅保留：
+- memo_path()/read_memo()：旧文件读取（迁移前不得停用）；
+- migrate_legacy_memo()：把旧 Markdown 内容作为一条备忘导入 SQLite（幂等）。
 
-写入安全：
-- 临时文件 + os.replace 原子替换（写入中断不损坏原文件）；
-- 进程内锁 + 写入前内容比对：乱序到达的晚提交不会用旧内容覆盖新内容
-  （比对失败返回冲突错误，由前端以最新内容重试）；
-- 显式失败抛 DomainError，不假装成功。
+保护原则：不删除、不清空原文件；导入以固定标题判重，重复运行不生成重复记录。
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import threading
 from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from ..exceptions import DomainError
+from ..models import Memo
 
 logger = logging.getLogger(__name__)
 
 MAX_MEMO_BYTES = 512 * 1024
 
-_write_lock = threading.Lock()
+# 迁移记录的固定标题（判重依据）
+MIGRATED_TITLE = "【迁移】旧版随手备忘"
 
 
 def memo_path() -> Path:
-    """备忘文件路径：用户目录（与 .env 权威文件同目录），不入库不入 Git。"""
+    """旧备忘文件路径：用户目录（与 .env 同目录）。"""
 
     override = os.environ.get("PH_USER_ENV_DIR", "").strip()
     base = Path(override) if override else Path.home() / ".personal-hub"
@@ -35,7 +36,7 @@ def memo_path() -> Path:
 
 
 def read_memo(path: Path | None = None) -> str:
-    """读取便签内容；文件不存在按空内容处理。"""
+    """读取旧便签文件；文件不存在/为空按空内容处理。"""
 
     target = path or memo_path()
     try:
@@ -43,36 +44,26 @@ def read_memo(path: Path | None = None) -> str:
     except FileNotFoundError:
         return ""
     except OSError as exc:
-        raise DomainError(f"备忘读取失败: {exc}", code="memo_read_failed", status_code=500)
+        raise DomainError(f"旧备忘读取失败: {exc}", code="memo_read_failed", status_code=500)
     if len(raw) > MAX_MEMO_BYTES:
-        raise DomainError("备忘文件超过大小限制", code="memo_too_large", status_code=413)
+        raise DomainError("旧备忘文件超过大小限制", code="memo_too_large", status_code=413)
     return raw.decode("utf-8", errors="replace")
 
 
-def write_memo(content: str, path: Path | None = None, *, expected: str | None = None) -> None:
-    """原子写入便签。expected 提供时已持久化内容与之不符则拒绝（防乱序覆盖）。"""
+def migrate_legacy_memo(session: Session, path: Path | None = None) -> bool:
+    """把旧 memo.md 内容导入为一条随手备忘（幂等：按固定标题判重）。
 
-    data = content.encode("utf-8")
-    if len(data) > MAX_MEMO_BYTES:
-        raise DomainError("备忘内容超过 512KB 限制", code="memo_too_large", status_code=413)
-    target = path or memo_path()
+    返回是否执行了导入。不删除/不改写原文件；文件为空或已迁移则直接返回。
+    """
 
-    with _write_lock:  # 串行化写入，避免并发交错
-        if expected is not None:
-            current = read_memo(target)
-            if current != expected:
-                raise DomainError(
-                    "备忘内容已被其他修改覆盖，请刷新后重试",
-                    code="memo_conflict",
-                    status_code=409,
-                )
-        tmp: Path | None = None
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_name(target.name + f".tmp-{os.getpid()}")
-            tmp.write_bytes(data)
-            os.replace(tmp, target)  # 原子替换
-        except OSError as exc:
-            if tmp is not None:
-                tmp.unlink(missing_ok=True)
-            raise DomainError(f"备忘保存失败: {exc}", code="memo_write_failed", status_code=500)
+    content = read_memo(path).strip()
+    if not content:
+        return False
+    exists = session.execute(select(Memo.id).where(Memo.title == MIGRATED_TITLE)).first()
+    if exists:
+        return False
+    max_order = session.execute(select(Memo.sort_order).order_by(Memo.sort_order.desc())).scalars().first()
+    session.add(Memo(title=MIGRATED_TITLE, content=content, sort_order=(max_order or 0) + 1))
+    session.commit()
+    logger.info("旧版随手备忘已迁移为一条记录（title=%s，%d 字）", MIGRATED_TITLE, len(content))
+    return True

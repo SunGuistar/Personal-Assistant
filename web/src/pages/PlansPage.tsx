@@ -8,6 +8,7 @@ import {
   CheckCheck,
   CornerDownRight,
   History,
+  NotebookPen,
   Pencil,
   Plus,
   Star,
@@ -23,11 +24,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import { Input, Label, Textarea } from "../components/ui/input";
+import { Input, Label, Select, Textarea } from "../components/ui/input";
 import { todayStr } from "../lib/api";
 import {
   DailyTask,
   Plan,
+  TASK_TYPE_LABELS,
+  TASK_TYPES,
+  TaskType,
   useCompletePlan,
   useCreatePlan,
   useCreateTask,
@@ -40,6 +44,7 @@ import {
   useReorderPlans,
   useReorderTasks,
   useTaskHistory,
+  useTaskToMemo,
   useUpdatePlan,
   useUpdateTask,
 } from "../api/plans";
@@ -61,6 +66,19 @@ function completedAtLabel(completedAt: string | null): string {
 function importantTitleClass(isImportant: boolean, done: boolean): string {
   if (done) return "text-neutral-400 line-through";
   return isImportant ? "text-red-700" : "text-neutral-900";
+}
+
+/** 任务类型徽标配色（日常/功能添加/功能优化/奇思妙想）。 */
+const TYPE_BADGE_CLASS: Record<TaskType, string> = {
+  daily: "bg-neutral-100 text-neutral-500",
+  feature_add: "bg-blue-50 text-blue-600",
+  feature_optimize: "bg-amber-50 text-amber-600",
+  idea: "bg-purple-50 text-purple-600",
+};
+
+/** 手动排序分组键：完成状态/重要/类型 相同才允许相邻交换（与后端 409 规则一致）。 */
+function sortGroupKey(task: DailyTask): string {
+  return `${task.done}|${task.is_important}|${task.task_type}`;
 }
 
 export function PlansPage() {
@@ -120,16 +138,17 @@ function DailyPanel({
 }) {
   const createTask = useCreateTask(date);
   const [newTitle, setNewTitle] = useState("");
+  const [newType, setNewType] = useState<TaskType>("daily");
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const submit = () => {
     const title = newTitle.trim();
     if (!title) return;
-    createTask.mutate({ title }, { onSuccess: () => setNewTitle("") });
+    createTask.mutate({ title, task_type: newType }, { onSuccess: () => setNewTitle("") });
   };
 
-  // 统一待办列表（后端已按 重要>sort_order 排序）：今日任务 + 更早日期未完成
-  // 任务可自由穿插排序；逾期任务带原始日期徽标；已完成任务只在其归属日期显示。
+  // 统一待办列表（后端已按 未完成优先>重要>类型>sort_order 排序）：
+  // 今日 + 更早日期未完成可自由穿插；已完成置底；逾期任务带原始日期徽标。
   const taskIds = tasks.map((t) => t.id);
 
   return (
@@ -147,6 +166,18 @@ function DailyPanel({
           onChange={(e) => setNewTitle(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
+        <Select
+          value={newType}
+          onChange={(e) => setNewType(e.target.value as TaskType)}
+          className="w-28 shrink-0 text-xs"
+          aria-label="任务类型"
+        >
+          {TASK_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {TASK_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </Select>
         <Button size="sm" onClick={submit} disabled={!newTitle.trim()}>
           <Plus className="h-4 w-4" />
         </Button>
@@ -157,16 +188,22 @@ function DailyPanel({
         <div className="py-6 text-center text-sm text-neutral-400">这一天还没有任务</div>
       ) : (
         <ul className="space-y-1">
-          {tasks.map((task, index) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              date={date}
-              canUp={index > 0}
-              canDown={index < tasks.length - 1}
-              allIds={taskIds}
-            />
-          ))}
+          {tasks.map((task, index) => {
+            // 分组边界与已完成任务禁用上移/下移（后端越界返回 409）
+            const samePrev = index > 0 && sortGroupKey(tasks[index - 1]) === sortGroupKey(task);
+            const sameNext =
+              index < tasks.length - 1 && sortGroupKey(tasks[index + 1]) === sortGroupKey(task);
+            return (
+              <TaskRow
+                key={task.id}
+                task={task}
+                date={date}
+                canUp={!task.done && samePrev}
+                canDown={!task.done && sameNext}
+                allIds={taskIds}
+              />
+            );
+          })}
         </ul>
       )}
       <TaskHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
@@ -190,15 +227,15 @@ function TaskRow({
   const updateTask = useUpdateTask(date);
   const deleteTask = useDeleteTask(date);
   const moveTask = useMoveTask(date);
+  const taskToMemo = useTaskToMemo(date);
   const reorder = useReorderTasks(date);
   const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(task.title);
+  const [editOpen, setEditOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveDate, setMoveDate] = useState(todayStr(1));
 
   const toggleDone = () => {
-    // 乐观更新：立即反映，失败回滚（TanStack Query 模式）
+    // 乐观更新：立即反映，失败回滚（完成/取消完成均可反复切换）
     const key = ["daily-tasks", date];
     const previous = qc.getQueryData<DailyTask[]>(key);
     qc.setQueryData<DailyTask[]>(key, (old) =>
@@ -225,10 +262,9 @@ function TaskRow({
     >
       <button
         onClick={toggleDone}
-        disabled={task.done}
-        aria-label={task.done ? "已完成（历史只读）" : "标记完成"}
-        title={task.done ? "已完成（历史只读，不可恢复未完成）" : "标记完成"}
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border disabled:cursor-not-allowed ${
+        aria-label={task.done ? "取消完成" : "标记完成"}
+        title={task.done ? "取消完成（回到未完成列表）" : "标记完成"}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
           task.done ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300"
         }`}
       >
@@ -238,41 +274,32 @@ function TaskRow({
         important={task.is_important}
         onToggle={() => updateTask.mutate({ id: task.id, is_important: !task.is_important })}
       />
-      {editing ? (
-        <form
-          className="flex flex-1 gap-1"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const title = draft.trim();
-            if (title) updateTask.mutate({ id: task.id, title }, { onSuccess: () => setEditing(false) });
-          }}
-        >
-          <Input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} />
-          <Button size="sm" type="submit">
-            保存
-          </Button>
-        </form>
-      ) : (
-        <>
-          <span
-            className={`flex-1 text-sm ${importantTitleClass(task.is_important, task.done)}`}
-            onDoubleClick={() => {
-              setDraft(task.title);
-              setEditing(true);
-            }}
-          >
-            {task.title}
-            {task.task_date !== date && (
-              <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-600">
-                {task.task_date}
-              </span>
-            )}
-            {task.task_date === date && task.moved_from_date && (
-              <span className="ml-2 text-xs text-neutral-400" title="来自移入">
-                ↳ {task.moved_from_date}
-              </span>
-            )}
+      <span
+        className={`min-w-0 flex-1 text-sm ${importantTitleClass(task.is_important, task.done)}`}
+        onDoubleClick={() => setEditOpen(true)}
+      >
+        <span className="break-words">{task.title}</span>
+        <span className={`ml-2 rounded px-1.5 py-0.5 text-[11px] ${TYPE_BADGE_CLASS[task.task_type]}`}>
+          {TASK_TYPE_LABELS[task.task_type]}
+        </span>
+        {task.task_date !== date && (
+          <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-600">
+            {task.task_date}
           </span>
+        )}
+        {task.task_date === date && task.moved_from_date && (
+          <span className="ml-2 text-xs text-neutral-400" title="来自移入">
+            ↳ {task.moved_from_date}
+          </span>
+        )}
+        {task.content && (
+          <span className="mt-0.5 block break-words text-xs font-normal text-neutral-400 line-clamp-2">
+            {task.content}
+          </span>
+        )}
+      </span>
+      {!task.done && (
+        <>
           <button onClick={() => swap(-1)} disabled={!canUp} aria-label="上移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
             <ArrowUp className="h-4 w-4" />
           </button>
@@ -290,24 +317,28 @@ function TaskRow({
             <CornerDownRight className="h-4 w-4" />
           </button>
           <button
-            onClick={() => {
-              setDraft(task.title);
-              setEditing(true);
-            }}
-            aria-label="编辑"
-            className="p-1 text-neutral-400 hover:text-neutral-700"
+            onClick={() =>
+              confirm(`将任务「${task.title}」转为随手备忘？任务将从列表中移除。`) &&
+              taskToMemo.mutate(task.id)
+            }
+            aria-label="转为随手备忘"
+            title="转为随手备忘"
+            className="p-1 text-neutral-400 hover:text-green-600"
           >
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => confirm(`删除任务「${task.title}」？`) && deleteTask.mutate(task.id)}
-            aria-label="删除"
-            className="p-1 text-neutral-400 hover:text-red-600"
-          >
-            <Trash2 className="h-4 w-4" />
+            <NotebookPen className="h-4 w-4" />
           </button>
         </>
       )}
+      <button onClick={() => setEditOpen(true)} aria-label="编辑" className="p-1 text-neutral-400 hover:text-neutral-700">
+        <Pencil className="h-4 w-4" />
+      </button>
+      <button
+        onClick={() => confirm(`删除任务「${task.title}」？`) && deleteTask.mutate(task.id)}
+        aria-label="删除"
+        className="p-1 text-neutral-400 hover:text-red-600"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
 
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent>
@@ -333,7 +364,94 @@ function TaskRow({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <TaskEditDialog task={task} open={editOpen} onOpenChange={setEditOpen} />
     </li>
+  );
+}
+
+/** 任务编辑弹窗：标题、内容/备注、任务类型、重要标记。 */
+function TaskEditDialog({
+  task,
+  open,
+  onOpenChange,
+}: {
+  task: DailyTask;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const updateTask = useUpdateTask(task.task_date);
+  const [title, setTitle] = useState(task.title);
+  const [content, setContent] = useState(task.content ?? "");
+  const [taskType, setTaskType] = useState<TaskType>(task.task_type);
+  const [isImportant, setIsImportant] = useState(task.is_important);
+
+  // 打开时按当前任务重置
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setTitle(task.title);
+      setContent(task.content ?? "");
+      setTaskType(task.task_type);
+      setIsImportant(task.is_important);
+    }
+  }
+
+  const submit = () => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    updateTask.mutate(
+      { id: task.id, title: trimmed, content, task_type: taskType, is_important: isImportant },
+      { onSuccess: () => onOpenChange(false) }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>编辑任务</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>标题</Label>
+            <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div>
+            <Label>内容/备注</Label>
+            <Textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} />
+          </div>
+          <div>
+            <Label>任务类型</Label>
+            <Select value={taskType} onChange={(e) => setTaskType(e.target.value as TaskType)}>
+              {TASK_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {TASK_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={isImportant}
+              onChange={(e) => setIsImportant(e.target.checked)}
+              className="accent-red-500"
+            />
+            标记为重要
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button onClick={submit} disabled={!title.trim()}>
+            保存
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -345,6 +463,7 @@ function TaskHistoryDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const updateTask = useUpdateTask(todayStr());
   const [filterDate, setFilterDate] = useState("");
   const history = useTaskHistory(filterDate || null, open);
 
@@ -380,12 +499,20 @@ function TaskHistoryDialog({
                 key={task.id}
                 className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${importantRowClass(task.is_important)}`}
               >
+                <button
+                  onClick={() => updateTask.mutate({ id: task.id, done: false })}
+                  aria-label={`取消完成 ${task.title}`}
+                  title="取消完成（回到未完成列表）"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-neutral-900 bg-neutral-900 text-white"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
                 <Star
                   className={`h-3.5 w-3.5 shrink-0 ${task.is_important ? "text-red-500" : "text-neutral-200"}`}
                   fill={task.is_important ? "currentColor" : "none"}
                   aria-label={task.is_important ? "重要" : "普通"}
                 />
-                <span className="flex-1 text-sm">{task.title}</span>
+                <span className="flex-1 break-words text-sm">{task.title}</span>
                 <span className="text-xs text-neutral-400">所属 {task.task_date}</span>
                 <span className="text-xs text-neutral-400">{completedAtLabel(task.completed_at)}</span>
               </li>

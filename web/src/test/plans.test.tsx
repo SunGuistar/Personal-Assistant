@@ -8,9 +8,10 @@ import { todayStr } from "../lib/api";
 
 const TASK = {
   id: 1,
-  plan_id: null,
   task_date: todayStr(),
   title: "写文档",
+  content: null,
+  task_type: "daily",
   done: false,
   sort_order: 1,
   is_important: false,
@@ -125,14 +126,40 @@ describe("计划管理页面", () => {
     expect(screen.getAllByRole("button", { name: "下移" })).toHaveLength(2);
   });
 
-  it("已完成的任务复选框禁用（历史只读，需求四）", async () => {
+  it("已完成任务可取消勾选（取消完成，需求二）", async () => {
     const done = { ...TASK, done: true };
+    let patchBody: unknown = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/tasks/daily")) {
+          return new Response(JSON.stringify([done]), { status: 200 });
+        }
+        if (url === "/api/plans") return new Response(JSON.stringify([]), { status: 200 });
+        if (url === "/api/tasks/1" && init?.method === "PATCH") {
+          patchBody = JSON.parse(String(init.body));
+          return new Response(JSON.stringify({ ...TASK }), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+
+    expect(await screen.findByText("写文档")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "取消完成" }));
+    await waitFor(() => expect(patchBody).toEqual({ done: false }));
+  });
+
+  it("任务显示类型标签，已完成任务无排序/转换按钮（需求三/四）", async () => {
+    const second = { ...TASK, id: 2, title: "第二条" };
+    const done = { ...TASK, id: 3, done: true };
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/tasks/daily")) {
-          return new Response(JSON.stringify([done]), { status: 200 });
+          return new Response(JSON.stringify([TASK, second, done]), { status: 200 });
         }
         if (url === "/api/plans") return new Response(JSON.stringify([]), { status: 200 });
         return new Response("not found", { status: 404 });
@@ -140,9 +167,15 @@ describe("计划管理页面", () => {
     );
     renderPage();
 
-    expect(await screen.findByText("写文档")).toBeInTheDocument();
-    const checkbox = screen.getByRole("button", { name: "已完成（历史只读）" });
-    expect(checkbox).toBeDisabled();
+    expect(await screen.findByText("第二条")).toBeInTheDocument(); // 任务已渲染
+    expect(screen.getAllByText("日常").length).toBeGreaterThanOrEqual(2); // 类型标签
+    // 未完成同组相邻：上移/下移 各只有 1 个可用（组首的上移渲染但禁用）；
+    // 已完成行无排序按钮（不渲染）；取消完成按钮存在
+    const enabled = (els: HTMLElement[]) => els.filter((el) => !(el as HTMLButtonElement).disabled);
+    expect(enabled(screen.getAllByRole("button", { name: "上移" }))).toHaveLength(1);
+    expect(enabled(screen.getAllByRole("button", { name: "下移" }))).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "转为随手备忘" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "取消完成" })).toBeInTheDocument();
   });
 
   it("重要任务红色强调并可切换（需求一）", async () => {
@@ -166,8 +199,8 @@ describe("计划管理页面", () => {
     renderPage();
 
     await screen.findByText("写文档");
-    // 红色强调样式（浅红背景 + 红色标题）
-    expect(screen.getByText("写文档").className).toContain("text-red-700");
+    // 红色强调样式（浅红背景 + 红色标题；标题内层 span 包裹）
+    expect(screen.getByText("写文档").parentElement?.className).toContain("text-red-700");
     expect(screen.getByText("写文档").closest("li")?.className).toContain("bg-red-50");
 
     // 点击星标 → PATCH is_important

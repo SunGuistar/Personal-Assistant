@@ -28,7 +28,7 @@ describe("App 骨架", () => {
     expect(screen.getByText("首页工作台")).toBeInTheDocument();
     expect(screen.getByText("微信助手")).toBeInTheDocument();
     expect(screen.getByText("技术资讯")).toBeInTheDocument();
-    expect(screen.getByText("计划管理")).toBeInTheDocument();
+    expect(screen.getAllByText("计划管理").length).toBeGreaterThanOrEqual(2); // 导航 + 首页卡片
     expect(screen.getByText("阅读管理")).toBeInTheDocument();
     expect(screen.getByText("清理审核")).toBeInTheDocument();
     expect(screen.getByText("设置")).toBeInTheDocument();

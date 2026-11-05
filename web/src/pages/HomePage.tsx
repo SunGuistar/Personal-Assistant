@@ -81,25 +81,36 @@ function TodayPlanCard({
   loading: boolean;
   error: boolean;
 }) {
-  const done = tasks?.filter((t) => t.done).length ?? 0;
+  const today = todayStr();
+  // X/Y 统计口径：今日（task_date == 今天）已完成/总数
+  const todayTasks = tasks?.filter((t) => t.task_date === today) ?? [];
+  const doneCount = todayTasks.filter((t) => t.done).length;
+  // 只展示未完成的重要任务（含逾期延续的重要任务，按计划管理排序展示）
+  const importantPending = tasks?.filter((t) => !t.done && t.is_important) ?? [];
+
   return (
     <Link
       to="/plans"
       className="block rounded-lg border border-neutral-200 bg-white p-4 transition-shadow hover:shadow-sm"
     >
-      <div className="text-sm font-medium">今日计划</div>
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">计划管理</div>
+        <span className="text-xs text-neutral-400">查看全部 →</span>
+      </div>
       <div className="mt-1 text-xs text-neutral-500">
         {loading && "加载中…"}
         {error && "后端未连接"}
-        {!loading && !error && (tasks?.length ? `${done} / ${tasks.length} 已完成` : "今天还没有任务")}
+        {!loading && !error && `${doneCount}/${todayTasks.length} 已完成`}
       </div>
-      {!loading && !error && tasks && tasks.length > 0 && (
+      {!loading && !error && importantPending.length > 0 && (
         <ul className="mt-2 space-y-1">
-          {tasks.map((task) => (
-            <li key={task.id} className={`text-xs ${task.done ? "text-neutral-400 line-through" : "text-neutral-600"}`}>
-              · {task.title}
-              {task.task_date !== todayStr() && (
-                <span className="ml-1 text-neutral-400">（{task.task_date}）</span>
+          {importantPending.map((task) => (
+            <li key={task.id} className="flex items-center gap-1 text-xs">
+              <span className="min-w-0 flex-1 truncate text-red-700">· {task.title}</span>
+              {task.task_date !== today && (
+                <span className="shrink-0 rounded bg-amber-50 px-1 py-0.5 text-[10px] text-amber-600">
+                  {task.task_date}
+                </span>
               )}
             </li>
           ))}

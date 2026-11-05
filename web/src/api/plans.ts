@@ -15,10 +15,24 @@ export interface Plan {
   created_at?: string;
 }
 
+export type TaskType = "daily" | "feature_add" | "feature_optimize" | "idea";
+
+/** 任务类型展示名（顺序即排序顺序） */
+export const TASK_TYPE_LABELS: Record<TaskType, string> = {
+  daily: "日常",
+  feature_add: "功能添加",
+  feature_optimize: "功能优化",
+  idea: "奇思妙想",
+};
+
+export const TASK_TYPES = Object.keys(TASK_TYPE_LABELS) as TaskType[];
+
 export interface DailyTask {
   id: number;
   task_date: string;
   title: string;
+  content: string | null;
+  task_type: TaskType;
   done: boolean;
   sort_order: number;
   is_important: boolean;
@@ -110,7 +124,7 @@ export function useReorderPlans() {
 export function useCreateTask(date: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { title: string; is_important?: boolean }) =>
+    mutationFn: (body: { title: string; content?: string | null; task_type?: TaskType; is_important?: boolean }) =>
       api<DailyTask>("/tasks", { method: "POST", json: { task_date: date, ...body } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["daily-tasks", date] }),
   });
@@ -119,7 +133,7 @@ export function useCreateTask(date: string) {
 export function useUpdateTask(date: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number } & Partial<Pick<DailyTask, "title" | "done" | "is_important">>) =>
+    mutationFn: ({ id, ...body }: { id: number } & Partial<Pick<DailyTask, "title" | "content" | "done" | "task_type" | "is_important">>) =>
       api<DailyTask>(`/tasks/${id}`, { method: "PATCH", json: body }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-tasks", date] });
@@ -137,6 +151,20 @@ export function useDeleteTask(date: string) {
       qc.invalidateQueries({ queryKey: ["daily-tasks", date] });
       qc.invalidateQueries({ queryKey: ["tasks", "history"] });
       qc.invalidateQueries({ queryKey: ["plans"] });
+    },
+  });
+}
+
+export function useTaskToMemo(date: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<{ id: number }>(`/tasks/${id}/to_memo`, { method: "POST", json: {} }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["daily-tasks", date] });
+      qc.invalidateQueries({ queryKey: ["daily-tasks"] });
+      qc.invalidateQueries({ queryKey: ["memos"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "history"] });
     },
   });
 }

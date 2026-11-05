@@ -88,6 +88,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:  # 翻译补发失败不阻塞启动
             logger.warning("启动补翻译任务提交失败: %s", f"{type(exc).__name__}: {exc}"[:200])
 
+    @app.on_event("startup")
+    def _migrate_legacy_memo() -> None:
+        """旧版 memo.md → SQLite 随手备忘的一次性迁移（幂等；不删除原文件）。"""
+
+        from .services import memo_service
+
+        try:
+            with session_factory() as session:
+                memo_service.migrate_legacy_memo(session)
+        except Exception as exc:  # 迁移失败不阻塞启动；旧文件保留可重试
+            logger.warning("旧备忘迁移失败（保留原文件）: %s", f"{type(exc).__name__}: {exc}"[:200])
+
     dist: Path = settings.static_dir
     if (dist / "index.html").exists():
         app.mount("/", SPAStaticFiles(directory=str(dist), html=True), name="static")

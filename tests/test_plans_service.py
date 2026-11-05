@@ -133,12 +133,20 @@ def test_unfinished_task_carries_over(session):
     assert len(tasks_service.list_daily(session, "2026-11-02")) == 2
 
 
-def test_task_done_then_history_readonly(session):
-    """完成后进入历史；历史只读，恢复未完成被拒绝（409）。"""
+def test_task_done_toggle_clears_completed_at(session):
+    """完成 ↔ 未完成可反复切换：完成记时间，取消完成清除并回到未完成区。"""
     task = _make_task(session)
     updated = tasks_service.update_task(session, task["id"], {"done": True})
     assert updated["done"] is True and updated["completed_at"]
-    with pytest.raises(DomainError) as exc_info:
-        tasks_service.update_task(session, task["id"], {"done": False})
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.code == "history_readonly"
+    undone = tasks_service.update_task(session, task["id"], {"done": False})
+    assert undone["done"] is False and undone["completed_at"] is None
+
+
+def test_done_tasks_sort_to_bottom(session):
+    """已完成置底：重要已完成也排在未完成的普通任务之后。"""
+    normal = _make_task(session, title="普通")
+    important_done = _make_task(session, title="重要已完成")
+    tasks_service.update_task(session, important_done["id"], {"done": True, "is_important": True})
+    daily = tasks_service.list_daily(session, "2026-11-03")
+    assert daily[-1]["id"] == important_done["id"]
+    assert daily[0]["id"] == normal["id"]

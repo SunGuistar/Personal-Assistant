@@ -8,18 +8,19 @@ import { SafeMarkdown } from "../components/SafeMarkdown";
 
 const INFO = { id: 1, title: "设计规范", content: "**简洁优先**", sort_order: 1 };
 
-function makeFetchMock(overrides: { memo?: string; putSpy?: (body: unknown) => void } = {}) {
+const MEMO = { id: 1, title: "搁置的想法", content: "多行\n内容", sort_order: 1 };
+
+function makeFetchMock(overrides: { memos?: unknown } = {}) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === "/api/infos") {
       return new Response(JSON.stringify([INFO]), { status: 200 });
     }
-    if (url === "/api/memo" && init?.method === "PUT") {
-      overrides.putSpy?.(JSON.parse(String(init.body)));
-      return new Response(JSON.stringify({ content: "ok" }), { status: 200 });
+    if (url === "/api/memos" && init?.method === "POST") {
+      return new Response(JSON.stringify({ ...MEMO, ...JSON.parse(String(init.body)) }), { status: 201 });
     }
-    if (url === "/api/memo") {
-      return new Response(JSON.stringify({ content: overrides.memo ?? "" }), { status: 200 });
+    if (url === "/api/memos") {
+      return new Response(JSON.stringify(overrides.memos ?? [MEMO]), { status: 200 });
     }
     return new Response("not found", { status: 404 });
   });
@@ -84,23 +85,45 @@ describe("右侧常驻信息栏（PC 三栏工作台）", () => {
     });
   });
 
-  it("备忘自动保存：防抖后 PUT，状态显示已保存", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const puts: unknown[] = [];
-      vi.stubGlobal("fetch", makeFetchMock({ putSpy: (body) => puts.push(body) }));
-      renderLayout();
-      const textarea = await screen.findByLabelText("随手备忘");
+  it("随手备忘：完整显示标题与内容、无展开收起按钮、提供转为每日任务", async () => {
+    vi.stubGlobal("fetch", makeFetchMock());
+    renderLayout();
 
-      fireEvent.change(textarea, { target: { value: "# 想法" } });
-      expect(puts).toHaveLength(0); // 防抖未触发
-      await vi.advanceTimersByTimeAsync(900);
-      await waitFor(() => expect(puts).toHaveLength(1));
-      expect((puts[0] as { content: string }).content).toBe("# 想法");
-      expect(await screen.findByText("已保存")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    // 标题与内容完整显示（多行内容不换行截断）
+    expect(await screen.findByText("搁置的想法")).toBeInTheDocument();
+    expect(screen.getByText(/多行/)).toBeInTheDocument();
+    // 无展开/收起按钮
+    expect(screen.queryByRole("button", { name: /展开/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /收起/ })).not.toBeInTheDocument();
+    // 转为每日任务入口
+    expect(screen.getByRole("button", { name: "转为每日任务" })).toBeInTheDocument();
+  });
+
+  it("随手备忘新增：POST /api/memos", async () => {
+    const posts: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/infos") return new Response(JSON.stringify([INFO]), { status: 200 });
+        if (url === "/api/memos" && init?.method === "POST") {
+          posts.push(JSON.parse(String(init.body)));
+          return new Response(JSON.stringify({ ...MEMO, ...(posts[0] as object) }), { status: 201 });
+        }
+        if (url === "/api/memos") return new Response(JSON.stringify([MEMO]), { status: 200 });
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderLayout();
+    // 右栏两个面板各有"新增"（重要信息在前、随手备忘在后），取第二个
+    const addButtons = await screen.findAllByRole("button", { name: /新增/ });
+    fireEvent.click(addButtons[addButtons.length - 1]);
+
+    const emptyInputs = await screen.findAllByDisplayValue("");
+    fireEvent.change(emptyInputs[0], { target: { value: "新备忘" } }); // 第一个为空的是标题
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((posts[0] as { title: string }).title).toBe("新备忘");
   });
 });
 

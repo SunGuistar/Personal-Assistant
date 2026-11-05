@@ -15,6 +15,16 @@ from ..db import Base
 
 PLAN_STATUS = ("in_progress", "completed", "on_hold")
 
+# 每日任务固定四种类型（内部枚举值；顺序即排序顺序，前端展示中文名）
+TASK_TYPES = ("daily", "feature_add", "feature_optimize", "idea")
+TASK_TYPE_LABELS = {
+    "daily": "日常",
+    "feature_add": "功能添加",
+    "feature_optimize": "功能优化",
+    "idea": "奇思妙想",
+}
+_TYPE_INDEX = {value: index for index, value in enumerate(TASK_TYPES)}
+
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -42,6 +52,8 @@ class DailyTask(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_date: Mapped[str] = mapped_column(String(10))
     title: Mapped[str] = mapped_column(String(200))
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)  # 任务内容/备注（随手备忘转换承载）
+    task_type: Mapped[str] = mapped_column(String(16), default="daily")
     done: Mapped[int] = mapped_column(Integer, default=0)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_important: Mapped[int] = mapped_column(Integer, default=0)

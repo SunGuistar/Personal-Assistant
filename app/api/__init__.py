@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from .health import router as health_router
-from .infos import infos_router, memo_router
+from .infos import infos_router, memos_router
 from .jobs import router as jobs_router
 from .news import router as news_router
 from .plans import router as plans_router
@@ -23,4 +23,4 @@ api_router.include_router(reading_router)
 api_router.include_router(notes_router)
 api_router.include_router(wechat_router)
 api_router.include_router(infos_router)
-api_router.include_router(memo_router)
+api_router.include_router(memos_router)

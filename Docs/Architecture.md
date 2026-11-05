@@ -63,9 +63,11 @@ Docs/                 # 本文档等
 
 ### 3.3 计划 / 阅读 / 右栏
 
-- 长期计划与每日任务**完全独立**（迁移 0006 移除 plan_id，0 条历史关联）。排序统一为 重要 > sort_order：计划 `PUT /plans/reorder`、任务 `PUT /tasks/reorder`（统一待办排序，ordered_ids 覆盖某日视图全部可见任务，不一致 409）均提交完整顺序、按位置写 sort_order。长期计划完成仅经 `POST /plans/{id}/complete`（记 completed_at）；任务历史只读（恢复未完成 409 `history_readonly`）。"移至下一天" = 改 task_date + moved_from_date 溯源，不复制副本。
+- 长期计划与每日任务**完全独立**（迁移 0006 移除 plan_id，0 条历史关联）。排序统一为 **未完成优先 > 重要 > 任务类型（daily/feature_add/feature_optimize/idea，迁移 0007 新增 task_type 列，存量默认 daily）> sort_order**：计划 `PUT /plans/reorder`、任务 `PUT /tasks/reorder`（统一待办排序，ordered_ids 覆盖某日视图全部可见任务；分组序列被改变即 409 `reorder_cross_group`，前端在分组边界禁用按钮）均按位置写 sort_order。已完成任务置底（内部完成时间倒序）。完成可反复切换（取消完成清除 completed_at，移除原 history_readonly 限制）。"移至下一天" = 改 task_date + moved_from_date 溯源，不复制副本。
 - 阅读：书籍重要标记筛选内置顶；**有笔记禁删**（service 事务内检查，409 `book_has_notes`）；笔记文件落盘 `data/reading_notes/<book_id>/`，库中存相对路径与元数据，上传校验扩展名/大小/文件头签名，下载按库中路径解析（不接受用户传入路径，防穿越）。
-- 右栏：`/api/infos`（important_infos 表，CRUD + reorder，长期保留不参与清理）；`/api/memo`（**本地文件 `~/.personal-hub/memo.md`**：UTF-8、临时文件 + os.replace 原子替换、进程内锁、expected 比对防乱序覆盖、512KB 上限、显式报错）。前端 SafeMarkdown 先转义再解析（标题/列表/代码块/粗斜体/行内代码，链接仅 http/https），XSS 安全。
+- 右栏：`/api/infos`（important_infos 表）与 `/api/memos`（memos 表）——均为 CRUD + reorder，标题/内容完整显示自动换行（共用 RecordCard 组件），SafeMarkdown 先转义再解析（标题/列表/代码块/粗斜体/行内代码，链接仅 http/https），XSS 安全；长期保留不参与清理。
+- **双向转换（移动语义，单事务原子）**：`POST /api/memos/{id}/to_task {target_date, task_type, is_important}`（标题/内容迁入 daily_tasks.content，删原备忘）；`POST /api/tasks/{id}/to_memo`（仅未完成，409 `task_done_not_convertible`；标题/内容迁入 memos，删原任务）。源记录删除使重复请求自然 404。
+- 旧备忘文件：启动钩子调用 `migrate_legacy_memo()` 把 `~/.personal-hub/memo.md` 内容（如有）以固定标题导入一条备忘（幂等判重，不删除/不改写原文件）；memo.md 不再是数据源。
 - 后台任务状态查询统一在 `/api/jobs/{id}`（与每日任务 `/api/tasks/*` 区分）。
 
 ### 3.4 清理审核模块（D4，尚未实现）
@@ -85,12 +87,12 @@ Docs/                 # 本文档等
 
 ## 5. 数据存储设计
 
-- **hub.db**（SQLAlchemy + Alembic，迁移即 Schema 权威，模型与迁移一一对应）：业务数据全部在此——计划/任务/书籍/笔记元数据/资讯缓存/会话/任务/审计/token_usage/重要信息等。Schema 变更必须走 Alembic，先在隔离副本验证再应用真实库。
+- **hub.db**（SQLAlchemy + Alembic，迁移即 Schema 权威，模型与迁移一一对应）：业务数据全部在此——计划/任务/书籍/笔记元数据/资讯缓存/会话/任务/审计/token_usage/重要信息/随手备忘等。Schema 变更必须走 Alembic，先在隔离副本验证再应用真实库。
 - **聊天两库**（`GetWechatInfo/DataInfo/` 快照库 + 归一化库）：沿用现有 Schema，不走 Alembic、不改表结构；应用侧只读（`mode=ro`）；原始快照层幂等 upsert 由同步流程负责。
 - **Chroma**：沿用现有 `chat_chunks`（chunk_id = sha1(chat_id|msg_ids) 确定性 ID，metadata 含 msg_ids 逗号拼接字符串——where 不支持子串匹配，删除场景需客户端过滤）与 `rag_state`；不新增 collection 则不改名。
 - 时间戳：业务库用 ISO8601 文本（本地时区）；聊天库沿用 epoch，服务层负责转换。
 - 密钥：`~/.personal-hub/.env` 为权威（`PH_USER_ENV_DIR` 可覆盖），项目根 `.env` 可选覆盖；任何提交不得含密钥。
-- 运行时数据（data/、memo.md）不入 Git；`Output/` 历史报告兼容保留（D8）。
+- 运行时数据（data/）不入 Git；旧备忘文件 memo.md 属用户私人内容不入 Git；`Output/` 历史报告兼容保留（D8）。
 
 ## 6. 横切设计
 

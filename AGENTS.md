@@ -6,7 +6,7 @@
 
 - 个人使用的 Windows PC 应用：FastAPI + React，浏览器访问（默认 127.0.0.1:8620），**仅面向 PC，不做移动端适配**（V2.0 需求）。
 - 运行环境：Conda 环境 `agent`（Python 3.13）；前端 `cd web && npm install && npm run build`。
-- 当前版本含：微信聊天助手（Agent 对话/总结/同步）、技术资讯 TOP 10、计划管理、阅读管理、三栏工作台（右侧栏=重要信息 SQLite + 随手备忘本地文件 `~/.personal-hub/memo.md`）。
+- 当前版本含：微信聊天助手（Agent 对话/总结/同步）、技术资讯 TOP 10、计划管理、阅读管理、三栏工作台（右侧栏=重要信息 SQLite + 随手备忘 SQLite 多条记录，可与每日任务双向转换；旧 `~/.personal-hub/memo.md` 已废弃，启动时幂等迁移、原文件保留不入 Git）。
 - 微信模块已迁入 `app/wechat_agent/`；`GetWechatInfo/` 仅保留聊天数据（DataInfo/ 两库 + VectorStore/）。原 `LangGraph/`、`Tool/` 目录已不存在。
 - 常驻决策（不必再问）：总结统一经 Agent（D2，见 §4）；第一版无备份功能，以数据隔离规范替代（D1）；允许自动启动设置中配置的 WeChatDataAnalysis（D5）。
 
@@ -38,7 +38,7 @@
 - 密钥权威文件在 `~/.personal-hub/.env`（仓库之外）；项目根 `.env` 仅可选覆盖；键名见 `.env.example`；统一经 `env_bootstrap.load_hub_env()` 加载；**任何提交不得包含密钥**。
 - 聊天相关 SQLite 一律 `mode=ro` 打开；禁止读写 WeChatDataAnalysis 管理的原始微信数据库。
 - `Output/` 历史报告与问答文件兼容保留，未经用户确认不得清理（D8）。
-- 备忘文件（`~/.personal-hub/memo.md`）与重要信息属用户私人内容：不入 Git、不进文件日志正文、不参与清理审核。
+- 随手备忘（memos 表）与重要信息属用户私人内容：不入 Git、不进文件日志正文、不参与清理审核。
 
 ## 5. 日志与异常
 

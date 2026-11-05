@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, Field
 
 PlanStatus = Literal["in_progress", "completed", "on_hold"]
+TaskType = Literal["daily", "feature_add", "feature_optimize", "idea"]  # 顺序即类型排序顺序
 
 
 def _check_real_date(value: str | None) -> str | None:
@@ -62,12 +63,16 @@ class PlanOut(BaseModel):
 class DailyTaskIn(BaseModel):
     task_date: IsoDate
     title: str = Field(min_length=1, max_length=200)
+    content: str | None = None  # 任务内容/备注（可选）
+    task_type: TaskType = "daily"
     is_important: bool = False
 
 
 class DailyTaskPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
-    done: bool | None = None  # 仅允许 未完成→完成；完成→未完成被历史只读规则拒绝（409）
+    content: str | None = None
+    done: bool | None = None  # 可反复切换：完成记完成时间，取消完成清除并回到未完成区
+    task_type: TaskType | None = None
     is_important: bool | None = None
 
 
@@ -75,6 +80,8 @@ class DailyTaskOut(BaseModel):
     id: int
     task_date: str
     title: str
+    content: str | None
+    task_type: str
     done: bool
     sort_order: int
     is_important: bool
@@ -86,6 +93,14 @@ class DailyTaskOut(BaseModel):
 
 class MoveTaskIn(BaseModel):
     target_date: IsoDate
+
+
+class MemoToTaskIn(BaseModel):
+    """随手备忘转每日任务的确认参数。"""
+
+    target_date: IsoDate  # 默认今天，前端弹窗允许改
+    task_type: TaskType = "daily"
+    is_important: bool = False
 
 
 class ReorderIn(BaseModel):

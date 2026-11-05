@@ -78,7 +78,7 @@ export function SafeMarkdown({ text, className = "" }: { text: string; className
       }
       i++; // 跳过收尾 ```
       blocks.push(
-        <pre key={key++} className="my-1 overflow-x-auto rounded bg-neutral-900 p-2 text-xs text-neutral-100">
+        <pre key={key++} className="my-1 whitespace-pre-wrap break-words rounded bg-neutral-900 p-2 text-xs text-neutral-100">
           <code>{buffer.join("\n")}</code>
         </pre>
       );

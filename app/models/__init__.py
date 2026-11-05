@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .chat import ChatMessage, ChatSession
 from .important_info import ImportantInfo
+from .memo import Memo
 from .news import NewsItem, NewsSource
 from .plan import DailyTask, LongTermPlan
 from .reading import Book, BookNote
@@ -24,6 +25,7 @@ __all__ = [
     "DailyTask",
     "ImportantInfo",
     "LongTermPlan",
+    "Memo",
     "NewsItem",
     "NewsSource",
     "SyncCursor",
