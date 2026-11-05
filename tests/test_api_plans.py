@@ -17,12 +17,34 @@ def test_plans_crud_roundtrip(fclient):
     assert fclient.get(f"/api/plans/{plan_id}").status_code == 200
     patched = fclient.patch(f"/api/plans/{plan_id}", json={"status": "completed"})
     assert patched.json()["status"] == "completed"
+    assert patched.json()["completed_at"]  # PATCH 置完成同样补记完成时间
 
+    # 已完成计划离开当前列表，进入历史视图（不再从列表删除数据）
     listed = fclient.get("/api/plans").json()
-    assert any(item["id"] == plan_id for item in listed)
+    assert all(item["id"] != plan_id for item in listed)
+    history = fclient.get("/api/plans/history").json()
+    assert any(item["id"] == plan_id for item in history)
 
     assert fclient.delete(f"/api/plans/{plan_id}").status_code == 204
     assert fclient.get(f"/api/plans/{plan_id}").status_code == 404
+    assert fclient.get("/api/plans/history").json() == []
+
+
+def test_plan_complete_flow(fclient):
+    """标记完成：记录完成时间、离开当前列表、进入历史（需求二）。"""
+    plan = fclient.post("/api/plans", json={"title": "完成我"}).json()
+    completed = fclient.post(f"/api/plans/{plan['id']}/complete").json()
+    assert completed["status"] == "completed"
+    assert completed["completed_at"]
+
+    assert all(item["id"] != plan["id"] for item in fclient.get("/api/plans").json())
+    history = fclient.get("/api/plans/history").json()
+    assert [item["id"] for item in history] == [plan["id"]]
+    # 历史保留原有信息与重要状态
+    assert history[0]["title"] == "完成我"
+    assert history[0]["created_at"]
+
+    assert fclient.post("/api/plans/9999/complete").status_code == 404
 
 
 def test_tasks_unfinished_carry_over(fclient):

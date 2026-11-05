@@ -61,6 +61,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(api_router)
 
+    @app.on_event("startup")
+    def _enqueue_pending_news_translation() -> None:
+        """启动时补翻译：TOP 10 中已有缓存但缺少中文翻译的资讯异步翻译一次。
+
+        纯增量（translate_status='' 才入队），同 kind 冲突或 LLM 未配置时静默跳过，
+        不影响启动与首页加载。
+        """
+
+        from .exceptions import TaskConflict
+        from .services import news_translation
+
+        try:
+            with session_factory() as session:
+                if not news_translation.pending_top_items(session):
+                    return
+            runner = app.state.task_runner
+
+            def job(_progress_cb):
+                with session_factory() as job_session:
+                    return news_translation.translate_pending(job_session)
+
+            runner.submit(news_translation.TRANSLATE_KIND, {}, job)
+        except TaskConflict:
+            logger.info("news.translate 任务已在执行，启动补翻译跳过")
+        except Exception as exc:  # 翻译补发失败不阻塞启动
+            logger.warning("启动补翻译任务提交失败: %s", f"{type(exc).__name__}: {exc}"[:200])
+
     dist: Path = settings.static_dir
     if (dist / "index.html").exists():
         app.mount("/", SPAStaticFiles(directory=str(dist), html=True), name="static")

@@ -11,9 +11,19 @@ export function relativeTime(iso: string): string {
   return `${Math.floor(diffMinutes / (60 * 24))} 天前`;
 }
 
+/** 展示标题/摘要：优先中文翻译，缺失或失败回退原文。 */
+function displayTitle(item: NewsTopItem): string {
+  return item.title_zh.trim() || item.title;
+}
+
+function displaySummary(item: NewsTopItem): string {
+  return item.summary_zh.trim() || item.raw_summary.trim();
+}
+
 function NewsRow({ item }: { item: NewsTopItem }) {
-  const [open, setOpen] = useState(false);
-  const hasSummary = item.raw_summary.trim().length > 0;
+  const [expanded, setExpanded] = useState(false);
+  const summary = displaySummary(item);
+  const hasSummary = summary.length > 0;
 
   return (
     <li className="border-b border-neutral-100 py-2 last:border-b-0">
@@ -22,19 +32,34 @@ function NewsRow({ item }: { item: NewsTopItem }) {
           {item.rank}
         </span>
         <button
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
           className="min-w-0 flex-1 truncate text-left text-sm font-medium text-neutral-900 hover:underline"
         >
-          {item.title}
+          {displayTitle(item)}
         </button>
-        {hasSummary &&
-          (open ? (
+        {(hasSummary || expanded) &&
+          (expanded ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
           ) : (
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
           ))}
       </div>
+      {/* 中文摘要默认直接展示（限 2 行），点击标题展开完整内容 */}
+      {hasSummary && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className={`mt-0.5 block w-full pl-8 text-left text-xs leading-relaxed text-neutral-600 ${
+            expanded ? "" : "line-clamp-2"
+          }`}
+        >
+          {summary}
+          {!expanded && summary.length > 80 && (
+            <span className="ml-1 text-neutral-400">展开</span>
+          )}
+        </button>
+      )}
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 pl-8 text-xs text-neutral-400">
         <span>{item.source}</span>
         <span>·</span>
@@ -49,16 +74,14 @@ function NewsRow({ item }: { item: NewsTopItem }) {
           查看原文 <ExternalLink className="h-3 w-3" />
         </a>
       </div>
-      {open && (
-        <p className="mt-1 pl-8 text-xs leading-relaxed text-neutral-600">
-          {hasSummary ? item.raw_summary : "来源未提供摘要"}
-        </p>
+      {expanded && !hasSummary && (
+        <p className="mt-1 pl-8 text-xs leading-relaxed text-neutral-400">来源未提供摘要</p>
       )}
     </li>
   );
 }
 
-/** 首页与资讯页共用的热门 TOP 10 榜单组件（同一份 API 数据）。 */
+/** 首页与资讯页共用的热门 TOP 10 榜单组件（同一份 API 数据与翻译结果）。 */
 export function TopNewsList({
   items,
   loading,

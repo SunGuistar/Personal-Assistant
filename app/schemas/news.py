@@ -16,6 +16,9 @@ class NewsItemOut(BaseModel):
     topic: str
     published_at: str
     raw_summary: str
+    title_zh: str = ""
+    summary_zh: str = ""
+    translate_status: str = ""
     score: float
     effective_score: float
     rank: int

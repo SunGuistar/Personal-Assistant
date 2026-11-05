@@ -2,7 +2,7 @@
 
 - GET /news/top：排行榜纯查询（本地缓存，不触发抓取），首页与资讯页共用；
 - POST /news/refresh：TaskRunner 后台刷新（kind news.refresh，同 kind 409 防重），
-  进度与结果经 /api/jobs/{id} 查询；
+  进度与结果经 /api/jobs/{id} 查询；刷新成功后同任务内继续批量中文翻译（仅 TOP 10 未翻译项）；
 - GET /news/status：最近成功刷新时间 + 是否需要刷新（资讯页据此自动触发）。
 """
 
@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from ..schemas.news import NewsRefreshOut, NewsStatusOut, NewsTopOut
-from ..services import news_service
+from ..services import news_service, news_translation
 from .deps import get_session, get_task_runner
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,10 @@ def start_refresh(request: Request, runner=Depends(get_task_runner)):
 
     def job(progress_cb):
         with session_factory() as job_session:
-            return news_service.refresh_all(job_session, progress_cb=progress_cb)
+            result = news_service.refresh_all(job_session, progress_cb=progress_cb)
+            translate_result = news_translation.translate_pending(job_session)
+            result["translate"] = translate_result
+            return result
 
     task = runner.submit(news_service.REFRESH_KIND, {}, job)
     return {"task_id": task.id, "status": task.status}

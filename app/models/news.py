@@ -56,6 +56,10 @@ class NewsItem(Base):
     is_favorite: Mapped[int] = mapped_column(Integer, default=0)
     is_read: Mapped[int] = mapped_column(Integer, default=0)
     title_hash: Mapped[str] = mapped_column(String(64), default="")  # 标题哈希去重（sha1）
+    # 中文翻译缓存：仅对最终进入 TOP 10 的条目翻译一次；''=未尝试，done=成功，failed=失败回退原文
+    title_zh: Mapped[str] = mapped_column(String(512), default="")
+    summary_zh: Mapped[str] = mapped_column(Text, default="")
+    translate_status: Mapped[str] = mapped_column(String(16), default="")
     fetched_at: Mapped[str] = mapped_column(String(32), default=_now)
     created_at: Mapped[str] = mapped_column(String(32), default=_now)
     updated_at: Mapped[str] = mapped_column(String(32), default=_now, onupdate=_now)

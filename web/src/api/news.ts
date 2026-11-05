@@ -10,6 +10,9 @@ export interface NewsTopItem {
   topic: string;
   published_at: string;
   raw_summary: string;
+  title_zh: string;
+  summary_zh: string;
+  translate_status: string;
   score: number;
   effective_score: number;
   rank: number;

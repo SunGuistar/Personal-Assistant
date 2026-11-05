@@ -24,6 +24,9 @@ class LongTermPlan(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(16), default="in_progress")
     target_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    is_important: Mapped[int] = mapped_column(Integer, default=0)  # 重要置顶（排序：重要 > sort_order）
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 标记完成时间；未知为 NULL
     created_at: Mapped[str] = mapped_column(String(32), default=_now)
     updated_at: Mapped[str] = mapped_column(String(32), default=_now, onupdate=_now)
 
@@ -39,6 +42,8 @@ class DailyTask(Base):
     title: Mapped[str] = mapped_column(String(200))
     done: Mapped[int] = mapped_column(Integer, default=0)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_important: Mapped[int] = mapped_column(Integer, default=0)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 标记完成时间；未知为 NULL
     moved_from_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[str] = mapped_column(String(32), default=_now)
     updated_at: Mapped[str] = mapped_column(String(32), default=_now, onupdate=_now)

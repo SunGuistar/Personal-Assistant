@@ -16,6 +16,9 @@ const TOP = {
     topic: "ai",
     published_at: new Date(Date.now() - (i + 1) * 3600_000).toISOString(),
     raw_summary: `这是第 ${i + 1} 条的原始摘要。`,
+    title_zh: "",
+    summary_zh: "",
+    translate_status: "",
     score: 0.9 - i * 0.05,
     effective_score: 1.0 - i * 0.05,
     rank: i + 1,
@@ -82,23 +85,84 @@ describe("技术资讯页 TOP 10 + 导航", () => {
     expect(screen.queryByLabelText("主题筛选")).not.toBeInTheDocument();
   });
 
-  it("点击标题展开/收起摘要，原文链接安全打开", async () => {
-    vi.stubGlobal("fetch", makeFetchMock());
+  it("中文标题与摘要默认直接展示，点击展开完整内容（需求三）", async () => {
+    const topZh = {
+      ...TOP,
+      items: TOP.items.map((item, i) => ({
+        ...item,
+        title_zh: `中文标题 ${i + 1}`,
+        summary_zh: `中文摘要 ${i + 1}。`,
+        translate_status: "done",
+      })),
+    };
+    vi.stubGlobal("fetch", makeFetchMock({ top: topZh }));
     renderPage(<NewsPage />);
 
-    const title = await screen.findByText("热门资讯第 1 条");
-    expect(screen.queryByText("这是第 1 条的原始摘要。")).not.toBeInTheDocument(); // 默认折叠
+    // 默认直接展示中文标题与摘要（无需点击）
+    expect(await screen.findByText("中文标题 1")).toBeInTheDocument();
+    expect(screen.getByText(/中文摘要 1。/)).toBeInTheDocument();
 
-    fireEvent.click(title);
-    expect(screen.getByText("这是第 1 条的原始摘要。")).toBeInTheDocument(); // 展开
+    // 点击标题可展开完整摘要
+    const titleButton = screen.getByRole("button", { name: "中文标题 1" });
+    expect(titleButton.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(titleButton);
+    expect(titleButton.getAttribute("aria-expanded")).toBe("true");
 
-    fireEvent.click(title);
-    expect(screen.queryByText("这是第 1 条的原始摘要。")).not.toBeInTheDocument(); // 收起
-
+    // 原文链接安全打开
     const original = screen.getAllByRole("link", { name: /查看原文/ })[0];
     expect(original.getAttribute("href")).toBe("https://example.com/news-1");
     expect(original.getAttribute("target")).toBe("_blank");
     expect(original.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("翻译缺失/失败回退原文，且无摘要不编造（需求三）", async () => {
+    const fallback = {
+      ...TOP,
+      items: [
+        {
+          ...TOP.items[0],
+          title: "English Title Only",
+          title_zh: "",
+          raw_summary: "",
+          summary_zh: "",
+          translate_status: "failed",
+        },
+      ],
+      total: 1,
+    };
+    vi.stubGlobal("fetch", makeFetchMock({ top: fallback }));
+    renderPage(<NewsPage />);
+
+    // 回退英文原文标题；无摘要默认不展示编造内容
+    expect(await screen.findByText("English Title Only")).toBeInTheDocument();
+    expect(screen.queryByText("来源未提供摘要")).not.toBeInTheDocument();
+
+    // 展开后明确提示来源未提供摘要
+    fireEvent.click(screen.getByRole("button", { name: /English Title Only/ }));
+    expect(await screen.findByText("来源未提供摘要")).toBeInTheDocument();
+  });
+
+  it("XSS 防护：资讯内容按纯文本渲染（需求九）", async () => {
+    const evil = {
+      ...TOP,
+      items: [
+        {
+          ...TOP.items[0],
+          title_zh: '<img src=x onerror="alert(1)">',
+          summary_zh: '<script>alert(2)</script>',
+          translate_status: "done",
+        },
+      ],
+      total: 1,
+    };
+    vi.stubGlobal("fetch", makeFetchMock({ top: evil }));
+    renderPage(<NewsPage />);
+
+    // 恶意内容以纯文本展示，不生成恶意 img/script 元素
+    expect(await screen.findByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+    expect(screen.getByText("<script>alert(2)</script>")).toBeInTheDocument();
+    expect(document.querySelector('img[src="x"]')).toBeNull();
+    expect(document.querySelector("script[src]")).toBeNull();
   });
 
   it("榜单为空时显示空状态提示", async () => {
