@@ -151,6 +151,39 @@ describe("计划管理页面", () => {
     await waitFor(() => expect(patchBody).toEqual({ done: false }));
   });
 
+  it("编辑逾期任务标题保存后，今日视图立即刷新（BUG 回归）", async () => {
+    const overdue = { ...TASK, id: 2, task_date: todayStr(-1), title: "逾期旧标题" };
+    let dailyFetches = 0;
+    let patchBody: unknown = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/tasks/daily")) {
+          dailyFetches += 1;
+          return new Response(JSON.stringify([overdue]), { status: 200 });
+        }
+        if (url === "/api/plans") return new Response(JSON.stringify([]), { status: 200 });
+        if (url === "/api/tasks/2" && init?.method === "PATCH") {
+          patchBody = JSON.parse(String(init.body));
+          return new Response(JSON.stringify({ ...overdue, title: "逾期新标题" }), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+
+    // 打开编辑弹窗（铅笔按钮）→ 改标题 → 保存
+    fireEvent.click((await screen.findAllByRole("button", { name: "编辑" }))[0]);
+    const titleInput = await screen.findByDisplayValue("逾期旧标题");
+    fireEvent.change(titleInput, { target: { value: "逾期新标题" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(patchBody).toMatchObject({ title: "逾期新标题" }));
+    // 关键回归断言：保存后今日视图（daily-tasks 前缀）被失效并重新拉取
+    await waitFor(() => expect(dailyFetches).toBeGreaterThanOrEqual(2));
+  });
+
   it("任务显示类型标签，已完成任务无排序/转换按钮（需求三/四）", async () => {
     const second = { ...TASK, id: 2, title: "第二条" };
     const done = { ...TASK, id: 3, done: true };

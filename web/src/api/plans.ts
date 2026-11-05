@@ -130,25 +130,26 @@ export function useCreateTask(date: string) {
   });
 }
 
-export function useUpdateTask(date: string) {
+export function useUpdateTask(_date: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...body }: { id: number } & Partial<Pick<DailyTask, "title" | "content" | "done" | "task_type" | "is_important">>) =>
       api<DailyTask>(`/tasks/${id}`, { method: "PATCH", json: body }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["daily-tasks", date] });
+      // 逾期任务会出现在多个日期视图中：失效全部日期列表，避免"保存后标题未变"
+      qc.invalidateQueries({ queryKey: ["daily-tasks"] });
       qc.invalidateQueries({ queryKey: ["tasks", "history"] });
       qc.invalidateQueries({ queryKey: ["plans"] });
     },
   });
 }
 
-export function useDeleteTask(date: string) {
+export function useDeleteTask(_date: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api<void>(`/tasks/${id}`, { method: "DELETE" }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["daily-tasks", date] });
+      qc.invalidateQueries({ queryKey: ["daily-tasks"] });
       qc.invalidateQueries({ queryKey: ["tasks", "history"] });
       qc.invalidateQueries({ queryKey: ["plans"] });
     },
