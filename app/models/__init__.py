@@ -8,6 +8,12 @@ news 两表为短期资讯缓存（PRD §2.2 最终版：近期热门 TOP 10 + �
 from __future__ import annotations
 
 from .chat import ChatMessage, ChatSession
+from .cleanup import (
+    CleanupAudit,
+    CleanupCandidate,
+    CleanupDeleteItem,
+    CleanupReview,
+)
 from .important_info import ImportantInfo
 from .memo import Memo
 from .news import NewsItem, NewsSource
@@ -22,6 +28,10 @@ __all__ = [
     "BookNote",
     "ChatMessage",
     "ChatSession",
+    "CleanupAudit",
+    "CleanupCandidate",
+    "CleanupDeleteItem",
+    "CleanupReview",
     "DailyTask",
     "ImportantInfo",
     "LongTermPlan",

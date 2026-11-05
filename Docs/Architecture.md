@@ -70,9 +70,15 @@ Docs/                 # 本文档等
 - 旧备忘文件：启动钩子调用 `migrate_legacy_memo()` 把 `~/.personal-hub/memo.md` 内容（如有）以固定标题导入一条备忘（幂等判重，不删除/不改写原文件）；memo.md 不再是数据源。
 - 后台任务状态查询统一在 `/api/jobs/{id}`（与每日任务 `/api/tasks/*` 区分）。
 
-### 3.4 清理审核模块（D4，尚未实现）
+### 3.4 清理审核模块（D4，已实现，迁移 0008）
 
-设计已定（实现见 DEVELOPMENT_PLAN 阶段 5）：每周日生成候选（cleanup_candidates，item_type 仅微信两类消息；新闻不参与）→ 用户勾选 + 确认（cleanup_runs）→ 删除执行器逐项状态机（pending → normalized_deleted → chroma_done → snapshot_deleted → done/failed，可断点续跑）→ 审计（audit_log，不存内容）。无 confirmed run 执行器拒绝（409）；chunk 部分命中按剩余消息局部重建（新 chunk_id upsert + 删旧），执行器维护 rag_state 计数使后续增量索引不再全量重建；跨周候选去重（同一 ref_id 不重复出现在未完结审核中）。
+`app/cleanup/`：protection（`protected_dates` 配置，Asia/Shanghai 口径，最高优先级）→ ensure_review（周日触发/错过补发，week_id 幂等，不覆盖未处理周期）→ generate_candidates（只读扫描两库 + Chroma，按群+日期分组，跨周 ref 去重）→ confirm（复检保护/一致性，生成删除计划明细落库）→ execute（TaskRunner kind `cleanup.execute`：validate → 归一化 → Chroma → 快照 → rag_state 回写 → done；单组失败不扩大范围，断点续跑，重试幂等）。
+
+- 新表：`cleanup_reviews / cleanup_candidates / cleanup_delete_items / cleanup_audit`（hub.db，审计不存正文）。
+- Chroma 保守策略：解析 `msg_ids` → 归一化时间戳逐条判定（不信 metadata.date）；全命中才删，混合/含保护/未知一律保留并记录原因；不做部分重建、零重新 Embedding；保留 chunk 可检索到已删文本在预览与结果中明示。
+- rag_state 以实际剩余数回写（归一化 count + Chroma count），与 `incremental_index` 的"总数减少才全量重建"判定兼容（有负面对照测试证明必要性）。
+- 互斥与重启安全：cleanup ↔ wechat.sync 双向 409；同 kind 409；启动钩子把遗留 pending/running 任务标记 failed（僵尸任务不永久阻塞，不依赖进程内锁）。
+- 无任何自动删除入口；未确认执行 409；候选/预览零副作用。
 
 ### 3.5 启动器
 

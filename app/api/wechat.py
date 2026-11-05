@@ -82,6 +82,13 @@ def start_sync(
                 progress_cb=progress_cb,
             )
 
+    from ..cleanup.service import CLEANUP_TASK_KIND, active_task_exists
+
+    if active_task_exists(session, [CLEANUP_TASK_KIND]):
+        from ..exceptions import DomainError
+
+        raise DomainError("数据清理执行中，同步需等待清理完成", code="cleanup_conflict", status_code=409)
+
     task = runner.submit(
         "wechat.sync",
         payload.model_dump(),

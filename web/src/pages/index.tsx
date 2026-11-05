@@ -3,6 +3,7 @@ export { NewsPage } from "./NewsPage";
 export { PlansPage } from "./PlansPage";
 export { ReadingPage } from "./ReadingPage";
 export { WechatPage } from "./WechatPage";
+export { CleanupPage } from "./CleanupPage";
 
 function Placeholder({ title, note }: { title: string; note: string }) {
   return (
@@ -12,15 +13,6 @@ function Placeholder({ title, note }: { title: string; note: string }) {
         {note}
       </div>
     </div>
-  );
-}
-
-export function CleanupPage() {
-  return (
-    <Placeholder
-      title="数据清理审核"
-      note="阶段 5 提供：每周日候选清单、逐项勾选确认删除。当前为占位页。"
-    />
   );
 }
 

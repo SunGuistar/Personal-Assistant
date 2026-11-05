@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # 阶段 3 使用：WeChatDataAnalysis 桌面程序路径（D5，仅启动经配置与校验的程序）
     wechat_analysis_exe: str = ""
 
+    # 阶段 5 使用：永久保护的消息日期（Asia/Shanghai 本地日期，逗号分隔，可扩展）
+    protected_dates: str = "2026-10-27"
+
+    @property
+    def protected_date_list(self) -> list[str]:
+        return [d.strip() for d in self.protected_dates.split(",") if d.strip()]
+
     @property
     def logs_path(self) -> Path:
         return self.log_dir or (self.data_dir / "logs")

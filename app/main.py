@@ -89,6 +89,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.warning("启动补翻译任务提交失败: %s", f"{type(exc).__name__}: {exc}"[:200])
 
     @app.on_event("startup")
+    def _reconcile_stale_tasks() -> None:
+        """进程重启后，上次遗留的 pending/running 任务实际已不在执行。
+
+        一律标记 failed（可重新提交），避免同 kind 被僵尸任务永久 409——
+        不依赖进程内锁保证安全（阶段 5 互斥要求）。
+        """
+
+        from sqlalchemy import select as _select
+
+        from .models import Task as _Task
+
+        with session_factory() as session:
+            stale = session.execute(
+                _select(_Task).where(_Task.status.in_(["pending", "running"]))
+            ).scalars().all()
+            for task in stale:
+                task.status = "failed"
+                task.error = "进程重启，任务中断（可重新提交）"
+            if stale:
+                session.commit()
+                logger.info("陈旧任务清理: %d 个标记为 failed", len(stale))
+
+    @app.on_event("startup")
+    def _ensure_weekly_cleanup_review() -> None:
+        """周日生成（错过周日则下次启动补发）本周清理审核记录（幂等）。"""
+
+        from datetime import date as _date
+
+        from .cleanup import service as _cleanup_service
+
+        try:
+            with session_factory() as session:
+                _cleanup_service.ensure_review(
+                    session,
+                    today=_date.today(),
+                    protected=settings.protected_date_list,
+                )
+        except Exception as exc:  # 提醒失败不阻塞启动
+            logger.warning("清理审核周期初始化失败: %s", f"{type(exc).__name__}: {exc}"[:200])
+
+    @app.on_event("startup")
     def _migrate_legacy_memo() -> None:
         """旧版 memo.md → SQLite 随手备忘的一次性迁移（幂等；不删除原文件）。"""
 

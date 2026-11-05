@@ -7,6 +7,7 @@ import { DailyTask } from "../api/plans";
 import { BOOK_STATUS_LABELS, Book } from "../api/reading";
 import { useNewsTop } from "../api/news";
 import { TopNewsList } from "../components/news/TopNewsList";
+import { CleanupBanner } from "./CleanupPage";
 import { Button } from "../components/ui/button";
 
 type HealthResponse = { status: string; service: string; version: string };
@@ -47,6 +48,7 @@ export function HomePage() {
           </Link>
         </Button>
       </div>
+      <CleanupBanner />
       <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm">
         <div className="font-medium">后端服务状态</div>
         <div className="mt-1 text-neutral-600">
