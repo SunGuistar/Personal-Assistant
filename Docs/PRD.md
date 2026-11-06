@@ -36,6 +36,7 @@
 | D6 | 资讯使用少量高质量默认来源（官方 API/RSS），后续允许用户增删 |
 | D7 | 阅读管理采用 PDF/PNG 文件关联方案；真实样例文件验收前由用户提供 |
 | D8 | 普通问答默认不额外导出 Markdown；总结报告与用户主动保存的问答长期保留；兼容现有 Output 文件，未经确认不清理 |
+| D9 | GitHub 数据接入采用官方 REST API，不引入 GitHub MCP（未来 Agent 需要自主查询时再评估）；贡献统计为 Personal Hub 本地口径，非 GitHub 官方 Contributions |
 
 ## 2. 模块需求
 
@@ -110,6 +111,16 @@
 - **随手备忘（右栏下部）**：多条结构化记录（SQLite memos 表），新增/编辑/删除（二次确认）/上移下移排序、标题与内容完整显示自动换行、无展开收起、基础 Markdown 安全渲染；与重要信息同一卡片组件规范但不合并表。定位：搁置想法/未定时任务的缓冲池，最终去向只有删除或转为每日任务（双向转换见 §2.3）。不参与清理。
 - 旧版本地文件备忘（`~/.personal-hub/memo.md`）已废弃：启动时幂等迁移其内容（如有）为一条备忘记录，原文件保留不删除、不再作为数据源。
 - 两类数据模型不合并；Markdown 渲染必须安全（无 XSS）。
+
+### 2.7 GitHub 数据与年度贡献热力图（阶段一）
+
+- **接入方式**：GitHub 官方 REST API（已确定不引入 GitHub MCP）；Token 配置于 `~/.personal-hub/.env` 的 `GITHUB_TOKEN`，仅后端持有，不向前端暴露、不进日志。
+- **同步范围**：当前用户 owner 的仓库（含私有与 fork）及其 Commit / Pull Request / Issue（issues 端点混含的 PR 条目不计入 Issue）；同步走后台任务状态机，同 kind 409 防重；增量游标（sync_cursors，scope=github:{full_name}）；主键幂等 upsert，重复同步不重复计数；限流按 Retry-After 等待重试。GitHub 上已删除的仓库本地保守保留（删除走专门清理流程）。
+- **时间口径**：存储为 UTC ISO8601 文本；归属日与展示时间统一转 Asia/Shanghai。
+- **贡献统计（Personal Hub 口径，非 GitHub 官方 Contributions）**：某天贡献数 = 当天（+08:00）作者时间归属的 commit 数 + 当天创建的 PR 数 + 当天创建的 Issue 数。GitHub 官方口径（默认分支、提交归属等规则）不对齐；页面与接口均明示该口径，不得宣传为官方贡献数。颜色等级固定阈值：1-2 / 3-5 / 6-8 / ≥9 次。
+- **缺失数据区分**：未同步年份明确提示"数据尚未同步"，不把缺失显示为零贡献；部分覆盖年份展示覆盖起止范围。
+- **交互**：年度热力图（GitHub 布局：列=周、行=周一~周日、月份标签、Less/More 图例）、悬停 Tooltip（"Month D, YYYY: N contributions"/"No contributions"）、点击日期展示当日活动详情（类型/仓库/标题/时间/原始链接）、年份切换（禁止未来年份）。
+- 第一版不同步 GitHub Events（避免与 commit/PR/issue 重复计数）；不自动创建或修改任何业务数据。
 
 ## 3. 前端与体验
 

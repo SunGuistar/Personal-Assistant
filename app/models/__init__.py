@@ -8,6 +8,7 @@ news 两表为短期资讯缓存（PRD §2.2 最终版：近期热门 TOP 10 + �
 from __future__ import annotations
 
 from .chat import ChatMessage, ChatSession
+from .github import GithubCommit, GithubIssue, GithubPullRequest, GithubRepo
 from .cleanup import (
     CleanupAudit,
     CleanupCandidate,
@@ -33,6 +34,10 @@ __all__ = [
     "CleanupDeleteItem",
     "CleanupReview",
     "DailyTask",
+    "GithubCommit",
+    "GithubIssue",
+    "GithubPullRequest",
+    "GithubRepo",
     "ImportantInfo",
     "LongTermPlan",
     "Memo",

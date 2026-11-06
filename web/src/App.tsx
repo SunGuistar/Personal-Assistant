@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
 import {
   CleanupPage,
+  GithubPage,
   HomePage,
   NewsPage,
   PlansPage,
@@ -19,6 +20,7 @@ export function AppRoutes() {
       <Route path="/wechat" element={<WechatPage />} />
       <Route path="/news" element={<NewsPage />} />
       <Route path="/plans" element={<PlansPage />} />
+      <Route path="/github" element={<GithubPage />} />
       <Route path="/reading" element={<ReadingPage />} />
       <Route path="/cleanup" element={<CleanupPage />} />
       <Route path="/settings" element={<SettingsPage />} />

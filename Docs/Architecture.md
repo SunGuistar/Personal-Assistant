@@ -80,7 +80,16 @@ Docs/                 # 本文档等
 - 互斥与重启安全：cleanup ↔ wechat.sync 双向 409；同 kind 409；启动钩子把遗留 pending/running 任务标记 failed（僵尸任务不永久阻塞，不依赖进程内锁）。
 - 无任何自动删除入口；未确认执行 409；候选/预览零副作用。
 
-### 3.5 启动器
+### 3.5 GitHub 数据集成（阶段一，迁移 0010）
+
+`app/adapters/github_source.py`（REST 客户端：Bearer Token 仅进程内持有；429/限流 403 按 Retry-After/Reset 等待重试最多 2 次；per_page=100 自动翻页）→ `app/services/github_service.py`（同步任务体，TaskRunner kind `github.sync`，同 kind 409 防重）→ `app/services/github_contrib.py`（贡献统计）→ `app/api/github.py`（`/status` / `/sync` / `/contributions?year=` / `/contributions/{date}`）。
+
+- **存储**：`github_repos / github_commits / github_pull_requests / github_issues` 四表；主键取 GitHub 天然标识（repo id / sha / PR id / Issue id），`session.merge` 幂等；时间存 UTC ISO8601 文本，归属日由统计层转 Asia/Shanghai。
+- **增量**：复用 `sync_cursors`（scope=`github:{full_name}`，epoch 秒）；commits 用 `since`（作者时间口径），PR/Issue 的 `since` 作用于 updated_at（会带回旧记录，幂等吸收）；逐仓库提交，失败已完成的仓库保留。
+- **口径**：issues 端点混含的 PR（`pull_request` 键）不计入 Issue；第一版不同步 Events（避免重复计数）；已删仓库保守保留。
+- **贡献统计（非 GitHub 官方口径）**：日贡献 = +08:00 当日 commit 数 + 新建 PR 数 + 新建 Issue 数；颜色等级固定阈值 1-2/3-5/6-8/≥9；覆盖范围取三类数据 min/max，未同步年份与零贡献明确区分（前端提示）。
+
+### 3.6 启动器
 
 `launcher/launch.py`：请求 `/api/health` 通则直接开浏览器；否则启动 uvicorn（隐藏窗口 .vbs）→ 轮询健康检查（超时 30s 报错）→ 打开浏览器。默认端口 8620（避开 WeChatDataAnalysis 的 10392）。`.bat/.vbs/.ini` 文件必须纯 ASCII（AGENTS §5）。
 
