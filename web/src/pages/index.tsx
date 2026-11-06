@@ -3,7 +3,6 @@ export { NewsPage } from "./NewsPage";
 export { PlansPage } from "./PlansPage";
 export { ReadingPage } from "./ReadingPage";
 export { WechatPage } from "./WechatPage";
-export { ReviewPage } from "./ReviewPage";
 export { CleanupPage } from "./CleanupPage";
 
 function Placeholder({ title, note }: { title: string; note: string }) {

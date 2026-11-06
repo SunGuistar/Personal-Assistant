@@ -1,10 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
-import { postSse, readSseEvents, SseEvent } from "../lib/sse";
-
-export type { SseEvent };
-export { postSse, readSseEvents };
 
 export interface SourceStatus {
   running: boolean;
@@ -94,14 +90,33 @@ export interface ChatEvent {
   message?: string;
 }
 
-/** POST /wechat/chat 并返回 SSE 字节流（复用 lib/sse）。 */
+/** POST /wechat/chat 并返回 SSE 字节流（EventSource 只支持 GET，故用 fetch 手动解析）。 */
 export async function postChat(message: string, sessionId: number | null): Promise<Response> {
-  return postSse("/wechat/chat", { session_id: sessionId, message });
+  const response = await fetch("/api/wechat/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, message }),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`对话请求失败: HTTP ${response.status}`);
+  }
+  return response;
 }
 
 export async function* readChatEvents(response: Response): AsyncGenerator<ChatEvent> {
-  for await (const event of readSseEvents(response)) {
-    yield event as ChatEvent;
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      const line = block.split("\n").find((l) => l.startsWith("data: "));
+      if (line) yield JSON.parse(line.slice(6)) as ChatEvent;
+    }
   }
 }
 

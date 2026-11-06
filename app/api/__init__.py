@@ -11,7 +11,6 @@ from .jobs import router as jobs_router
 from .news import router as news_router
 from .plans import router as plans_router
 from .reading import notes_router, router as reading_router
-from .reviews import router as reviews_router
 from .tasks import router as tasks_router
 from .wechat import router as wechat_router
 
@@ -27,4 +26,3 @@ api_router.include_router(wechat_router)
 api_router.include_router(cleanup_router)
 api_router.include_router(infos_router)
 api_router.include_router(memos_router)
-api_router.include_router(reviews_router)

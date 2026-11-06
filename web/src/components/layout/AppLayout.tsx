@@ -3,7 +3,6 @@ import { NavLink } from "react-router-dom";
 import {
   BookOpen,
   CalendarCheck,
-  History,
   LayoutGrid,
   MessageSquareText,
   Newspaper,
@@ -21,7 +20,6 @@ const NAV_ITEMS = [
   { to: "/wechat", label: "微信助手", icon: MessageSquareText },
   { to: "/news", label: "技术资讯", icon: Newspaper },
   { to: "/plans", label: "计划管理", icon: CalendarCheck },
-  { to: "/review", label: "每周回顾", icon: History },
   { to: "/reading", label: "阅读管理", icon: BookOpen },
   { to: "/cleanup", label: "清理审核", icon: Trash2 },
   { to: "/settings", label: "设置", icon: Settings },
