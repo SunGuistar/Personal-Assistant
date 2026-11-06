@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..exceptions import DomainError, NotFoundError
@@ -44,12 +44,23 @@ def task_to_dict(task: DailyTask) -> dict:
 
 
 def _visible_statement(task_date: str):
-    """某日视图可见任务：当日全部 + 更早日期未完成。"""
+    """某日视图可见任务：当日全部 + 更早日期未完成 + 更早日期但本日完成的任务。
+
+    逾期任务在别的日期勾选完成后，完成动作发生在视图日——继续在该视图置底展示
+    （避免"勾完就消失"），同时仍可在其归属日期视图看到；完成时间不存在的
+    历史脏数据退回"仅归属日期"口径。
+    """
 
     return (
         select(DailyTask)
         .where(DailyTask.task_date <= task_date)
-        .where(or_(DailyTask.task_date == task_date, DailyTask.done == 0))
+        .where(
+            or_(
+                DailyTask.task_date == task_date,
+                DailyTask.done == 0,
+                func.date(DailyTask.completed_at) == task_date,
+            )
+        )
     )
 
 
@@ -119,8 +130,7 @@ def create_task(
     # 追加到该日期视图末尾（max sort_order + 1）；排序键自动归位
     max_order = session.execute(
         select(DailyTask.sort_order)
-        .where(DailyTask.task_date <= task_date)
-        .where(or_(DailyTask.task_date == task_date, DailyTask.done == 0))
+        .where(DailyTask.id.in_(_visible_statement(task_date).with_only_columns(DailyTask.id)))
         .order_by(DailyTask.sort_order.desc())
     ).scalars().first()
     task = DailyTask(

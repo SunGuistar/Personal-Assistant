@@ -117,20 +117,34 @@ def test_move_to_same_date_noop(session):
 
 
 def test_unfinished_task_carries_over(session):
-    """未完成任务在后续日期持续显示；已完成任务不跨日期（PRD §2.3）。"""
+    """未完成延续显示；逾期任务在后续日期勾选完成后，在完成日视图置底展示（不消失）。
 
-    overdue = _make_task(session, date="2026-11-02", title="逾期")
-    done_prev = _make_task(session, date="2026-11-02", title="已完成")
-    today = _make_task(session, date="2026-11-03", title="今日")
-    tasks_service.update_task(session, done_prev["id"], {"done": True})
+    规则（PRD §2.3）：某日视图 = 当日全部 + 更早日期未完成 + 更早日期但"本日完成"
+    的任务——完成动作发生在视图日，避免"勾完就从列表消失"。
+    """
 
-    daily = tasks_service.list_daily(session, "2026-11-03")
-    assert [t["id"] for t in daily] == [overdue["id"], today["id"]]
+    from datetime import date, timedelta
 
+    today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    overdue = _make_task(session, date=yesterday, title="逾期")
+    today_task = _make_task(session, date=today, title="今日")
+
+    daily = tasks_service.list_daily(session, today)
+    assert [t["id"] for t in daily] == [overdue["id"], today_task["id"]]
+
+    # 逾期任务今日完成：留在今日视图置底（而非消失进历史）
     tasks_service.update_task(session, overdue["id"], {"done": True})
-    assert [t["id"] for t in tasks_service.list_daily(session, "2026-11-03")] == [today["id"]]
-    # 历史日期仍显示当日全部任务
-    assert len(tasks_service.list_daily(session, "2026-11-02")) == 2
+    daily = tasks_service.list_daily(session, today)
+    assert [t["id"] for t in daily] == [today_task["id"], overdue["id"]]
+    assert daily[-1]["done"] is True
+    # 归属日期视图同样可见（当日全部任务口径）
+    assert overdue["id"] in [t["id"] for t in tasks_service.list_daily(session, yesterday)]
+
+    # 取消完成 → 回到未完成区，作为逾期延续排在最前
+    tasks_service.update_task(session, overdue["id"], {"done": False})
+    daily = tasks_service.list_daily(session, today)
+    assert daily[0]["id"] == overdue["id"] and daily[0]["done"] is False
 
 
 def test_task_done_toggle_clears_completed_at(session):
