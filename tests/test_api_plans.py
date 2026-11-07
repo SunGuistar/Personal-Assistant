@@ -114,33 +114,7 @@ def test_tasks_daily_crud(fclient):
     assert fclient.get(f"/api/tasks/daily?date={DATE}").json()[0]["id"] == t1["id"]
 
 
-def test_tasks_move_via_api(fclient):
-    task = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t"}).json()
-    moved = fclient.post(f"/api/tasks/{task['id']}/move", json={"target_date": "2026-11-05"}).json()
-    assert moved["task_date"] == "2026-11-05"
-    assert moved["moved_from_date"] == DATE
-    assert fclient.get(f"/api/tasks/daily?date={DATE}").json() == []
-    assert len(fclient.get("/api/tasks/daily?date=2026-11-05").json()) == 1
-
-
-def test_tasks_reorder_and_conflict(fclient):
-    a = fclient.post("/api/tasks", json={"task_date": DATE, "title": "a"}).json()
-    b = fclient.post("/api/tasks", json={"task_date": DATE, "title": "b"}).json()
-    result = fclient.put("/api/tasks/reorder", json={"date": DATE, "ordered_ids": [b["id"], a["id"]]})
-    assert result.status_code == 200
-    assert [t["id"] for t in result.json()] == [b["id"], a["id"]]
-
-    other = fclient.post("/api/tasks", json={"task_date": "2026-11-09", "title": "x"}).json()
-    conflict = fclient.put(
-        "/api/tasks/reorder", json={"date": DATE, "ordered_ids": [a["id"], other["id"]]}
-    )
-    assert conflict.status_code == 409
-    assert conflict.json()["detail"]["code"] == "reorder_mismatch"
-
 
 def test_tasks_404_422(fclient):
     assert fclient.patch("/api/tasks/9999", json={"done": True}).status_code == 404
     assert fclient.post("/api/tasks", json={"task_date": "bad", "title": "x"}).status_code == 422
-    assert (
-        fclient.post("/api/tasks/9999/move", json={"target_date": "2026-11-04"}).status_code == 404
-    )

@@ -96,7 +96,7 @@ describe("计划管理页面", () => {
     expect(screen.queryByLabelText("关联长期计划")).not.toBeInTheDocument();
   });
 
-  it("今日与逾期任务统一列表展示、统一排序按钮（需求二）", async () => {
+  it("今日与逾期任务统一列表展示（需求二）", async () => {
     const overdue = {
       ...TASK,
       id: 2,
@@ -121,9 +121,9 @@ describe("计划管理页面", () => {
     expect(await screen.findByText("逾期的任务")).toBeInTheDocument();
     expect(screen.getByText(todayStr(-1))).toBeInTheDocument();
     expect(screen.queryByText("未完成 · 来自更早日期")).not.toBeInTheDocument();
-    // 两行都可上移/下移（共 2 套按钮），可自由穿插
-    expect(screen.getAllByRole("button", { name: "上移" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "下移" })).toHaveLength(2);
+    // 每日任务无手动排序按钮（同组内顺序由创建先后决定）
+    expect(screen.queryByRole("button", { name: "上移" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "下移" })).not.toBeInTheDocument();
   });
 
   it("已完成任务可取消勾选（取消完成，需求二）", async () => {
@@ -184,7 +184,7 @@ describe("计划管理页面", () => {
     await waitFor(() => expect(dailyFetches).toBeGreaterThanOrEqual(2));
   });
 
-  it("任务显示类型标签，已完成任务无排序/转换按钮（需求三/四）", async () => {
+  it("任务显示类型标签，已完成任务无转换按钮（需求三/四）", async () => {
     const second = { ...TASK, id: 2, title: "第二条" };
     const done = { ...TASK, id: 3, done: true };
     vi.stubGlobal(
@@ -202,11 +202,7 @@ describe("计划管理页面", () => {
 
     expect(await screen.findByText("第二条")).toBeInTheDocument(); // 任务已渲染
     expect(screen.getAllByText("日常").length).toBeGreaterThanOrEqual(2); // 类型标签
-    // 未完成同组相邻：上移/下移 各只有 1 个可用（组首的上移渲染但禁用）；
-    // 已完成行无排序按钮（不渲染）；取消完成按钮存在
-    const enabled = (els: HTMLElement[]) => els.filter((el) => !(el as HTMLButtonElement).disabled);
-    expect(enabled(screen.getAllByRole("button", { name: "上移" }))).toHaveLength(1);
-    expect(enabled(screen.getAllByRole("button", { name: "下移" }))).toHaveLength(1);
+    // 未完成行有转换按钮，已完成行无转换按钮；取消完成按钮存在
     expect(screen.getAllByRole("button", { name: "转为随手备忘" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "取消完成" })).toBeInTheDocument();
   });

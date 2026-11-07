@@ -17,6 +17,7 @@ export function RecordCard({
   onDelete,
   deleteConfirm,
   extraAction,
+  titleClassName = "text-xs font-semibold leading-relaxed",
 }: {
   title: string;
   content: string;
@@ -27,6 +28,8 @@ export function RecordCard({
   onDelete: () => void;
   deleteConfirm: string;
   extraAction?: ReactNode;
+  /** 标题样式覆盖（默认小号深色；重要信息可传入放大标红） */
+  titleClassName?: string;
 }) {
   return (
     <li className="min-w-0 rounded-md border border-neutral-200 bg-white p-2">
@@ -39,7 +42,7 @@ export function RecordCard({
             <ArrowDown className="h-3.5 w-3.5" />
           </button>
         </div>
-        <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-relaxed">{title}</span>
+        <span className={`min-w-0 flex-1 break-words ${titleClassName}`}>{title}</span>
         <div className="flex shrink-0 items-center gap-0.5">
           {extraAction}
           <button onClick={onEdit} aria-label="编辑记录" className="p-0.5 text-neutral-400 hover:text-neutral-700">

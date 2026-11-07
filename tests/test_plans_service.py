@@ -81,39 +81,16 @@ def test_plan_not_found(session):
 
 # ---------- 任务 ----------
 
-def test_task_ordering_and_reorder(session):
+def test_task_ordering(session):
     a = _make_task(session, title="A")
     b = _make_task(session, title="B")
     c = _make_task(session, title="C")
     assert [t["id"] for t in tasks_service.list_daily(session, "2026-11-03")] == [
         a["id"], b["id"], c["id"],
     ]
-    result = tasks_service.reorder_tasks(session, "2026-11-03", [c["id"], a["id"], b["id"]])
-    assert [t["id"] for t in result] == [c["id"], a["id"], b["id"]]
 
 
-def test_reorder_rejects_foreign_ids(session):
-    a = _make_task(session, title="A")
-    other = _make_task(session, date="2026-11-04", title="X")
-    with pytest.raises(DomainError) as exc_info:
-        tasks_service.reorder_tasks(session, "2026-11-03", [a["id"], other["id"]])
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.code == "reorder_mismatch"
 
-
-def test_move_task_semantics(session):
-    task = _make_task(session, date="2026-11-03", title="T")
-    moved = tasks_service.move_task(session, task["id"], "2026-11-04")
-    assert moved["task_date"] == "2026-11-04"
-    assert moved["moved_from_date"] == "2026-11-03"  # 溯源，不复制副本
-    assert tasks_service.list_daily(session, "2026-11-03") == []
-    assert len(tasks_service.list_daily(session, "2026-11-04")) == 1
-
-
-def test_move_to_same_date_noop(session):
-    task = _make_task(session)
-    moved = tasks_service.move_task(session, task["id"], "2026-11-03")
-    assert moved["moved_from_date"] is None
 
 
 def test_unfinished_task_carries_over(session):

@@ -135,6 +135,7 @@ export function ImportantInfosPanel() {
                 }}
                 onDelete={() => deleteInfo.mutate(info.id)}
                 deleteConfirm={`删除重要信息「${info.title}」？`}
+                titleClassName="text-sm font-semibold leading-relaxed text-red-600"
               />
             ))}
           </ul>

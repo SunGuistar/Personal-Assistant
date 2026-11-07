@@ -170,23 +170,4 @@ export function useTaskToMemo(date: string) {
   });
 }
 
-export function useMoveTask(fromDate: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, target_date }: { id: number; target_date: string }) =>
-      api<DailyTask>(`/tasks/${id}/move`, { method: "POST", json: { target_date } }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["daily-tasks", fromDate] });
-      qc.invalidateQueries({ queryKey: ["daily-tasks", variables.target_date] });
-    },
-  });
-}
 
-export function useReorderTasks(date: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (ordered_ids: number[]) =>
-      api<DailyTask[]>("/tasks/reorder", { method: "PUT", json: { date, ordered_ids } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["daily-tasks", date] }),
-  });
-}

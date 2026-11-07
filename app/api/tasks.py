@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..schemas.info import MemoOut
-from ..schemas.plan import DailyTaskIn, DailyTaskOut, DailyTaskPatch, MoveTaskIn, ReorderIn
+from ..schemas.plan import DailyTaskIn, DailyTaskOut, DailyTaskPatch
 from ..services import memos_service, tasks_service
 from .deps import get_session
 
@@ -45,18 +45,8 @@ def delete_task(task_id: int, session: Session = Depends(get_session)):
     tasks_service.delete_task(session, task_id)
 
 
-@router.post("/{task_id}/move", response_model=DailyTaskOut)
-def move_task(task_id: int, payload: MoveTaskIn, session: Session = Depends(get_session)):
-    return tasks_service.move_task(session, task_id, payload.target_date)
-
-
 @router.post("/{task_id}/to_memo", response_model=MemoOut)
 def task_to_memo(task_id: int, session: Session = Depends(get_session)):
     """每日任务 → 随手备忘（移动）：仅未完成可转换，原任务删除。"""
 
     return memos_service.task_to_memo(session, task_id)
-
-
-@router.put("/reorder", response_model=list[DailyTaskOut])
-def reorder_tasks(payload: ReorderIn, session: Session = Depends(get_session)):
-    return tasks_service.reorder_tasks(session, payload.date, payload.ordered_ids)

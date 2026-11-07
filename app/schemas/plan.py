@@ -91,27 +91,12 @@ class DailyTaskOut(BaseModel):
     updated_at: str
 
 
-class MoveTaskIn(BaseModel):
-    target_date: IsoDate
-
-
 class MemoToTaskIn(BaseModel):
     """随手备忘转每日任务的确认参数。"""
 
     target_date: IsoDate  # 默认今天，前端弹窗允许改
     task_type: TaskType = "daily"
     is_important: bool = False
-
-
-class ReorderIn(BaseModel):
-    """统一待办排序：ordered_ids 为该日期视图全部可见任务的完整展示顺序。
-
-    覆盖今日任务 + 更早日期未完成任务（含已完成任务在其归属日期的展示），
-    排序键统一为（重要 > sort_order），与 list_daily 返回顺序一致。
-    """
-
-    date: IsoDate
-    ordered_ids: list[int]
 
 
 class PlanReorderIn(BaseModel):

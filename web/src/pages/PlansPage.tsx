@@ -6,7 +6,6 @@ import {
   CalendarPlus,
   Check,
   CheckCheck,
-  CornerDownRight,
   History,
   NotebookPen,
   Pencil,
@@ -38,11 +37,9 @@ import {
   useDailyTasks,
   useDeletePlan,
   useDeleteTask,
-  useMoveTask,
   usePlanHistory,
   usePlans,
   useReorderPlans,
-  useReorderTasks,
   useTaskHistory,
   useTaskToMemo,
   useUpdatePlan,
@@ -75,11 +72,6 @@ const TYPE_BADGE_CLASS: Record<TaskType, string> = {
   feature_optimize: "bg-amber-50 text-amber-600",
   idea: "bg-purple-50 text-purple-600",
 };
-
-/** 手动排序分组键：完成状态/重要/类型 相同才允许相邻交换（与后端 409 规则一致）。 */
-function sortGroupKey(task: DailyTask): string {
-  return `${task.done}|${task.is_important}|${task.task_type}`;
-}
 
 export function PlansPage() {
   const [date, setDate] = useState(todayStr());
@@ -149,7 +141,6 @@ function DailyPanel({
 
   // 统一待办列表（后端已按 未完成优先>重要>类型>sort_order 排序）：
   // 今日 + 更早日期未完成可自由穿插；已完成置底；逾期任务带原始日期徽标。
-  const taskIds = tasks.map((t) => t.id);
 
   return (
     <section className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -188,22 +179,9 @@ function DailyPanel({
         <div className="py-6 text-center text-sm text-neutral-400">这一天还没有任务</div>
       ) : (
         <ul className="space-y-1">
-          {tasks.map((task, index) => {
-            // 分组边界与已完成任务禁用上移/下移（后端越界返回 409）
-            const samePrev = index > 0 && sortGroupKey(tasks[index - 1]) === sortGroupKey(task);
-            const sameNext =
-              index < tasks.length - 1 && sortGroupKey(tasks[index + 1]) === sortGroupKey(task);
-            return (
-              <TaskRow
-                key={task.id}
-                task={task}
-                date={date}
-                canUp={!task.done && samePrev}
-                canDown={!task.done && sameNext}
-                allIds={taskIds}
-              />
-            );
-          })}
+          {tasks.map((task) => (
+            <TaskRow key={task.id} task={task} date={date} />
+          ))}
         </ul>
       )}
       <TaskHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
@@ -211,28 +189,12 @@ function DailyPanel({
   );
 }
 
-function TaskRow({
-  task,
-  date,
-  canUp,
-  canDown,
-  allIds,
-}: {
-  task: DailyTask;
-  date: string;
-  canUp: boolean;
-  canDown: boolean;
-  allIds: number[];
-}) {
+function TaskRow({ task, date }: { task: DailyTask; date: string }) {
   const updateTask = useUpdateTask(date);
   const deleteTask = useDeleteTask(date);
-  const moveTask = useMoveTask(date);
   const taskToMemo = useTaskToMemo(date);
-  const reorder = useReorderTasks(date);
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
-  const [moveOpen, setMoveOpen] = useState(false);
-  const [moveDate, setMoveDate] = useState(todayStr(1));
 
   const toggleDone = () => {
     // 乐观更新：立即反映，失败回滚（完成/取消完成均可反复切换）
@@ -245,15 +207,6 @@ function TaskRow({
       { id: task.id, done: !task.done },
       { onError: () => qc.setQueryData(key, previous) }
     );
-  };
-
-  const swap = (direction: -1 | 1) => {
-    const index = allIds.indexOf(task.id);
-    const target = index + direction;
-    if (target < 0 || target >= allIds.length) return;
-    const next = [...allIds];
-    [next[index], next[target]] = [next[target], next[index]];
-    reorder.mutate(next);
   };
 
   return (
@@ -300,22 +253,6 @@ function TaskRow({
       </span>
       {!task.done && (
         <>
-          <button onClick={() => swap(-1)} disabled={!canUp} aria-label="上移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
-            <ArrowUp className="h-4 w-4" />
-          </button>
-          <button onClick={() => swap(1)} disabled={!canDown} aria-label="下移" className="p-1 text-neutral-400 hover:text-neutral-700 disabled:opacity-30">
-            <ArrowDown className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => {
-              setMoveDate(todayStr(1));
-              setMoveOpen(true);
-            }}
-            aria-label="移至其他日期"
-            className="p-1 text-neutral-400 hover:text-neutral-700"
-          >
-            <CornerDownRight className="h-4 w-4" />
-          </button>
           <button
             onClick={() =>
               confirm(`将任务「${task.title}」转为随手备忘？任务将从列表中移除。`) &&
@@ -339,31 +276,6 @@ function TaskRow({
       >
         <Trash2 className="h-4 w-4" />
       </button>
-
-      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>移动「{task.title}」</DialogTitle>
-          </DialogHeader>
-          <Label>目标日期</Label>
-          <Input type="date" value={moveDate} onChange={(e) => setMoveDate(e.target.value)} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMoveOpen(false)}>
-              取消
-            </Button>
-            <Button
-              onClick={() =>
-                moveTask.mutate(
-                  { id: task.id, target_date: moveDate },
-                  { onSuccess: () => setMoveOpen(false) }
-                )
-              }
-            >
-              移动
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <TaskEditDialog task={task} open={editOpen} onOpenChange={setEditOpen} />
     </li>

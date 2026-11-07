@@ -101,52 +101,6 @@ def test_task_important_pinned_and_toggle(fclient):
     assert all(t["is_important"] is False for t in daily)  # 回落普通区域
 
 
-def test_unified_reorder_today_and_overdue_interleaved(fclient):
-    """需求二：今日任务与逾期任务统一排序、可自由穿插，且不改日期/状态。"""
-    o1 = fclient.post("/api/tasks", json={"task_date": PREV, "title": "o1"}).json()
-    o2 = fclient.post("/api/tasks", json={"task_date": PREV, "title": "o2"}).json()
-    t1 = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t1"}).json()
-    t2 = fclient.post("/api/tasks", json={"task_date": DATE, "title": "t2"}).json()
-
-    # 今日任务插到逾期任务之前：[t1, o1, t2, o2]
-    result = fclient.put(
-        "/api/tasks/reorder",
-        json={"date": DATE, "ordered_ids": [t1["id"], o1["id"], t2["id"], o2["id"]]},
-    )
-    assert result.status_code == 200
-    assert [t["id"] for t in result.json()] == [t1["id"], o1["id"], t2["id"], o2["id"]]
-
-    # 逾期任务插入今日任务之间：[o1, t1, o2, t2]
-    result = fclient.put(
-        "/api/tasks/reorder",
-        json={"date": DATE, "ordered_ids": [o1["id"], t1["id"], o2["id"], t2["id"]]},
-    )
-    assert [t["id"] for t in result.json()] == [o1["id"], t1["id"], o2["id"], t2["id"]]
-
-    # 只改顺序：日期、完成状态、标题不变
-    for tid, orig in [(o1["id"], o1), (o2["id"], o2), (t1["id"], t1)]:
-        row = fclient.get(f"/api/tasks/{tid}").json()
-        assert row["task_date"] == orig["task_date"] and row["done"] is False and row["title"] == orig["title"]
-
-    # 排序列表缺少可见任务 → 409
-    conflict = fclient.put(
-        "/api/tasks/reorder", json={"date": DATE, "ordered_ids": [o1["id"], t1["id"]]}
-    )
-    assert conflict.status_code == 409
-
-
-def test_unified_reorder_does_not_break_important_priority(fclient):
-    """重要任务始终在前；把普通任务排到重要之前的请求被拒绝（409）。"""
-    normal = fclient.post("/api/tasks", json={"task_date": DATE, "title": "n"}).json()
-    imp = fclient.post("/api/tasks", json={"task_date": DATE, "title": "i", "is_important": True}).json()
-    # 展示顺序重要在前
-    assert [t["id"] for t in fclient.get(f"/api/tasks/daily?date={DATE}").json()] == [imp["id"], normal["id"]]
-    # 尝试把普通任务排到重要之前 → 越界 409（前端在分组边界禁用上移/下移，不会发出此类请求）
-    conflict = fclient.put(
-        "/api/tasks/reorder", json={"date": DATE, "ordered_ids": [normal["id"], imp["id"]]}
-    )
-    assert conflict.status_code == 409
-    assert conflict.json()["detail"]["code"] == "reorder_cross_group"
 
 
 def test_overdue_important_still_pinned(fclient):
@@ -219,26 +173,20 @@ def test_task_type_ordering_and_important_priority(fclient):
     assert bad.status_code == 422
 
 
-def test_reorder_within_type_and_cross_group_rejected(fclient):
-    """需求四：同类型内部可手动排序，跨类型/重要/完成边界 409。"""
+def test_type_change_resorts_immediately(fclient):
+    """需求四：改类型后立即按新类型重排（无手动排序入口，顺序由排序键决定）。"""
     a = fclient.post("/api/tasks", json={"task_date": DATE, "title": "a"}).json()
     b = fclient.post("/api/tasks", json={"task_date": DATE, "title": "b"}).json()
     c = fclient.post("/api/tasks", json={"task_date": DATE, "title": "c", "task_type": "feature_add"}).json()
 
-    # 同类型内部交换：a↔b（均为日常）
-    result = fclient.put("/api/tasks/reorder", json={"date": DATE, "ordered_ids": [b["id"], a["id"], c["id"]]})
-    assert result.status_code == 200
-    assert [t["id"] for t in result.json()] == [b["id"], a["id"], c["id"]]
-
-    # 跨类型边界（把 feature_add 插到日常之前）→ 409
-    conflict = fclient.put("/api/tasks/reorder", json={"date": DATE, "ordered_ids": [c["id"], b["id"], a["id"]]})
-    assert conflict.status_code == 409
-    assert conflict.json()["detail"]["code"] == "reorder_cross_group"
+    # 同类型（日常）内部按 sort_order 稳定排序
+    assert [t["id"] for t in fclient.get(f"/api/tasks/daily?date={DATE}").json()] == [a["id"], b["id"], c["id"]]
 
     # 修改类型后立即按新类型重排
     fclient.patch(f"/api/tasks/{a['id']}", json={"task_type": "idea"})
     daily = fclient.get(f"/api/tasks/daily?date={DATE}").json()
     assert daily[0]["id"] == b["id"] and daily[-1]["id"] == a["id"]
+
 
 
 def test_legacy_task_type_migration_default(fclient):
