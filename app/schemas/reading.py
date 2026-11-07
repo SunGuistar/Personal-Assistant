@@ -43,3 +43,8 @@ class NoteOut(BaseModel):
     filename: str
     size: int
     uploaded_at: str
+
+
+class NoteMdIn(BaseModel):
+    filename: str | None = Field(default=None, max_length=200)
+    content: str = Field(min_length=1)

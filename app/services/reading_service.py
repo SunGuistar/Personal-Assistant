@@ -21,7 +21,7 @@ from ..models.reading import BOOK_STATUS
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg"})
+ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".md"})
 _ILLEGAL_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 BOOK_HAS_NOTES_MESSAGE = "该书籍存在关联笔记，请先删除全部笔记后再删除书籍。"
 
@@ -37,7 +37,25 @@ _FILE_SIGNATURES: dict[str, tuple[bytes, str]] = {
 def verify_file_signature(filename: str, data: bytes) -> None:
     """校验文件头签名与扩展名一致（防伪造扩展名）。"""
 
-    signature, kind = _FILE_SIGNATURES[Path(filename).suffix.lower()]
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".md":
+        # Markdown 无文件头签名：要求内容为有效 UTF-8 文本且不含 NUL
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise DomainError(
+                "Markdown 笔记必须是有效的 UTF-8 文本",
+                code="invalid_text_content",
+                status_code=400,
+            )
+        if "\x00" in text:
+            raise DomainError(
+                "Markdown 笔记必须是有效的 UTF-8 文本",
+                code="invalid_text_content",
+                status_code=400,
+            )
+        return
+    signature, kind = _FILE_SIGNATURES[suffix]
     if not data.startswith(signature):
         raise DomainError(
             f"文件内容与扩展名不符：不是有效的 {kind} 文件",
@@ -159,35 +177,11 @@ def _unique_path(directory: Path, filename: str) -> Path:
     raise DomainError("无法生成不重复的文件名", code="filename_conflict", status_code=409)
 
 
-def save_note(
-    session: Session,
-    *,
-    book_id: int,
-    filename: str,
-    data: bytes,
-    notes_dir: Path,
-    max_bytes: int,
+def _write_and_record(
+    session: Session, *, book_id: int, notes_dir: Path, book_dir: Path, safe_name: str, data: bytes
 ) -> dict:
-    """校验并保存笔记附件；返回笔记记录。任何一步失败都不留半截文件。"""
+    """写文件并落库；写库失败时回滚并清理已写文件，不留半截数据。"""
 
-    get_book(session, book_id)
-    safe_name = sanitize_filename(filename)
-    if Path(safe_name).suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise DomainError(
-            f"不支持的文件类型: {Path(safe_name).suffix or '(无扩展名)'}，仅支持 pdf/png/jpg/jpeg",
-            code="invalid_file_type",
-            status_code=400,
-        )
-    if len(data) > max_bytes:
-        raise DomainError(
-            f"文件超过大小限制（{max_bytes // (1024 * 1024)}MB）",
-            code="file_too_large",
-            status_code=400,
-        )
-    verify_file_signature(safe_name, data)
-
-    book_dir = notes_dir / str(book_id)
-    book_dir.mkdir(parents=True, exist_ok=True)
     target = _unique_path(book_dir, safe_name)
     try:
         target.write_bytes(data)
@@ -209,6 +203,72 @@ def save_note(
         session.rollback()
         raise
     return note_to_dict(note)
+
+
+def save_note(
+    session: Session,
+    *,
+    book_id: int,
+    filename: str,
+    data: bytes,
+    notes_dir: Path,
+    max_bytes: int,
+) -> dict:
+    """校验并保存笔记附件；返回笔记记录。任何一步失败都不留半截文件。"""
+
+    get_book(session, book_id)
+    safe_name = sanitize_filename(filename)
+    if Path(safe_name).suffix.lower() not in ALLOWED_EXTENSIONS:
+        raise DomainError(
+            f"不支持的文件类型: {Path(safe_name).suffix or '(无扩展名)'}，仅支持 pdf/png/jpg/jpeg/md",
+            code="invalid_file_type",
+            status_code=400,
+        )
+    if len(data) > max_bytes:
+        raise DomainError(
+            f"文件超过大小限制（{max_bytes // (1024 * 1024)}MB）",
+            code="file_too_large",
+            status_code=400,
+        )
+    verify_file_signature(safe_name, data)
+
+    book_dir = notes_dir / str(book_id)
+    book_dir.mkdir(parents=True, exist_ok=True)
+    return _write_and_record(
+        session, book_id=book_id, notes_dir=notes_dir, book_dir=book_dir, safe_name=safe_name, data=data
+    )
+
+
+def create_text_note(
+    session: Session,
+    *,
+    book_id: int,
+    content: str,
+    filename: str | None,
+    notes_dir: Path,
+    max_bytes: int,
+) -> dict:
+    """在线编写 Markdown 笔记：内容编码为 UTF-8 后按附件同一套规则落盘。"""
+
+    get_book(session, book_id)
+    data = content.encode("utf-8")
+    if len(data) > max_bytes:
+        raise DomainError(
+            f"内容超过大小限制（{max_bytes // (1024 * 1024)}MB）",
+            code="file_too_large",
+            status_code=400,
+        )
+    raw_name = (filename or "").strip() or "未命名笔记.md"
+    if Path(raw_name).suffix.lower() != ".md":
+        raw_name = f"{raw_name}.md"
+    safe_name = sanitize_filename(raw_name)
+    verify_file_signature(safe_name, data)
+
+    book_dir = notes_dir / str(book_id)
+    book_dir.mkdir(parents=True, exist_ok=True)
+    return _write_and_record(
+        session, book_id=book_id, notes_dir=notes_dir, book_dir=book_dir, safe_name=safe_name, data=data
+    )
 
 
 def get_note(session: Session, note_id: int) -> BookNote:
@@ -248,4 +308,5 @@ def note_content_type(filename: str) -> str:
         ".png": "image/png",
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
+        ".md": "text/markdown; charset=utf-8",
     }.get(Path(filename).suffix.lower(), "application/octet-stream")

@@ -61,6 +61,7 @@ def test_note_upload_list_download_roundtrip(fclient):
     assert downloaded.status_code == 200
     assert downloaded.content == b"%PDF-fake-content"
     assert downloaded.headers["content-type"].startswith("application/pdf")
+    assert downloaded.headers["content-disposition"].startswith("inline")
 
     assert fclient.delete(f"/api/books/{book['id']}/notes/{note['id']}").status_code == 204
     assert fclient.get(f"/api/books/{book['id']}/notes").json() == []
@@ -140,3 +141,80 @@ def test_book_important_pinned_and_persist(fclient):
     # 重新标记（持久化）
     fclient.patch(f"/api/books/{normal['id']}", json={"is_important": True})
     assert fclient.get("/api/books").json()[0]["id"] == normal["id"]
+
+
+# ---------- Markdown 笔记：导入 + 在线编写 ----------
+
+def test_md_upload_roundtrip(fclient):
+    book = _make_book(fclient)
+    data = "# 第一章\n\n- 要点一\n- 要点二\n".encode("utf-8")
+    uploaded = _upload(fclient, book["id"], name="章节笔记.md", data=data)
+    assert uploaded.status_code == 201
+    note = uploaded.json()
+    assert note["filename"] == "章节笔记.md"
+    assert note["size"] == len(data)
+
+    downloaded = fclient.get(f"/api/notes/{note['id']}/file")
+    assert downloaded.status_code == 200
+    assert downloaded.content == data
+    assert downloaded.headers["content-type"].startswith("text/markdown")
+
+
+def test_md_upload_rejects_non_utf8(fclient):
+    book = _make_book(fclient)
+    response = _upload(fclient, book["id"], name="bad.md", data=b"\xff\xfe\x00binary")
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid_text_content"
+    assert fclient.get(f"/api/books/{book['id']}/notes").json() == []
+
+
+def test_create_md_note_online(fclient):
+    book = _make_book(fclient)
+    created = fclient.post(
+        f"/api/books/{book['id']}/notes/md",
+        json={"filename": " 随手记 ", "content": "# 感想\n\n写在线笔记。\n"},
+    )
+    assert created.status_code == 201
+    note = created.json()
+    assert note["filename"] == "随手记.md"  # 无扩展名自动补 .md
+
+    downloaded = fclient.get(f"/api/notes/{note['id']}/file")
+    assert downloaded.status_code == 200
+    assert downloaded.content == "# 感想\n\n写在线笔记。\n".encode("utf-8")
+
+    # 默认文件名 + 同名再建时自动去重
+    again = fclient.post(f"/api/books/{book['id']}/notes/md", json={"content": "再写一条"})
+    assert again.status_code == 201
+    assert again.json()["filename"] != note["filename"]
+
+
+def test_create_md_note_validation(fclient):
+    book = _make_book(fclient)
+    assert fclient.post(f"/api/books/{book['id']}/notes/md", json={"content": ""}).status_code == 422
+    assert fclient.post(f"/api/books/9999/notes/md", json={"content": "x"}).status_code == 404
+
+    traversal = fclient.post(
+        f"/api/books/{book['id']}/notes/md",
+        json={"filename": "../../evil.md", "content": "x"},
+    )
+    assert traversal.status_code == 400
+    assert fclient.get(f"/api/books/{book['id']}/notes").json() == []
+def test_note_file_download_mode(fclient):
+    """默认 inline 预览；download=1 时 attachment 且带原始文件名；两种模式内容一致。"""
+    book = _make_book(fclient)
+    uploaded = _upload(fclient, book["id"], name="报告.pdf")
+    note_id = uploaded.json()["id"]
+
+    inline = fclient.get(f"/api/notes/{note_id}/file")
+    assert inline.status_code == 200
+    assert inline.headers["content-disposition"].startswith("inline")
+
+    attachment = fclient.get(f"/api/notes/{note_id}/file?download=1")
+    assert attachment.status_code == 200
+    disposition = attachment.headers["content-disposition"]
+    assert disposition.startswith("attachment")
+    from urllib.parse import unquote
+
+    assert "filename" in disposition
+    assert unquote(disposition).endswith("报告.pdf")  # RFC 5987 编码的中文文件名
+    assert attachment.content == inline.content

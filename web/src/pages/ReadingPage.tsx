@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, FileText, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { BookOpen, Download, FileText, Pencil, PenLine, Plus, Trash2, Upload } from "lucide-react";
 
 import { ApiError } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -18,6 +18,7 @@ import {
   isNoteFileAllowed,
   useBooks,
   useCreateBook,
+  useCreateMdNote,
   useDeleteBook,
   useDeleteNote,
   useNotes,
@@ -258,6 +259,7 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
   const deleteNote = useDeleteNote(book?.id ?? 0);
   const fileInput = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<{ id: number; filename: string } | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const pickFile = () => fileInput.current?.click();
@@ -266,7 +268,7 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
     setError(null);
     if (!file || !book) return;
     if (!isNoteFileAllowed(file.name)) {
-      setError("仅支持 PDF / PNG / JPG 格式的笔记文件");
+      setError("仅支持 PDF / PNG / JPG / MD 格式的笔记文件");
       return;
     }
     uploadNote.mutate(file, {
@@ -288,7 +290,7 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
         <input
           ref={fileInput}
           type="file"
-          accept=".pdf,.png,.jpg,.jpeg"
+          accept=".pdf,.png,.jpg,.jpeg,.md"
           className="hidden"
           data-testid="note-file-input"
           onChange={(e) => {
@@ -298,7 +300,7 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
         />
         {notes.length === 0 ? (
           <div className="py-4 text-center text-sm text-neutral-400">
-            还没有笔记。在云记中导出 PDF/PNG 后在此上传。
+            还没有笔记。可上传 PDF / PNG / JPG / MD 文件，或在线编写 Markdown 笔记。
           </div>
         ) : (
           <ul className="space-y-1">
@@ -327,13 +329,109 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
           </ul>
         )}
         <DialogFooter>
+          <Button variant="outline" onClick={() => setEditorOpen(true)}>
+            <PenLine className="h-4 w-4" /> 在线写笔记
+          </Button>
           <Button variant="outline" onClick={pickFile} disabled={uploadNote.isPending}>
             <Upload className="h-4 w-4" /> {uploadNote.isPending ? "上传中…" : "上传笔记"}
           </Button>
         </DialogFooter>
       </DialogContent>
 
+      <MdNoteEditorDialog bookId={book?.id ?? 0} open={editorOpen} onClose={() => setEditorOpen(false)} />
       <PreviewDialog preview={preview} onClose={() => setPreview(null)} />
+    </Dialog>
+  );
+}
+
+function MdNoteEditorDialog({
+  bookId,
+  open,
+  onClose,
+}: {
+  bookId: number;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const createMdNote = useCreateMdNote(bookId);
+  const [filename, setFilename] = useState("");
+  const [content, setContent] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setFilename("");
+    setContent("");
+    setError(null);
+  };
+
+  const save = () => {
+    if (!content.trim()) {
+      setError("笔记内容不能为空");
+      return;
+    }
+    createMdNote.mutate(
+      { filename: filename.trim(), content },
+      {
+        onSuccess: () => {
+          reset();
+          onClose();
+        },
+        onError: (e) => setError(e instanceof ApiError ? e.message : "保存失败"),
+      }
+    );
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) {
+          reset();
+          onClose();
+        }
+      }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>在线写笔记（Markdown）</DialogTitle>
+        </DialogHeader>
+        {error && (
+          <div className="mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {error}
+          </div>
+        )}
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="md-note-filename">笔记名称（可留空，自动加 .md 后缀）</Label>
+            <Input
+              id="md-note-filename"
+              value={filename}
+              maxLength={200}
+              placeholder="例如：第一章读后感"
+              onChange={(e) => setFilename(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="md-note-content">内容（Markdown）</Label>
+            <Textarea
+              id="md-note-content"
+              rows={12}
+              value={content}
+              placeholder={"# 标题\n\n- 要点\n\n正文…"}
+              className="font-mono text-sm"
+              onChange={(e) => setContent(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={createMdNote.isPending}>
+            取消
+          </Button>
+          <Button onClick={save} disabled={createMdNote.isPending}>
+            {createMdNote.isPending ? "保存中…" : "保存笔记"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -362,6 +460,13 @@ function PreviewDialog({
             )}
           </div>
         )}
+        <DialogFooter>
+          <Button variant="outline" asChild>
+            <a href={`${src}?download=1`} download={preview?.filename}>
+              <Download className="h-4 w-4" /> 下载
+            </a>
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

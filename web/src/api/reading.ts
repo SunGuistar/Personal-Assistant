@@ -82,6 +82,18 @@ export function useUploadNote(bookId: number) {
   });
 }
 
+export function useCreateMdNote(bookId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { filename: string; content: string }) =>
+      api<BookNote>(`/books/${bookId}/notes/md`, { method: "POST", json: body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["book-notes", bookId] });
+      qc.invalidateQueries({ queryKey: ["books"] });
+    },
+  });
+}
+
 export function useDeleteNote(bookId: number) {
   const qc = useQueryClient();
   return useMutation({
@@ -94,7 +106,7 @@ export function useDeleteNote(bookId: number) {
   });
 }
 
-export const NOTE_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg"];
+export const NOTE_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".md"];
 
 export function isNoteFileAllowed(name: string): boolean {
   const lower = name.toLowerCase();

@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..exceptions import DomainError
-from ..schemas.reading import BookIn, BookOut, BookPatch, NoteOut
+from ..schemas.reading import BookIn, BookOut, BookPatch, NoteMdIn, NoteOut
 from ..services import reading_service
 from .deps import get_session, get_settings
 
@@ -70,6 +70,24 @@ async def upload_note(
     )
 
 
+@router.post("/{book_id}/notes/md", response_model=NoteOut, status_code=201)
+def create_md_note(
+    book_id: int,
+    payload: NoteMdIn,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    settings = get_settings(request)
+    return reading_service.create_text_note(
+        session,
+        book_id=book_id,
+        content=payload.content,
+        filename=payload.filename,
+        notes_dir=settings.reading_notes_dir,
+        max_bytes=settings.upload_max_mb * 1024 * 1024,
+    )
+
+
 @router.delete("/{book_id}/notes/{note_id}", status_code=204)
 def delete_note(book_id: int, note_id: int, request: Request, session: Session = Depends(get_session)):
     settings = get_settings(request)
@@ -83,7 +101,12 @@ notes_router = APIRouter(prefix="/notes", tags=["reading"])
 
 
 @notes_router.get("/{note_id}/file")
-def note_file(note_id: int, request: Request, session: Session = Depends(get_session)):
+def note_file(
+    note_id: int,
+    request: Request,
+    download: bool = False,
+    session: Session = Depends(get_session),
+):
     settings = get_settings(request)
     note = reading_service.get_note(session, note_id)
     path = reading_service.note_file_path(session, note_id, settings.reading_notes_dir)
@@ -91,4 +114,5 @@ def note_file(note_id: int, request: Request, session: Session = Depends(get_ses
         path,
         media_type=reading_service.note_content_type(note.filename),
         filename=note.filename,
+        content_disposition_type="attachment" if download else "inline",
     )
