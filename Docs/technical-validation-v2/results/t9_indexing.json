@@ -1,0 +1,55 @@
+{
+  "probe": "t9_indexing",
+  "run_at": "2026-11-09T12:17:57.209021+00:00",
+  "chunking": {
+    "chunk_count": 3,
+    "avg_chunk_len": 131,
+    "chunks_head": [
+      "# 大模型推理优化年度综述（长文测试素材）\n\n## 背景\n近年来大语言模型推理成",
+      "## 量化\nINT8 与 FP8 量化可将显存占用降低一半以上，精度损失可控。\n",
+      "## 结论\n推理优化进入组合优化阶段，KV Cache 管理、量化与推测解码协同"
+    ]
+  },
+  "embedding_live": true,
+  "index_long_article": {
+    "ok": true,
+    "chunks_indexed": 3,
+    "article_id": "7ce8c43b-031c-4355-b6d0-ce17a9d69f70"
+  },
+  "index_report_units": {
+    "ok": true,
+    "units": 4
+  },
+  "search_tech_history": {
+    "top_titles": [
+      "大模型推理优化年度综述",
+      "大模型推理优化年度综述",
+      "大模型推理优化年度综述"
+    ],
+    "has_source_url": true
+  },
+  "search_historical_suggestions": {
+    "top_units": [
+      [
+        "suggestions",
+        "rpt-20261101-v1"
+      ],
+      [
+        "suggestions",
+        "rpt-20261002-v1"
+      ],
+      [
+        "suggestions",
+        "rpt-20261020-v1"
+      ]
+    ],
+    "version_traceable": true
+  },
+  "incremental_update": {
+    "old_versions_removed": true,
+    "current_chunks": 3,
+    "url_preserved": true
+  },
+  "old_records_kept": true,
+  "authoritative_note": "晨报完整权威版本应在晨报 SQLite；Qdrant 只存语义片段+version_id 引用（本轮模拟 payload 即片段）"
+}

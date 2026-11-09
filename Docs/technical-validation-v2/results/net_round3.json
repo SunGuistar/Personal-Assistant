@@ -1,0 +1,110 @@
+{
+  "probe": "net_round3",
+  "run_at": "2026-11-09T11:23:53.989145+00:00",
+  "baidu_top_board_v2": {
+    "ok": false,
+    "status": 200,
+    "hot_items": 1,
+    "first_item_keys": [
+      "content"
+    ],
+    "sample": [
+      {
+        "word": "",
+        "hot_score": null,
+        "raw_url": ""
+      }
+    ],
+    "elapsed_s": 0.488
+  },
+  "zhihu_hot_v2": {
+    "ok": true,
+    "status": 200,
+    "items": 10,
+    "target_keys": [
+      "excerpt_area",
+      "image_area",
+      "label_area",
+      "link",
+      "metrics_area",
+      "title_area"
+    ],
+    "sample_titles": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "has_excerpt": false,
+    "elapsed_s": 0.188
+  },
+  "dailydev_introspect": {
+    "ok": false,
+    "status": 200,
+    "query_fields": [],
+    "elapsed_s": 1.621
+  },
+  "gdelt_retry": {
+    "ok": true,
+    "status": 200,
+    "items": 20,
+    "sample": [
+      {
+        "title": " 《 2026中国进口发展报告 》 发布  出口中国  为扩大互利共赢成果提供新",
+        "domain": "finance.sina.com.cn",
+        "seendate": "20261109T020000Z"
+      },
+      {
+        "title": "东方灵感点亮进博会舞台",
+        "domain": "photo.china.com.cn",
+        "seendate": "20261109T060000Z"
+      },
+      {
+        "title": "九年进博会照见  中国机遇  全球引力 _ 中国网",
+        "domain": "news.china.com.cn",
+        "seendate": "20261109T060000Z"
+      },
+      {
+        "title": "从  借牌经营  到深耕中国 ： 中国  入世  如何改变国际精品零售业｜聚焦进",
+        "domain": "163.com",
+        "seendate": "20261108T130000Z"
+      },
+      {
+        "title": "一块肉 、 一台机床 、 一套放疗系统 ， 讲述外资本土化的  进博故事  ",
+        "domain": "yicai.com",
+        "seendate": "20261108T133000Z"
+      },
+      {
+        "title": "欧洲汽车工业协会进博会举办商用车行业对话 共探中欧业界产业协同 _ 东方财富网",
+        "domain": "finance.eastmoney.com",
+        "seendate": "20261108T143000Z"
+      }
+    ],
+    "fields": [
+      "domain",
+      "language",
+      "seendate",
+      "socialimage",
+      "sourcecountry",
+      "title",
+      "url",
+      "url_mobile"
+    ],
+    "elapsed_s": 19.422
+  },
+  "chinanews_rss_detail": {
+    "ok": true,
+    "items": 30,
+    "sample": {
+      "title": "零食店“买烟优先结账”引争议：结账规则谁说了算？",
+      "link": "https://www.chinanews.com.cn/sh/2026/11-09/10729009.shtml",
+      "published": "Mon, 9 Nov 2026 19:10:46 +0800",
+      "summary_len": 153
+    },
+    "has_full_content": false,
+    "note": "RSS 提供标题/链接/时间/短摘要；正文需回溯原站抓取",
+    "elapsed_s": 5.516
+  }
+}

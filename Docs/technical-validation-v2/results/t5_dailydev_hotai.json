@@ -1,0 +1,42 @@
+{
+  "probe": "t5_dailydev_hotai",
+  "run_at": "2026-11-09T11:17:59.736941+00:00",
+  "dailydev_graphql": {
+    "ok": false,
+    "status": 200,
+    "items": 0,
+    "auth_required": false,
+    "sample_items": [],
+    "elapsed_s": 0.408,
+    "note": "无鉴权公共 GraphQL 可取标题/链接/来源；正文需打开原文"
+  },
+  "hotai_news": {
+    "ok": true,
+    "url": "https://hotai.news/",
+    "status": 200,
+    "title": "HotAI.news - AI快讯、中英文热帖、开源项目与机会线索",
+    "text_sample": "HotAI.news - AI快讯、中英文热帖、开源项目与机会线索 跳到正文 hotai . news English 首页 AI 快讯 AI 热议 AI 开源 AI 机会 AI 工具 AI 百科 HOTAI NEWS · 每天 5 分钟， 看清 AI 的下一步。 从 AI 新闻、中英文 AI 圈热帖、GitHub 新仓和真实实践中， 找到今天值得追踪的信息与机会。 阅读最新快讯 ↗ 浏览 GitHub 看看 AI 机会 最新观察 AI 快讯正在读取 查看线索 ↗ AI羊毛 免费额度、API 试用与限时活动。 查看AI羊毛 ↗ 从资讯到实用，找到你的入口 追踪新消息、发现开源项目，也能查概念、"
+  },
+  "hn_control": {
+    "ok": false,
+    "error": "RuntimeError: Cannot send a request, as the client has been closed."
+  },
+  "github_blog_rss": {
+    "ok": true,
+    "items": 10,
+    "sample": [
+      {
+        "title": "Beyond code generation: A developer’s guide to agentic engin",
+        "link": "https://github.blog/ai-and-ml/github-copilot/beyond-code-generation-a-"
+      },
+      {
+        "title": "Inside GitHub’s new Git storage architecture",
+        "link": "https://github.blog/engineering/architecture-optimization/inside-githu"
+      },
+      {
+        "title": "Accessibility statements now have a home on GitHub",
+        "link": "https://github.blog/open-source/maintainers/accessibility-statements-n"
+      }
+    ]
+  }
+}

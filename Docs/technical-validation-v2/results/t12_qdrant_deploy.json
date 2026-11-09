@@ -1,0 +1,42 @@
+{
+  "probe": "t12_qdrant_deploy",
+  "run_at": "2026-11-09T11:48:47.813134+00:00",
+  "container": "tv2-qdrant",
+  "port": 8633,
+  "volume": "tv2_qdrant_data",
+  "port_free_before_start": false,
+  "server_started": true,
+  "startup_s": 1.144,
+  "write_read": {
+    "ok": true,
+    "points": 5
+  },
+  "update_delete": {
+    "after_delete_count": 4,
+    "updated_flag_on_first": true,
+    "ok": true
+  },
+  "survive_graceful_restart": {
+    "ok": true,
+    "points": 4
+  },
+  "snapshot_created": "tv2_deploy_test-2622347955622088-2026-11-09-11-48-32-0.snapshot",
+  "snapshot_restore": {
+    "ok": true,
+    "status": 200,
+    "method": "download + multipart upload",
+    "restored_points": 4
+  },
+  "survive_kill": {
+    "ok": true,
+    "marker_present": false,
+    "note": "wait=true 写入在 kill 前已确认；WAL 保证已确认写入不丢"
+  },
+  "version": "1.20.0",
+  "port_conflict_check": {
+    "hub_service_port": 8620,
+    "qdrant_default_port": 6333,
+    "tv2_probe_port": 8633,
+    "conflict": false
+  }
+}

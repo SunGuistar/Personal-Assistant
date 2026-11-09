@@ -1,0 +1,113 @@
+{
+  "probe": "t8_llm_api",
+  "run_at": "2026-11-09T11:41:55.436463+00:00",
+  "env_presence": {
+    "DASHSCOPE_API_KEY": true,
+    "DEEPSEEK_API_KEY": false,
+    "GITHUB_TOKEN": true,
+    "NEWS_API_KEY": false,
+    "TAVILY_API_KEY": false,
+    "LANGSMITH_API_KEY": true
+  },
+  "official_docs_static": {
+    "target_model_version": "DeepSeek-V4.1-Flash-1017（真实存在）",
+    "public_api_model_id": "deepseek-flash",
+    "legacy_ids": "deepseek-v4-flash / deepseek-v4-flash-vision-exp 仍被接受，后端为 V4.1-Flash-1017",
+    "product_naming_verdict": "产品文档的 DeepSeek-V4.1-Flash-1017 是模型版本名，不是 API 标识；调用时应传 deepseek-flash（产品文档已注明‘实际 API 标识由 Kimi Code 核实’）",
+    "peak_utc": [
+      "01:00-04:00",
+      "06:00-10:00"
+    ],
+    "peak_beijing": [
+      "09:00-12:00",
+      "14:00-18:00"
+    ],
+    "off_peak": "其余时间 + 周末/中国法定节假日全天；低谷价为高峰价一半",
+    "features": [
+      "JSON Output",
+      "Tool Calls",
+      "Responses API",
+      "Vision",
+      "1M context",
+      "384K max output"
+    ],
+    "concurrency_limit": 2500,
+    "source": "https://api-docs.deepseek.com/quick_start/pricing（2026-11-08 抓取）"
+  },
+  "off_peak_checker": {
+    "checks": {
+      "周一 08:00 低谷(可生成)": true,
+      "周一 10:00 高峰(禁止)": true,
+      "周一 15:00 高峰(禁止)": true,
+      "周一 22:00 低谷": true,
+      "周六 10:00 低谷(周末全天)": true,
+      "跨时区输入 UTC 00:30(=北京 08:30 低谷)": true
+    },
+    "all_pass": true
+  },
+  "deepseek": {
+    "key_present": false
+  },
+  "dashscope": {
+    "key_present": true,
+    "configured_model": "qwen3-vl-plus",
+    "note_sdk_issue": "qwen3-vl-plus 在 dashscope SDK 旧 text-generation 端点报 400 url error；OpenAI 兼容端点调用正常。langchain-openai ChatOpenAI 可直接使用。",
+    "configured_model_call": {
+      "ok": true,
+      "status": 200,
+      "output_head": "正常",
+      "usage": {
+        "prompt_tokens": 13,
+        "completion_tokens": 2,
+        "total_tokens": 15,
+        "completion_tokens_details": {
+          "text_tokens": 2
+        },
+        "prompt_tokens_details": {
+          "text_tokens": 13,
+          "cached_tokens": 0
+        }
+      },
+      "elapsed_s": 1.676
+    },
+    "qwen_flash_free_call": {
+      "ok": true,
+      "status": 200,
+      "output_head": "正常",
+      "usage": {
+        "completion_tokens": 1,
+        "prompt_tokens": 13,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 14
+      },
+      "elapsed_s": 0.686
+    },
+    "qwen_plus_quota_probe": {
+      "ok": false,
+      "status": 403,
+      "output_head": "{'message': 'Free quota exhausted. To continue accessing the model on a paid basis, please add funds or disable the \"use free tier only\" mode in the m",
+      "usage": null,
+      "elapsed_s": 0.77
+    },
+    "independent_eval_call": {
+      "ok": true,
+      "status": 200,
+      "output_head": "8",
+      "usage": {
+        "completion_tokens": 1,
+        "prompt_tokens": 25,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 26
+      },
+      "elapsed_s": 0.597
+    },
+    "json_output": {
+      "ok": true,
+      "body_head": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\n  \\\"score"
+    }
+  }
+}

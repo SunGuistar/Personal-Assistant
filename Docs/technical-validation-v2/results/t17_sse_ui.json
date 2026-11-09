@@ -1,0 +1,58 @@
+{
+  "probe": "t17_sse_ui",
+  "run_at": "2026-11-09T12:35:48.884677+00:00",
+  "sse_stream": {
+    "events_received": 7,
+    "nodes_covered": [
+      "主编",
+      "技术研究",
+      "目标分析"
+    ],
+    "parallel_events_interleaved": true,
+    "has_detail_no_sensitive": true,
+    "evidence": "并行节点事件交错到达且带 node 归属"
+  },
+  "sse_reconnect_resume": {
+    "resumed_events": 6,
+    "no_duplicate_of_last_id": true
+  },
+  "history_query": {
+    "events": 7,
+    "ok": true
+  },
+  "frontend_static": {
+    "nav_structure": "顶部导航路由",
+    "existing_pages": [
+      "CleanupPage.tsx",
+      "GithubPage.tsx",
+      "HomePage.tsx",
+      "index.tsx",
+      "NewsPage.tsx",
+      "PlansPage.tsx",
+      "ReadingPage.tsx",
+      "WechatPage.tsx"
+    ],
+    "existing_realtime_infra": [
+      "api\\wechat.ts:93: /** POST /wechat/chat 并返回 SSE 字节流（EventSource 只支持 GET，故用 fetch 手动解析）。 */"
+    ],
+    "api_clients": [
+      "cleanup.ts",
+      "github.ts",
+      "infos.ts",
+      "news.ts",
+      "plans.ts",
+      "reading.ts",
+      "wechat.ts"
+    ],
+    "frontend_stack": {
+      "react": "^18.3.1",
+      "react-router-dom": "^6.28.0",
+      "tailwindcss": null
+    },
+    "sse_vs_ws": {
+      "SSE": "后端 sse-starlette 已在依赖中；单向推送足够（进度/日志）；自动重连由 EventSource 原生支持；集成复杂度低",
+      "WebSocket": "websockets 也已安装；双向通信；需自行实现重连/心跳；对日志场景收益有限",
+      "recommendation": "SSE（复用 sse-starlette + EventSource），未来对话若需双向再评估 WS"
+    }
+  }
+}

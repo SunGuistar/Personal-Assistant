@@ -1,0 +1,27 @@
+{
+  "comment": "T21 RAG 四模式验证语料与人工标注查询。relevant 为相关文档下标（人工标注）。corpus 为虚构/公开技术常识短文。",
+  "corpus": [
+    {"id": "d01", "col": "news", "title": "DeepSeek V4.1 Flash 发布", "text": "DeepSeek 发布 V4.1 Flash 模型，API 模型名为 deepseek-flash，支持多模态输入、1M 上下文与 384K 最大输出，工具调用与 JSON 输出完整支持。", "source": "官方博客", "published_at": "2026-09-10"},
+    {"id": "d02", "col": "news", "title": "DeepSeek 峰谷定价调整", "text": "DeepSeek API 采用峰谷定价：周一至周五 9:00-12:00 与 14:00-18:00（北京时间）为高峰时段，其余时间为低谷，周末与节假日全天低谷。", "source": "官方文档", "published_at": "2026-08-23"},
+    {"id": "d03", "col": "news", "title": "Qdrant 混合检索实践", "text": "Qdrant 支持 dense 向量与 sparse/BM25 混合检索，通过 RRF 融合排序，适合中英文混合的技术知识库检索场景。", "source": "技术社区", "published_at": "2026-10-15"},
+    {"id": "d04", "col": "news", "title": "LangGraph 检查点机制", "text": "LangGraph Checkpoint 将图执行状态持久化，支持进程重启后恢复工作流，可配合 SQLite 或 Postgres 存储检查点数据。", "source": "技术社区", "published_at": "2026-06-01"},
+    {"id": "d05", "col": "news", "title": "Embedding 模型选型对比", "text": "中文场景下 text-embedding-v4 在 MTEB 中文榜单表现领先；多语言场景可考虑 OpenAI text-embedding-3-large。", "source": "技术社区", "published_at": "2026-04-12"},
+    {"id": "d06", "col": "news", "title": "Rerank 对 RAG 召回的影响", "text": "在 dense+BM25 混合召回后接入 rerank 模型可显著提升 top-k 相关性，代价是额外延迟与调用费用。", "source": "论文笔记", "published_at": "2026-07-20"},
+    {"id": "d07", "col": "news", "title": "vLLM PagedAttention 原理", "text": "PagedAttention 将 KV Cache 分页管理，借鉴操作系统虚拟内存思想，降低长上下文推理的显存碎片。", "source": "论文笔记", "published_at": "2025-06-15"},
+    {"id": "d08", "col": "reports", "title": "晨报单元 2026-10-01 AI 观察", "text": "本期观察到 agent 工具调用协议标准化趋势，function calling 兼容性成为选型关键。", "source": "晨报", "report_date": "2026-10-01", "version_id": "rpt-1001-v1"},
+    {"id": "d09", "col": "reports", "title": "晨报单元 2026-10-01 个人进展", "text": "昨日完成 RAG 混合检索实验，长期目标『掌握 RAG 工程』进度约六成。", "source": "晨报", "report_date": "2026-10-01", "version_id": "rpt-1001-v1"},
+    {"id": "d10", "col": "reports", "title": "晨报单元 2026-10-02 建议", "text": "建议：Embedding 复用缓存应独立于阶段缓存，避免每日清理导致重复向量化。", "source": "晨报", "report_date": "2026-10-02", "version_id": "rpt-1002-v1"},
+    {"id": "d11", "col": "reports", "title": "晨报单元 2025-03-10 旧观点", "text": "早期观点认为向量检索足以替代关键词检索；后续实践证明混合检索更稳健（该旧观点已过时， newer 认识优先）。", "source": "晨报", "report_date": "2025-03-10", "version_id": "rpt-20250310-v1"},
+    {"id": "d12", "col": "news", "title": "Speculative Decoding 加速", "text": "推测解码使用小模型生成草稿、大模型并行验证，在不改变输出分布的前提下获得 2-3 倍推理加速。", "source": "论文笔记", "published_at": "2025-09-01"}
+  ],
+  "queries": [
+    {"q": "deepseek 最新模型有什么能力", "rewrite_hint": "DeepSeek V4.1 Flash 能力 多模态 上下文", "relevant": ["d01"], "category": "中文技术问法"},
+    {"q": "off-peak pricing hours", "rewrite_hint": "DeepSeek API 低谷时段 峰谷定价", "relevant": ["d02"], "category": "英文术语"},
+    {"q": "新版本发布后上下文窗口变了吗", "rewrite_hint": "DeepSeek V4.1 Flash 1M 上下文窗口 变化", "relevant": ["d01"], "category": "技术版本变化"},
+    {"q": "工具调用协议现在是什么趋势", "rewrite_hint": "agent function calling 标准化 趋势", "relevant": ["d08"], "category": "历史技术关联"},
+    {"q": "RAG 工程目标最近推进如何", "rewrite_hint": "RAG 混合检索 实验 进展 长期目标", "relevant": ["d09"], "category": "跨日期目标进展"},
+    {"q": "缓存设计方面以前给过什么建议", "rewrite_hint": "Embedding 缓存 阶段缓存 建议 去重", "relevant": ["d10"], "category": "重复表述的历史建议"},
+    {"q": "只用向量检索就够了吗", "rewrite_hint": "混合检索 dense BM25 向量检索 局限", "relevant": ["d03", "d11"], "category": "历史观点变化（旧观点已过时）"},
+    {"q": "长上下文推理的显存问题怎么解决", "rewrite_hint": "PagedAttention KV Cache 显存碎片", "relevant": ["d07"], "category": "中文技术问法"}
+  ]
+}

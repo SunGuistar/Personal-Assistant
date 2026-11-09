@@ -1,0 +1,45 @@
+{
+  "probe": "t2_cn_sources",
+  "run_at": "2026-11-09T11:16:35.591380+00:00",
+  "results": {
+    "gdelt_v2_cn": {
+      "ok": false,
+      "status": 200,
+      "items": 0,
+      "fields": [],
+      "fresh_24h": 0,
+      "has_body": false,
+      "sample_masked_domains": [],
+      "auth": "免费无 key",
+      "license_note": "GDELT 仅提供元数据与链接，正文需回溯原站",
+      "elapsed_s": 17.489
+    },
+    "thepaper_rss": {
+      "ok": false,
+      "status": 302,
+      "content_type": "text/html; charset=utf-8",
+      "bytes": 4533,
+      "note": "需人工确认内容是否为可用 RSS（见 evidence）",
+      "elapsed_s": 0.356
+    },
+    "chinadaily_rss": {
+      "ok": false,
+      "status": 404,
+      "items": 0,
+      "sample_entries": [],
+      "language": "英文（涉华新闻）",
+      "elapsed_s": 0.23
+    },
+    "rsshub_public": {
+      "ok": false,
+      "error": "timed out",
+      "elapsed_s": 15.033
+    },
+    "xinhuanet_home": {
+      "ok": true,
+      "status": 200,
+      "note": "门户首页可达；无官方免费 API，抓取需自研解析+遵守 robots",
+      "elapsed_s": 0.286
+    }
+  }
+}

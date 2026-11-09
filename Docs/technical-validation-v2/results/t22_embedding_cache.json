@@ -1,0 +1,25 @@
+{
+  "probe": "t22_embedding_cache",
+  "run_at": "2026-11-09T11:39:36.302061+00:00",
+  "scenarios": {
+    "S1_same_text_same_model_reuse": true,
+    "S2_model_change_no_reuse": true,
+    "S3_text_change_recompute": true,
+    "S4_chunk_rule_change_recompute": true,
+    "S5_preprocess_change_recompute": true,
+    "S6_survive_restart": true,
+    "S7_qdrant_vector_reuse_rule": {
+      "rule": "入库时 payload 携带 text_hash+model+chunk_ver；新增文章先查 Qdrant 是否已有同 hash+版本向量，有则跳过 API",
+      "hash_present_in_payload": true
+    },
+    "S8_corrupt_cache_recovery": true,
+    "S9_emb_cache_survives_0800_cleanup": true
+  },
+  "stats": {
+    "api_calls": 6,
+    "hits": 3,
+    "recomputes": 6,
+    "saved_calls": 3
+  },
+  "db_temp": "C:\\Users\\23830\\AppData\\Local\\Temp\\tmpdr2_v78r.db"
+}

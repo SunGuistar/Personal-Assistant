@@ -1,0 +1,18 @@
+{
+  "probe": "t11_newsapi",
+  "run_at": "2026-11-09T12:41:07.580670+00:00",
+  "news_api_key_present": false,
+  "env_presence": {
+    "DASHSCOPE_API_KEY": true,
+    "DEEPSEEK_API_KEY": false,
+    "GITHUB_TOKEN": true,
+    "NEWS_API_KEY": false,
+    "TAVILY_API_KEY": false,
+    "LANGSMITH_API_KEY": true
+  },
+  "no_key_probe": {
+    "endpoint_reachable": false,
+    "error": "ConnectTimeout: timed out",
+    "note": "本机网络无法访问 newsapi.org；NEWS_API_KEY 也未配置。双重 BLOCKED。"
+  }
+}

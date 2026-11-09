@@ -1,0 +1,132 @@
+{
+  "probe": "t7_snapshot",
+  "run_at": "2026-11-09T11:25:22.124743+00:00",
+  "scenario_A_normal": {
+    "blocked": false,
+    "stages": {
+      "collect_start": "2026-11-08T08:00:00+08:00",
+      "collect_end": "2026-11-08T08:01:40+08:00",
+      "persisted": "2026-11-08T08:01:40+08:00",
+      "index": "OK",
+      "frozen": "2026-11-08T08:01:45+08:00"
+    },
+    "failures": [
+      {
+        "source": "timeout_src",
+        "reason": "timeout_src 超时"
+      }
+    ],
+    "in_window_count": 4,
+    "excluded_late_count": 1,
+    "snapshot": {
+      "window": [
+        "2026-11-07T08:00:00+08:00",
+        "2026-11-08T08:00:00+08:00"
+      ],
+      "item_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "frozen_at": "2026-11-08T08:01:45+08:00"
+    },
+    "snapshot_tampered_by_background": false
+  },
+  "scenario_A_freeze_tamper_test": {
+    "blocked": false,
+    "stages": {
+      "collect_start": "2026-11-08T08:00:00+08:00",
+      "collect_end": "2026-11-08T08:01:40+08:00",
+      "persisted": "2026-11-08T08:01:40+08:00",
+      "index": "OK",
+      "frozen": "2026-11-08T08:01:45+08:00"
+    },
+    "failures": [
+      {
+        "source": "timeout_src",
+        "reason": "timeout_src 超时"
+      }
+    ],
+    "in_window_count": 4,
+    "excluded_late_count": 1,
+    "snapshot": {
+      "window": [
+        "2026-11-07T08:00:00+08:00",
+        "2026-11-08T08:00:00+08:00"
+      ],
+      "item_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "frozen_at": "2026-11-08T08:01:45+08:00"
+    },
+    "snapshot_tampered_by_background": true
+  },
+  "scenario_B_index_fail_blocks": {
+    "blocked": true,
+    "stage": "index",
+    "failures": [
+      {
+        "source": "timeout_src",
+        "reason": "timeout_src 超时"
+      }
+    ],
+    "stages": {
+      "collect_start": "2026-11-08T08:00:00+08:00",
+      "collect_end": "2026-11-08T08:01:10+08:00",
+      "persisted": "2026-11-08T08:01:10+08:00",
+      "index": "FAILED"
+    },
+    "in_window_count": 3,
+    "excluded_late_count": 1
+  },
+  "scenario_C_manual_regen_fixed_window": {
+    "blocked": false,
+    "stages": {
+      "collect_start": "2026-11-08T15:00:00+08:00",
+      "collect_end": "2026-11-08T15:01:10+08:00",
+      "persisted": "2026-11-08T15:01:10+08:00",
+      "index": "OK",
+      "frozen": "2026-11-08T15:01:15+08:00"
+    },
+    "failures": [
+      {
+        "source": "timeout_src",
+        "reason": "timeout_src 超时"
+      }
+    ],
+    "in_window_count": 3,
+    "excluded_late_count": 1,
+    "snapshot": {
+      "window": [
+        "2026-11-07T08:00:00+08:00",
+        "2026-11-08T08:00:00+08:00"
+      ],
+      "item_ids": [
+        0,
+        1,
+        2
+      ],
+      "frozen_at": "2026-11-08T15:01:15+08:00"
+    },
+    "snapshot_tampered_by_background": false
+  },
+  "checks": {
+    "collect_is_start_not_finish": true,
+    "late_fetched_in_window_included": true,
+    "published_after_0800_excluded": true,
+    "source_timeout_no_infinite_block": [
+      {
+        "source": "timeout_src",
+        "reason": "timeout_src 超时"
+      }
+    ],
+    "index_fail_blocks_agent": true,
+    "snapshot_not_tampered": true,
+    "manual_regen_same_window": true
+  },
+  "note": "snapshot_not_tampered=True 表示：若不把快照与活库隔离，后台更新会污染快照——证明必须快照隔离（复制/版本号），而非同一表读取。"
+}

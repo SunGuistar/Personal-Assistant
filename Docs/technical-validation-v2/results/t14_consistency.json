@@ -1,0 +1,21 @@
+{
+  "probe": "t14_consistency",
+  "run_at": "2026-11-09T12:18:00.458868+00:00",
+  "scenarios": {
+    "S1_normal": true,
+    "S2_idempotent": true,
+    "S3_mid_write_crash_detectable": true,
+    "S4_index_fail_then_S5_retry_fix": true,
+    "S6_body_update_reindexed": true,
+    "S7_version_mismatch_flagged": true,
+    "S8_snapshot_frozen": {
+      "frozen_ids": 2,
+      "live_db_now_more": true,
+      "agent_must_use_frozen": true
+    },
+    "S9_report_saved_index_pending_blocks": true,
+    "S10_pre_run_check_pass": true
+  },
+  "blocking_rule_verified": true,
+  "db_temp": "C:\\Users\\23830\\AppData\\Local\\Temp\\tmp7oq3eiyv.db"
+}

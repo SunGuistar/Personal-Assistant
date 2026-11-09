@@ -1,0 +1,31 @@
+{
+  "probe": "t10_stage_cache",
+  "run_at": "2026-11-09T11:43:45.714133+00:00",
+  "scenarios": {
+    "S1_same_input_reuse": true,
+    "S2_news_change_local_invalidate": true,
+    "S3_personal_change_invalidate": true,
+    "S4_memory_change_invalidate": true,
+    "S5_model_change_invalidate": true,
+    "S6_prompt_change_invalidate": true,
+    "S7_rag_conf_change_invalidate": true,
+    "S8_manual_invalidate": true,
+    "S9_full_recompute": true,
+    "S10_survive_restart": true,
+    "S11_12h_expiry": true,
+    "S12_0800_cleanup_keeps_long_term": true,
+    "S13_editor_verify_always_rerun": true
+  },
+  "four_caches_distinction": {
+    "langgraph_checkpoint": "图执行状态/断点恢复（t15 验证）",
+    "stage_cache_12h": "成功节点结果复用，本轮验证",
+    "provider_prompt_cache": "服务商计费/加速字段（t8：prompt_cache_hit_tokens 实测返回）",
+    "embedding_cache": "向量复用（t22 验证，独立于 12h 清理）"
+  },
+  "stats": {
+    "compute": 15,
+    "reuse": 3,
+    "invalidations": []
+  },
+  "db_temp": "C:\\Users\\23830\\AppData\\Local\\Temp\\tmpyxyivekk.db"
+}
