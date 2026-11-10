@@ -55,6 +55,7 @@ def trigger_generate(
             session, run_id, settings, mode="auto" if mode == "auto" else "manual",
             hub_session_factory=request.app.state.session_factory,
             mr_session_factory=request.app.state.mr_session_factory,
+            clear_cache=True if mode == "full" else None,
         )
 
     if not request.app.state.mr_runner.submit("generate", run.id, fn):

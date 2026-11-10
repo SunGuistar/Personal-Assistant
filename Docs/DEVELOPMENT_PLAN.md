@@ -211,3 +211,21 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - `tests/test_morning_stage5_report.py`
 
 **验收**：主报告唯一与版本切换；重新生成不覆盖历史；评价绑定版本；0-3 条建议约束；费用/耗时字段可查。
+
+### 阶段 5 完成记录（2026-11-10 PASS）
+
+- **修改文件**：`api/report.py`（report/history/regenerate/usage）、`services/report_service.py`（clear_cache 语义、personal_ctx_override、个人事件快照）、`api/runs.py`、`tests/test_morning_stage5_report.py`
+- **测试**：5 个全过——主报告/指定版本/404、历史列表与评价绑定、regenerate 409 防并发、缓存语义（manual 复用/full 清空）、个人快照落库与用量 API 聚合；全量回归 **239 passed**
+- **关键决定**：缓存清理策略 auto=清、manual=复用、full=显式清（API 传参）；质量分等权四舍五入已在图节点实现（quality_score_v1）；用量字段缺失记 None 不臆造 0
+
+## 阶段 6：前端与用户交互
+
+**任务与文件**：
+- `web/src/pages/MorningReportPage.tsx`（晨报正文/质量评价/历史晨报三导航 + 右栏助手与日志）
+- `web/src/api/morning.ts`（类型化 API 客户端）
+- 助手对话 API（`api/assistant.py`：SSE 流式 + Memory 提议需确认）
+- SSE 运行日志（`api/logs.py`：EventSource，run_logs 实时推送）
+- App.tsx 路由与导航接入；深色模式适配
+- `web/src/test/` 前端单测（Vitest）
+
+**验收**：三页数据真实来自后端；状态一致（正文/评价/历史指向同版本）；SSE 日志可断开重连；Memory 管理可用；tsc + vitest + build 全过。

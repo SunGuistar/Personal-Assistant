@@ -55,16 +55,26 @@ def _latest_collect(mr: Session, report_date: str) -> RunRecord | None:
 def run_generate(mr: Session, run_id: int, settings: MRSettings,
                  *, mode: str = "auto", deps_override: WorkflowDeps | None = None,
                  store: QdrantStore | None = None,
-                 provider=None, hub_session_factory=None, mr_session_factory=None) -> dict:
-    """执行一期生成。deps_override 仅供测试注入（此时 LLM 无真实调用）。"""
+                 provider=None, hub_session_factory=None, mr_session_factory=None,
+                 clear_cache: bool | None = None, personal_ctx_override: dict | None = None) -> dict:
+    """执行一期生成。deps_override 仅供测试注入（此时 LLM 无真实调用）。
 
+    缓存清理：auto（每天 08:00 新一轮）默认清理；manual 默认复用；clear_cache 显式覆盖
+    （manual+full 重算时由 API 传 True）。
+    """
+
+    if clear_cache is None:
+        clear_cache = mode == "auto"
     run = mr.get(RunRecord, run_id)
     run.status = "running"
     run.started_at = _now()
     mr.commit()
-    log_run(mr, run_id, "generate", f"开始生成（mode={mode}），清理上一轮阶段缓存")
-    cleared = stage_cache.clear_all(mr)
-    log_run(mr, run_id, "generate", f"阶段缓存已清理 {cleared} 条")
+    if clear_cache:
+        log_run(mr, run_id, "generate", f"开始生成（mode={mode}），清理上一轮阶段缓存")
+        cleared = stage_cache.clear_all(mr)
+        log_run(mr, run_id, "generate", f"阶段缓存已清理 {cleared} 条")
+    else:
+        log_run(mr, run_id, "generate", f"开始生成（mode={mode}，复用有效阶段缓存）")
 
     # 1) 采集（缺则补采）
     collect = _latest_collect(mr, run.run_date)
@@ -109,7 +119,8 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     log_run(mr, run_id, "snapshot", f"快照已冻结: {snapshot_id}", detail={"news": len(news)})
 
     # 4) 工作流
-    personal_ctx = _load_personal(hub_session_factory, collect.window_start, collect.window_end)
+    personal_ctx = personal_ctx_override or _load_personal(hub_session_factory, collect.window_start, collect.window_end)
+    _snapshot_personal(mr, run_id, snapshot_id, personal_ctx)
     if deps_override is not None:
         deps = deps_override
     else:
@@ -204,3 +215,21 @@ class _ClientShim:
     def __init__(self, model: str, base_url: str):
         self.model = model
         self.base_url = base_url
+
+
+def _snapshot_personal(mr: Session, run_id: int, snapshot_id: str, ctx: dict) -> None:
+    """个人事件证据快照（只读 hub 的当期副本；不倒推历史）。"""
+
+    from ..models import PersonalEventSnapshot
+
+    def add(table: str, records: list[dict], time_key: str = "completed_at"):
+        for rec in records:
+            mr.add(PersonalEventSnapshot(
+                run_id=run_id, snapshot_id=snapshot_id, source_table=table,
+                record_id=rec.get("id", 0), event_time=rec.get(time_key),
+                summary=rec.get("title", "")[:200], payload=rec,
+            ))
+
+    add("daily_tasks", ctx.get("daily_done", []))
+    add("long_term_plans", ctx.get("longterm_highlight", []), time_key="target_date")
+    mr.commit()
