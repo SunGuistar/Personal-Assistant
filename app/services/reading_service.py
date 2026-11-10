@@ -18,10 +18,11 @@ from sqlalchemy.orm import Session
 from ..exceptions import BookHasNotes, DomainError, NotFoundError
 from ..models import Book, BookNote
 from ..models.reading import BOOK_STATUS, BOOK_TYPES
+from . import jnotes_to_pdf
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".md"})
+ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".md", ".jnotes"})
 _ILLEGAL_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 BOOK_HAS_NOTES_MESSAGE = "该书籍存在关联笔记，请先删除全部笔记后再删除书籍。"
 
@@ -31,6 +32,8 @@ _FILE_SIGNATURES: dict[str, tuple[bytes, str]] = {
     ".png": (b"\x89PNG\r\n\x1a\n", "PNG"),
     ".jpg": (b"\xff\xd8\xff", "JPEG"),
     ".jpeg": (b"\xff\xd8\xff", "JPEG"),
+    # 云记 .Jnotes 本质是 ZIP 容器（内含 zip.Jzip）
+    ".jnotes": (b"PK\x03\x04", "ZIP"),
 }
 
 
@@ -240,9 +243,10 @@ def save_note(
 
     get_book(session, book_id)
     safe_name = sanitize_filename(filename)
-    if Path(safe_name).suffix.lower() not in ALLOWED_EXTENSIONS:
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
         raise DomainError(
-            f"不支持的文件类型: {Path(safe_name).suffix or '(无扩展名)'}，仅支持 pdf/png/jpg/jpeg/md",
+            f"不支持的文件类型: {suffix or '(无扩展名)'}，仅支持 pdf/png/jpg/jpeg/md/jnotes",
             code="invalid_file_type",
             status_code=400,
         )
@@ -253,6 +257,14 @@ def save_note(
             status_code=400,
         )
     verify_file_signature(safe_name, data)
+
+    # 云记手写笔记：上传时自动转换为 PDF 再入库，记录中保存转换后的 PDF
+    if suffix == ".jnotes":
+        try:
+            safe_name, data = jnotes_to_pdf.convert_bytes(safe_name, data)
+        except jnotes_to_pdf.JnotesConvertError as exc:
+            raise DomainError(str(exc), code="jnotes_convert_failed", status_code=400)
+        logger.info("云记笔记已转换 PDF：%s（%s 字节）", safe_name, len(data))
 
     book_dir = notes_dir / str(book_id)
     book_dir.mkdir(parents=True, exist_ok=True)

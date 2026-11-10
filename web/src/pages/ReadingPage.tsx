@@ -445,7 +445,7 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
     setError(null);
     if (!file || !book) return;
     if (!isNoteFileAllowed(file.name)) {
-      setError("仅支持 PDF / PNG / JPG / MD 格式的笔记文件");
+      setError("仅支持 PDF / PNG / JPG / MD / Jnotes 格式的笔记文件");
       return;
     }
     uploadNote.mutate(file, {
@@ -467,7 +467,7 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
         <input
           ref={fileInput}
           type="file"
-          accept=".pdf,.png,.jpg,.jpeg,.md"
+          accept=".pdf,.png,.jpg,.jpeg,.md,.jnotes"
           className="hidden"
           data-testid="note-file-input"
           onChange={(e) => {
@@ -477,7 +477,7 @@ function NotesDialog({ book, onClose }: { book: Book | null; onClose: () => void
         />
         {notes.length === 0 ? (
           <div className="py-4 text-center text-sm text-neutral-400">
-            还没有笔记。可上传 PDF / PNG / JPG / MD 文件，或在线编写 Markdown 笔记。
+            还没有笔记。可上传 PDF / PNG / JPG / MD 文件或云记 Jnotes（自动转 PDF），也可在线编写 Markdown 笔记。
           </div>
         ) : (
           <ul className="space-y-1">
@@ -624,16 +624,16 @@ function PreviewDialog({
   const src = preview ? `/api/notes/${preview.id}/file` : "";
   return (
     <Dialog open={preview !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-6xl">
         <DialogHeader>
           <DialogTitle>{preview?.filename}</DialogTitle>
         </DialogHeader>
         {preview && (
-          <div className="max-h-[70vh] overflow-auto">
+          <div className="max-h-[85vh] overflow-auto">
             {isImage ? (
               <img src={src} alt={preview.filename} className="mx-auto max-w-full" />
             ) : (
-              <iframe src={src} title={preview.filename} className="h-[65vh] w-full border-0" />
+              <iframe src={src} title={preview.filename} className="h-[82vh] w-full border-0" />
             )}
           </div>
         )}

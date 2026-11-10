@@ -139,7 +139,7 @@ export function useDeleteNote(bookId: number) {
   });
 }
 
-export const NOTE_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".md"];
+export const NOTE_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".md", ".jnotes"];
 
 export function isNoteFileAllowed(name: string): boolean {
   const lower = name.toLowerCase();

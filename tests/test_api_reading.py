@@ -285,3 +285,64 @@ def test_note_file_download_mode(fclient):
     assert "filename" in disposition
     assert unquote(disposition).endswith("报告.pdf")  # RFC 5987 编码的中文文件名
     assert attachment.content == inline.content
+
+
+# ---------- 云记 .Jnotes：上传自动转 PDF ----------
+
+import json
+import zipfile
+
+
+def _make_jnotes(strokes=None):
+    """构造最小可用的云记文件：ZIP 容器内含 zip.Jzip（一页 seg 笔迹 JSON）。"""
+    if strokes is None:
+        strokes = [{"c": {"k": [{"x": 100, "y": 100}, {"x": 200, "y": 150}, {"x": 300, "y": 100}], "c": -16777216, "d": 5.0}}]
+    payload = b"\x00\x04PAGE\x00\x02DB" + b"seg:1/1" + json.dumps(strokes).encode("utf-8") + b"\x00\xfftrailing-binary"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("zip.Jzip", payload)
+    return buf.getvalue()
+
+
+def test_jnotes_upload_converted_to_pdf(fclient):
+    """.Jnotes 上传后落库为同名 .pdf，预览/下载均为有效 PDF 内容。"""
+    book = _make_book(fclient)
+    uploaded = _upload(fclient, book["id"], name="手写笔记.Jnotes", data=_make_jnotes())
+    assert uploaded.status_code == 201, uploaded.text
+    note = uploaded.json()
+    assert note["filename"] == "手写笔记.pdf"  # 扩展名替换为 .pdf
+    assert note["size"] > 0
+
+    downloaded = fclient.get(f"/api/notes/{note['id']}/file")
+    assert downloaded.status_code == 200
+    assert downloaded.content.startswith(b"%PDF-")
+    assert downloaded.headers["content-type"].startswith("application/pdf")
+    assert note["size"] == len(downloaded.content)
+
+
+def test_jnotes_upload_rejects_corrupt_file(fclient):
+    """PK 头但无法解析（无 zip.Jzip / 无 PAGE 记录）→ 400 jnotes_convert_failed，不留半截数据。"""
+    book = _make_book(fclient)
+
+    # 合法 ZIP 但缺少 zip.Jzip
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("other.txt", "hello")
+    missing = _upload(fclient, book["id"], name="a.jnotes", data=buf.getvalue())
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "jnotes_convert_failed"
+
+    # zip.Jzip 存在但没有 PAGE 记录
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("zip.Jzip", b"\x00\x04NOPE\x00\x02DB seg:1/1 []")
+    no_page = _upload(fclient, book["id"], name="b.jnotes", data=buf.getvalue())
+    assert no_page.status_code == 400
+    assert no_page.json()["detail"]["code"] == "jnotes_convert_failed"
+
+    # 非 ZIP 内容（伪造扩展名）
+    fake = _upload(fclient, book["id"], name="c.jnotes", data=b"PK\x03\x04not a real zip")
+    assert fake.status_code == 400
+    assert fake.json()["detail"]["code"] in ("signature_mismatch", "jnotes_convert_failed")
+
+    assert fclient.get(f"/api/books/{book['id']}/notes").json() == []
