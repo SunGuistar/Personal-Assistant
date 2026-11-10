@@ -1,0 +1,175 @@
+{
+  "window_cst": {
+    "start": "2026-11-09T08:00:00+08:00",
+    "end_exclusive": "2026-11-10T08:00:00+08:00"
+  },
+  "reference_provenance": "人工核实的重大事件参考清单（窗口 2026-11-09 08:00 ~ 2026-11-10 08:00 CST）。清单由多个独立于候选 API 的权威来源交叉核实（财新、新华社、路透/朝日、澎湃新闻、同花顺转央视），不从任何单一候选源生成，避免循环验证。",
+  "events": [
+    {
+      "id": "I1",
+      "desc": "特朗普宣布对伊'铁门'行动/APEC 会晤预期",
+      "ref_title": "特朗普称伊朗‘铁门特遣队’生效，预计 APEC 峰会与习近平、普京会晤",
+      "chinanews_intl_column": {
+        "status": "HIT",
+        "matched_title": "特朗普宣布实施“铁门”行动：“几乎没有东西能进出伊朗！”伊朗否认并谴责"
+      },
+      "chinanews_all_columns": {
+        "status": "HIT",
+        "matched_title": "特朗普宣布实施“铁门”行动：“几乎没有东西能进出伊朗！”伊朗否认并谴责"
+      },
+      "remoshuang_daily": {
+        "status": "MISS",
+        "matched_title": null
+      },
+      "tianapi_world": {
+        "status": "BLOCKED"
+      },
+      "juhe_daily_bulletin": {
+        "status": "BLOCKED"
+      },
+      "itapi_news": {
+        "status": "BLOCKED"
+      }
+    },
+    {
+      "id": "I2",
+      "desc": "特朗普淡化再袭伊朗，国际油价早盘跌超5%",
+      "ref_title": "特朗普淡化再袭伊朗可能 国际油价早盘一度跌超5%",
+      "chinanews_intl_column": {
+        "status": "MISS",
+        "matched_title": null
+      },
+      "chinanews_all_columns": {
+        "status": "MISS",
+        "matched_title": null
+      },
+      "remoshuang_daily": {
+        "status": "HIT",
+        "matched_title": "特朗普淡化再袭伊朗可能 国际油价早盘一度跌超5%"
+      },
+      "tianapi_world": {
+        "status": "BLOCKED"
+      },
+      "juhe_daily_bulletin": {
+        "status": "BLOCKED"
+      },
+      "itapi_news": {
+        "status": "BLOCKED"
+      }
+    },
+    {
+      "id": "I3",
+      "desc": "俄副外长重申俄无意进攻欧洲国家",
+      "ref_title": "俄副外长重申俄无意进攻欧洲国家",
+      "chinanews_intl_column": {
+        "status": "MISS",
+        "matched_title": null
+      },
+      "chinanews_all_columns": {
+        "status": "MISS",
+        "matched_title": null
+      },
+      "remoshuang_daily": {
+        "status": "HIT",
+        "matched_title": "俄副外长重申俄无意进攻欧洲国家"
+      },
+      "tianapi_world": {
+        "status": "BLOCKED"
+      },
+      "juhe_daily_bulletin": {
+        "status": "BLOCKED"
+      },
+      "itapi_news": {
+        "status": "BLOCKED"
+      }
+    },
+    {
+      "id": "I4",
+      "desc": "NYT：鲁比奥曾警告黄仁勋与中国'间谍'关系",
+      "ref_title": "鲁比奥曾被指对黄仁勋与中国‘间谍’关系提出警告（纽约时报调查）",
+      "chinanews_intl_column": {
+        "status": "MISS",
+        "matched_title": null
+      },
+      "chinanews_all_columns": {
+        "status": "HIT",
+        "matched_title": "黄仁勋婚外情对象为中国情报部门工作？外交部回应"
+      },
+      "remoshuang_daily": {
+        "status": "HIT",
+        "matched_title": "鲁比奥曾对黄仁勋与中国间谍的关系提出警告"
+      },
+      "tianapi_world": {
+        "status": "BLOCKED"
+      },
+      "juhe_daily_bulletin": {
+        "status": "BLOCKED"
+      },
+      "itapi_news": {
+        "status": "BLOCKED"
+      }
+    },
+    {
+      "id": "I5",
+      "desc": "美伊对峙：霍尔木兹海峡袭船频发",
+      "ref_title": "美伊对峙持续：霍尔木兹海峡袭船频发，美伊在战与和间摇摆",
+      "chinanews_intl_column": {
+        "status": "HIT",
+        "matched_title": "伊朗称“两日计划”依然有效  霍尔木兹海峡能否开放取决于美方"
+      },
+      "chinanews_all_columns": {
+        "status": "HIT",
+        "matched_title": "伊朗称“两日计划”依然有效  霍尔木兹海峡能否开放取决于美方"
+      },
+      "remoshuang_daily": {
+        "status": "MISS",
+        "matched_title": null
+      },
+      "tianapi_world": {
+        "status": "BLOCKED"
+      },
+      "juhe_daily_bulletin": {
+        "status": "BLOCKED"
+      },
+      "itapi_news": {
+        "status": "BLOCKED"
+      }
+    }
+  ],
+  "summary": {
+    "chinanews_intl_column": {
+      "hits": 2,
+      "total": 5,
+      "coverage": 0.4,
+      "n_items_in_window": 44
+    },
+    "chinanews_all_columns": {
+      "hits": 3,
+      "total": 5,
+      "coverage": 0.6,
+      "n_items_in_window": 477
+    },
+    "remoshuang_daily": {
+      "hits": 3,
+      "total": 5,
+      "coverage": 0.6,
+      "n_items_in_window": 30
+    },
+    "tianapi_world": {
+      "status": "BLOCKED",
+      "note": "无 API Key，真实数据调用 BLOCKED"
+    },
+    "juhe_daily_bulletin": {
+      "status": "BLOCKED",
+      "note": "无 API Key，真实数据调用 BLOCKED"
+    },
+    "itapi_news": {
+      "status": "BLOCKED",
+      "note": "无 API Key，真实数据调用 BLOCKED"
+    },
+    "combination_chinanews_plus_remoshuang": {
+      "hits": 5,
+      "total": 5
+    }
+  }
+}
