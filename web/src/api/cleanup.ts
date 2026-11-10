@@ -27,9 +27,29 @@ export interface Review {
   id: number;
   week_id: string;
   status: string;
+  /** 每次审核生成的简短说明（主要结果/判断依据），与审核记录关联。 */
+  summary: string;
   confirmed_at: string | null;
   reviewed_at: string | null;
   candidates: Candidate[];
+}
+
+/** 当前实际生效的清理审核规则（后端与执行逻辑同源）。 */
+export interface CleanupRules {
+  keep_days: number;
+  protected_dates: string[];
+  timezone: string;
+  schedule: string;
+  age_rule: string;
+  protection_rule: string;
+  chunk_policy: string;
+  dedupe_rule: string;
+  execute_rule: string;
+  conflict_rule: string;
+}
+
+export function useCleanupRules() {
+  return useQuery({ queryKey: ["cleanup-rules"], queryFn: () => api<CleanupRules>("/cleanup/rules") });
 }
 
 export interface CleanupStatus {

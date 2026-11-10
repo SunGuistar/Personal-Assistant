@@ -30,9 +30,25 @@ class ReviewOut(BaseModel):
     id: int
     week_id: str
     status: str
+    summary: str = ""
     confirmed_at: str | None = None
     reviewed_at: str | None = None
     candidates: list[CandidateOut] = []
+
+
+class CleanupRulesOut(BaseModel):
+    """当前实际生效的清理审核规则（审核页完整展示）。"""
+
+    keep_days: int
+    protected_dates: list[str]
+    timezone: str
+    schedule: str
+    age_rule: str
+    protection_rule: str
+    chunk_policy: str
+    dedupe_rule: str
+    execute_rule: str
+    conflict_rule: str
 
 
 class CleanupStatusOut(BaseModel):

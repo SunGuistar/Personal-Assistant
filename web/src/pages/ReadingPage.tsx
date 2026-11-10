@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Download, FileText, Pencil, PenLine, Plus, Trash2, Upload } from "lucide-react";
+import { BookOpen, Download, FileText, LayoutGrid, LayoutList, Pencil, PenLine, Plus, Trash2, Upload } from "lucide-react";
 
 import { ApiError } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -14,7 +14,11 @@ import {
 import { Input, Label, Select, Textarea } from "../components/ui/input";
 import {
   Book,
+  BOOK_STATUS_BADGE_CLASS,
   BOOK_STATUS_LABELS,
+  BOOK_TYPE_BADGE_CLASS,
+  BOOK_TYPE_LABELS,
+  BOOK_TYPES,
   isNoteFileAllowed,
   useBooks,
   useCreateBook,
@@ -28,18 +32,40 @@ import {
 
 const FILTERS: Array<{ value: string | null; label: string }> = [
   { value: null, label: "全部" },
-  { value: "todo", label: "待读" },
+  { value: "todo", label: "未读" },
   { value: "reading", label: "正在读" },
   { value: "done", label: "已读" },
 ];
 
+type ViewMode = "list" | "card";
+
+const VIEW_KEY = "hub.reading.view";
+
+function statusBadgeClass(status: string): string {
+  return BOOK_STATUS_BADGE_CLASS[status] ?? "bg-neutral-100 text-neutral-500";
+}
+
+function typeBadgeClass(bookType: string): string {
+  return BOOK_TYPE_BADGE_CLASS[bookType] ?? "bg-neutral-100 text-neutral-500";
+}
+
 export function ReadingPage() {
   const [filter, setFilter] = useState<string | null>(null);
-  const { data: books = [], isLoading } = useBooks(filter);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const { data: books = [], isLoading } = useBooks(filter, typeFilter);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Book | null>(null);
   const [notesBook, setNotesBook] = useState<Book | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // 展示模式：默认列表，切换存 localStorage，不影响阅读数据
+  const [view, setView] = useState<ViewMode>(() =>
+    localStorage.getItem(VIEW_KEY) === "card" ? "card" : "list"
+  );
+
+  const switchView = (next: ViewMode) => {
+    setView(next);
+    localStorage.setItem(VIEW_KEY, next);
+  };
 
   const showMessage = (text: string) => {
     setMessage(text);
@@ -50,29 +76,73 @@ export function ReadingPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-semibold">阅读管理</h1>
-        <Button
-          size="sm"
-          className="ml-auto"
-          onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        >
-          <Plus className="h-4 w-4" /> 添加书籍
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant={view === "list" ? "default" : "outline"}
+              onClick={() => switchView("list")}
+              aria-label="列表展示"
+              title="列表展示"
+            >
+              <LayoutList className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant={view === "card" ? "default" : "outline"}
+              onClick={() => switchView("card")}
+              aria-label="卡片展示"
+              title="卡片展示"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" /> 添加书籍
+          </Button>
+        </div>
       </div>
 
-      <div className="flex gap-1">
-        {FILTERS.map((item) => (
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1">
+          {FILTERS.map((item) => (
+            <Button
+              key={item.label}
+              size="sm"
+              variant={filter === item.value ? "default" : "outline"}
+              onClick={() => setFilter(item.value)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+        <span className="h-4 w-px bg-neutral-200" aria-hidden />
+        {/* 类型筛选：展示并快速过滤 书籍/文章/视频/随笔 */}
+        <div className="flex gap-1">
           <Button
-            key={item.label}
             size="sm"
-            variant={filter === item.value ? "default" : "outline"}
-            onClick={() => setFilter(item.value)}
+            variant={typeFilter === null ? "default" : "outline"}
+            onClick={() => setTypeFilter(null)}
           >
-            {item.label}
+            全部类型
           </Button>
-        ))}
+          {BOOK_TYPES.map((t) => (
+            <Button
+              key={t}
+              size="sm"
+              variant={typeFilter === t ? "default" : "outline"}
+              onClick={() => setTypeFilter(t)}
+            >
+              {BOOK_TYPE_LABELS[t]}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {message && (
@@ -85,6 +155,21 @@ export function ReadingPage() {
         <div className="py-8 text-center text-sm text-neutral-400">加载中…</div>
       ) : books.length === 0 ? (
         <div className="py-8 text-center text-sm text-neutral-400">还没有书籍，点击右上角添加</div>
+      ) : view === "list" ? (
+        <ul className="space-y-1">
+          {books.map((book) => (
+            <BookRow
+              key={book.id}
+              book={book}
+              onEdit={() => {
+                setEditing(book);
+                setFormOpen(true);
+              }}
+              onManageNotes={() => setNotesBook(book)}
+              onBlocked={(text) => showMessage(text)}
+            />
+          ))}
+        </ul>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {books.map((book) => (
@@ -108,7 +193,25 @@ export function ReadingPage() {
   );
 }
 
-function BookCard({
+/** 书名区块：较大字体的原标题 + 行内类型徽标 + 可选中文翻译（无翻译时不占位）。 */
+function BookTitle({ book, className = "" }: { book: Book; className?: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        <span className={`truncate text-base font-semibold ${book.is_important ? "text-red-700" : ""} ${className}`}>
+          {book.title}
+        </span>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${typeBadgeClass(book.book_type)}`}>
+          {BOOK_TYPE_LABELS[book.book_type] ?? book.book_type}
+        </span>
+      </div>
+      {book.title_cn && <div className="truncate text-xs text-neutral-500">译：{book.title_cn}</div>}
+      {book.author && <div className="truncate text-xs text-neutral-500">{book.author}</div>}
+    </div>
+  );
+}
+
+function BookActions({
   book,
   onEdit,
   onManageNotes,
@@ -120,7 +223,6 @@ function BookCard({
   onBlocked: (message: string) => void;
 }) {
   const deleteBook = useDeleteBook();
-  const updateBook = useUpdateBook();
 
   const attemptDelete = () => {
     // 前端预检：有笔记直接提示（与后端 409 规则一致的文案）
@@ -141,34 +243,91 @@ function BookCard({
   };
 
   return (
+    <span className="flex shrink-0 items-center gap-1">
+      <Button size="sm" variant="ghost" onClick={onManageNotes}>
+        笔记
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onEdit}>
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
+      <Button size="sm" variant="ghost" onClick={attemptDelete} aria-label="删除书籍">
+        <Trash2 className="h-3.5 w-3.5 text-red-500" />
+      </Button>
+    </span>
+  );
+}
+
+function BookRow({
+  book,
+  onEdit,
+  onManageNotes,
+  onBlocked,
+}: {
+  book: Book;
+  onEdit: () => void;
+  onManageNotes: () => void;
+  onBlocked: (message: string) => void;
+}) {
+  const updateBook = useUpdateBook();
+  return (
+    <li
+      className={`flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2 ${importantRowClass(book.is_important)}`}
+    >
+      <StarButton
+        important={book.is_important}
+        onToggle={() => updateBook.mutate({ id: book.id, is_important: !book.is_important })}
+      />
+      <BookOpen className="h-4 w-4 shrink-0 text-neutral-400" />
+      <div className="min-w-0 flex-1">
+        <BookTitle book={book} />
+      </div>
+      <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${statusBadgeClass(book.status)}`}>
+        {BOOK_STATUS_LABELS[book.status] ?? book.status}
+      </span>
+      <span className="hidden shrink-0 text-xs text-neutral-400 md:inline">笔记 {book.note_count}</span>
+      <BookActions book={book} onEdit={onEdit} onManageNotes={onManageNotes} onBlocked={onBlocked} />
+    </li>
+  );
+}
+
+function BookCard({
+  book,
+  onEdit,
+  onManageNotes,
+  onBlocked,
+}: {
+  book: Book;
+  onEdit: () => void;
+  onManageNotes: () => void;
+  onBlocked: (message: string) => void;
+}) {
+  const updateBook = useUpdateBook();
+
+  return (
     <div className={`rounded-lg border border-neutral-200 bg-white p-4 ${importantRowClass(book.is_important)}`}>
       <div className="flex items-start gap-2">
         <StarButton
           important={book.is_important}
           onToggle={() => updateBook.mutate({ id: book.id, is_important: !book.is_important })}
         />
-        <BookOpen className="mt-1.5 h-4 w-4 shrink-0 text-neutral-400" />
+        <BookOpen className="mt-1 h-4 w-4 shrink-0 text-neutral-400" />
         <div className="min-w-0 flex-1">
-          <div className={`truncate text-sm font-medium ${book.is_important ? "text-red-700" : ""}`}>{book.title}</div>
-          <div className="truncate text-xs text-neutral-500">{book.author || "未知作者"}</div>
+          <BookTitle book={book} />
         </div>
-        <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600">
-          {BOOK_STATUS_LABELS[book.status] ?? book.status}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={`rounded px-1.5 py-0.5 text-xs ${statusBadgeClass(book.status)}`}>
+            {BOOK_STATUS_LABELS[book.status] ?? book.status}
+          </span>
+          <span className={`rounded px-1.5 py-0.5 text-[11px] ${typeBadgeClass(book.book_type)}`}>
+            {BOOK_TYPE_LABELS[book.book_type] ?? book.book_type}
+          </span>
+        </div>
       </div>
       {book.note && <p className="mt-2 line-clamp-2 text-xs text-neutral-500">{book.note}</p>}
       <div className="mt-3 flex items-center gap-1 text-xs text-neutral-500">
         <FileText className="h-3.5 w-3.5" /> 笔记 {book.note_count} 份
-        <span className="ml-auto flex gap-1">
-          <Button size="sm" variant="ghost" onClick={onManageNotes}>
-            笔记
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onEdit}>
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          <Button size="sm" variant="ghost" onClick={attemptDelete} aria-label="删除书籍">
-            <Trash2 className="h-3.5 w-3.5 text-red-500" />
-          </Button>
+        <span className="ml-auto">
+          <BookActions book={book} onEdit={onEdit} onManageNotes={onManageNotes} onBlocked={onBlocked} />
         </span>
       </div>
     </div>
@@ -187,6 +346,8 @@ function BookFormDialog({
   const createBook = useCreateBook();
   const updateBook = useUpdateBook();
   const [title, setTitle] = useState("");
+  const [titleCn, setTitleCn] = useState("");
+  const [bookType, setBookType] = useState("book");
   const [author, setAuthor] = useState("");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState("todo");
@@ -194,6 +355,8 @@ function BookFormDialog({
   useEffect(() => {
     if (open) {
       setTitle(book?.title ?? "");
+      setTitleCn(book?.title_cn ?? "");
+      setBookType(book?.book_type ?? "book");
       setAuthor(book?.author ?? "");
       setNote(book?.note ?? "");
       setStatus(book?.status ?? "todo");
@@ -202,7 +365,7 @@ function BookFormDialog({
 
   const submit = () => {
     if (!title.trim()) return;
-    const body = { title: title.trim(), author, note, status };
+    const body = { title: title.trim(), title_cn: titleCn.trim(), book_type: bookType, author, note, status };
     const mutation = book ? updateBook : createBook;
     const payload = book ? { id: book.id, ...body } : body;
     mutation.mutate(payload as never, { onSuccess: () => onOpenChange(false) });
@@ -219,21 +382,35 @@ function BookFormDialog({
             <Label>书名</Label>
             <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
+          <div>
+            <Label>标题翻译（中文，可选）</Label>
+            <Input value={titleCn} placeholder="原标题的中文翻译，单独保存展示" onChange={(e) => setTitleCn(e.target.value)} />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>作者</Label>
               <Input value={author} onChange={(e) => setAuthor(e.target.value)} />
             </div>
             <div>
-              <Label>状态</Label>
-              <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-                {Object.entries(BOOK_STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+              <Label>类型</Label>
+              <Select value={bookType} onChange={(e) => setBookType(e.target.value)} aria-label="阅读类型">
+                {BOOK_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {BOOK_TYPE_LABELS[t]}
                   </option>
                 ))}
               </Select>
             </div>
+          </div>
+          <div>
+            <Label>状态</Label>
+            <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {Object.entries(BOOK_STATUS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
           </div>
           <div>
             <Label>备注</Label>

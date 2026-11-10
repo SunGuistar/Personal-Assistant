@@ -12,9 +12,11 @@ import {
 } from "../components/ui/dialog";
 import {
   Candidate,
+  CleanupRules,
   Review,
   useCleanupJob,
   useCleanupReview,
+  useCleanupRules,
   useCleanupStatus,
   useConfirmReview,
   useDismissReview,
@@ -22,6 +24,17 @@ import {
   useRetryCandidates,
   useSkipReview,
 } from "../api/cleanup";
+
+/** 生效规则展示项（label 固定，内容来自后端，保证与执行逻辑一致）。 */
+const RULE_ITEMS: Array<{ key: keyof CleanupRules; label: string }> = [
+  { key: "schedule", label: "审核周期" },
+  { key: "age_rule", label: "清理边界" },
+  { key: "protection_rule", label: "永久保护" },
+  { key: "chunk_policy", label: "chunk 处置" },
+  { key: "dedupe_rule", label: "跨周去重" },
+  { key: "execute_rule", label: "删除执行" },
+  { key: "conflict_rule", label: "互斥与确认" },
+];
 
 const KEEP_REASON_LABELS: Record<string, string> = {
   protected: "含永久保护日期的消息",
@@ -93,6 +106,8 @@ export function CleanupPage() {
         </span>
       </div>
 
+      <CleanupRulesPanel />
+
       {reviews.length === 0 ? (
         <div className="rounded-lg border border-dashed border-neutral-300 bg-white p-6 text-sm text-neutral-500">
           还没有清理审核记录（每周日生成，错过周日会在下次启动补发）。
@@ -124,6 +139,13 @@ export function CleanupPage() {
             <h2 className="text-sm font-semibold">周期 {current.week_id} · 候选分组（默认全不勾选）</h2>
             <ReviewActions review={current} disabled={running} />
           </div>
+
+          {current.summary && (
+            <div className="mb-3 rounded-md border border-neutral-100 bg-neutral-50 px-3 py-2 text-xs leading-relaxed text-neutral-600">
+              <span className="font-medium text-neutral-700">审核说明：</span>
+              {current.summary}
+            </div>
+          )}
 
           {selected.length === 0 ? (
             <div className="py-6 text-center text-sm text-neutral-400">
@@ -228,6 +250,33 @@ export function CleanupPage() {
   );
 }
 
+function CleanupRulesPanel() {
+  const rules = useCleanupRules();
+  const data = rules.data;
+  return (
+    <section className="rounded-lg border border-neutral-200 bg-white p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-semibold">当前生效的清理规则</h2>
+        <span className="text-[11px] text-neutral-400">
+          {data
+            ? `保留期 ${data.keep_days} 天 · 保护日期 ${data.protected_dates.join("、") || "无"} · ${data.timezone}`
+            : "加载中…"}
+        </span>
+      </div>
+      {data && (
+        <ul className="grid gap-x-6 gap-y-1.5 text-xs leading-relaxed text-neutral-600 md:grid-cols-2">
+          {RULE_ITEMS.map(({ key, label }) => (
+            <li key={key} className="flex gap-1.5">
+              <span className="shrink-0 font-medium text-neutral-700">{label}：</span>
+              <span>{data[key]}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function ReviewActions({ review, disabled }: { review: Review; disabled: boolean }) {
   const dismiss = useDismissReview();
   const skip = useSkipReview();
@@ -315,7 +364,7 @@ function CandidateRow({
   );
 }
 
-/** 首页提醒横幅（待审核且未稍后的周期）。 */
+/** 计划管理页顶部的清理提醒横幅（待审核且未稍后的周期）。 */
 export function CleanupBanner() {
   const status = useCleanupStatus();
   const dismiss = useDismissReview();

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..db import Base
 
 BOOK_STATUS = ("todo", "reading", "done")
+BOOK_TYPES = ("book", "article", "video", "essay")
 
 
 def _now() -> str:
@@ -26,6 +27,8 @@ class Book(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(200))
+    title_cn: Mapped[str] = mapped_column(String(200), default="")  # 标题中文翻译（可空）
+    book_type: Mapped[str] = mapped_column(String(16), default="book")  # book/article/video/essay
     author: Mapped[str] = mapped_column(String(128), default="")
     note: Mapped[str] = mapped_column(String(2000), default="")
     status: Mapped[str] = mapped_column(String(16), default="todo")

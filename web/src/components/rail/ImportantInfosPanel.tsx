@@ -83,7 +83,7 @@ function InfoDialog({
   );
 }
 
-/** 右侧栏上部：重要信息（约 40% 高度，独立滚动，标题/内容完整显示）。 */
+/** 重要信息面板：独立滚动，标题/内容完整显示（仅计划管理页面展示）。 */
 export function ImportantInfosPanel() {
   const { data: infos = [] } = useInfos();
   const reorder = useReorderInfos();
@@ -101,7 +101,7 @@ export function ImportantInfosPanel() {
   };
 
   return (
-    <section className="flex min-h-0 flex-[2] flex-col border-b border-neutral-200">
+    <section className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-3 py-2">
         <h2 className="text-xs font-semibold text-neutral-700">重要信息</h2>
         <Button

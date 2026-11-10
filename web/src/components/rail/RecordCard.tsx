@@ -10,6 +10,7 @@ import { SafeMarkdown } from "../SafeMarkdown";
 export function RecordCard({
   title,
   content,
+  badge,
   canUp,
   canDown,
   onMove,
@@ -21,6 +22,8 @@ export function RecordCard({
 }: {
   title: string;
   content: string;
+  /** 标题旁的可选徽标（如随手备忘的任务类型标签） */
+  badge?: ReactNode;
   canUp: boolean;
   canDown: boolean;
   onMove: (direction: -1 | 1) => void;
@@ -42,7 +45,10 @@ export function RecordCard({
             <ArrowDown className="h-3.5 w-3.5" />
           </button>
         </div>
-        <span className={`min-w-0 flex-1 break-words ${titleClassName}`}>{title}</span>
+        <span className={`min-w-0 flex-1 break-words ${titleClassName}`}>
+          {title}
+          {badge}
+        </span>
         <div className="flex shrink-0 items-center gap-0.5">
           {extraAction}
           <button onClick={onEdit} aria-label="编辑记录" className="p-0.5 text-neutral-400 hover:text-neutral-700">

@@ -7,10 +7,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 BookStatus = Literal["todo", "reading", "done"]
+BookType = Literal["book", "article", "video", "essay"]
 
 
 class BookIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+    title_cn: str = Field(default="", max_length=200)
+    book_type: BookType = "book"
     author: str = ""
     note: str = ""
     status: BookStatus = "todo"
@@ -19,6 +22,8 @@ class BookIn(BaseModel):
 
 class BookPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
+    title_cn: str | None = Field(default=None, max_length=200)
+    book_type: BookType | None = None
     author: str | None = None
     note: str | None = None
     status: BookStatus | None = None
@@ -28,6 +33,8 @@ class BookPatch(BaseModel):
 class BookOut(BaseModel):
     id: int
     title: str
+    title_cn: str
+    book_type: str
     author: str
     note: str
     status: str

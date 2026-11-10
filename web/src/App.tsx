@@ -4,7 +4,6 @@ import { AppLayout } from "./components/layout/AppLayout";
 import {
   CleanupPage,
   GithubPage,
-  HomePage,
   NewsPage,
   PlansPage,
   ReadingPage,
@@ -12,11 +11,11 @@ import {
   WechatPage,
 } from "./pages";
 
-/** 路由表（不自带 Router，便于测试用 MemoryRouter 包裹）。 */
+/** 路由表（不自带 Router，便于测试用 MemoryRouter 包裹）。计划管理为默认入口。 */
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<HomePage />} />
+      <Route path="/" element={<PlansPage />} />
       <Route path="/wechat" element={<WechatPage />} />
       <Route path="/news" element={<NewsPage />} />
       <Route path="/plans" element={<PlansPage />} />

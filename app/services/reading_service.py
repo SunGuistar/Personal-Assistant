@@ -11,13 +11,13 @@ import logging
 import re
 from pathlib import Path
 
-from sqlalchemy import delete as sql_delete
+from sqlalchemy import case, delete as sql_delete
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..exceptions import BookHasNotes, DomainError, NotFoundError
 from ..models import Book, BookNote
-from ..models.reading import BOOK_STATUS
+from ..models.reading import BOOK_STATUS, BOOK_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,8 @@ def book_to_dict(session: Session, book: Book) -> dict:
     return {
         "id": book.id,
         "title": book.title,
+        "title_cn": book.title_cn,
+        "book_type": book.book_type,
         "author": book.author,
         "note": book.note,
         "status": book.status,
@@ -91,11 +93,25 @@ def note_to_dict(note: BookNote) -> dict:
     }
 
 
-def list_books(session: Session, status: str | None = None) -> list[dict]:
-    # 排序规则（2026-11 优化轮）：重要置顶，组内沿用默认（id）顺序
-    statement = select(Book).order_by(Book.is_important.desc(), Book.id)
+# 排序规则：重要置顶（仅对在读/未读生效）→ 状态 正在读 > 未读 > 已读；已读始终沉底；组内沿用 id 顺序
+_STATUS_ORDER = case(
+    (Book.status == "reading", 0),
+    (Book.status == "todo", 1),
+    (Book.status == "done", 2),
+    else_=3,
+)
+# 已读（含重要）一律排在非已读之后
+_DONE_LAST = case((Book.status == "done", 1), else_=0)
+
+
+def list_books(session: Session, status: str | None = None, book_type: str | None = None) -> list[dict]:
+    statement = select(Book).order_by(
+        _DONE_LAST, Book.is_important.desc(), _STATUS_ORDER, Book.id
+    )
     if status:
         statement = statement.where(Book.status == status)
+    if book_type:
+        statement = statement.where(Book.book_type == book_type)
     books = session.execute(statement).scalars().all()
     return [book_to_dict(session, book) for book in books]
 
@@ -108,11 +124,15 @@ def get_book(session: Session, book_id: int) -> Book:
 
 
 def create_book(
-    session: Session, *, title: str, author: str = "", note: str = "", status: str = "todo", is_important: bool = False
+    session: Session, *, title: str, title_cn: str = "", book_type: str = "book",
+    author: str = "", note: str = "", status: str = "todo", is_important: bool = False
 ) -> dict:
     if status not in BOOK_STATUS:
         raise DomainError(f"非法阅读状态: {status}", code="invalid_status", status_code=400)
-    book = Book(title=title, author=author, note=note, status=status, is_important=1 if is_important else 0)
+    if book_type not in BOOK_TYPES:
+        raise DomainError(f"非法阅读类型: {book_type}", code="invalid_book_type", status_code=400)
+    book = Book(title=title, title_cn=title_cn, book_type=book_type,
+                author=author, note=note, status=status, is_important=1 if is_important else 0)
     session.add(book)
     session.commit()
     session.refresh(book)
@@ -123,7 +143,9 @@ def update_book(session: Session, book_id: int, fields: dict) -> dict:
     book = get_book(session, book_id)
     if "status" in fields and fields["status"] is not None and fields["status"] not in BOOK_STATUS:
         raise DomainError(f"非法阅读状态: {fields['status']}", code="invalid_status", status_code=400)
-    for key in ("title", "author", "note", "status"):
+    if "book_type" in fields and fields["book_type"] is not None and fields["book_type"] not in BOOK_TYPES:
+        raise DomainError(f"非法阅读类型: {fields['book_type']}", code="invalid_book_type", status_code=400)
+    for key in ("title", "title_cn", "author", "note", "status", "book_type"):
         if key in fields and fields[key] is not None:
             setattr(book, key, fields[key])
     if fields.get("is_important") is not None:

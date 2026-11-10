@@ -46,6 +46,29 @@ def test_sunday_creates_review(hub, env):
     assert review is not None and review.week_id == "2026-11-01" and review.status == "pending"
 
 
+def test_review_summary_generated_and_exposed(hub, env):
+    """每次审核生成简短审核说明，关联审核记录并可经接口字段查看。"""
+    review = service.ensure_review(hub, today=date(2026, 11, 1), protected=PROTECTED, paths=env.paths)
+    payload = service.review_to_dict(hub, review)
+    assert payload["summary"]
+    assert "候选" in payload["summary"]
+    assert PROTECTED_DATE in payload["summary"]  # 判断依据含保护日期
+
+    # 无候选周期也有说明（解释为何无需处理）：同库下一周，旧分组跨周去重 + 保护日期排除
+    review2 = service.ensure_review(hub, today=date(2026, 11, 8), protected=PROTECTED, paths=env.paths)
+    summary2 = service.review_to_dict(hub, review2)["summary"]
+    assert "未发现可清理候选" in summary2
+
+
+def test_cleanup_rules_endpoint(fclient):
+    """规则接口完整返回当前实际生效的审核规则。"""
+    rules = fclient.get("/api/cleanup/rules").json()
+    assert rules["keep_days"] == 7
+    assert "2026-10-27" in rules["protected_dates"]
+    for key in ("schedule", "age_rule", "protection_rule", "chunk_policy", "dedupe_rule", "execute_rule", "conflict_rule"):
+        assert rules[key]
+
+
 def test_same_week_idempotent(hub, env):
     r1 = service.ensure_review(hub, today=date(2026, 11, 1), protected=PROTECTED, paths=env.paths)
     r2 = service.ensure_review(hub, today=date(2026, 11, 7), protected=PROTECTED, paths=env.paths)  # 周六同一周

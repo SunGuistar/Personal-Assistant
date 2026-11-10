@@ -81,7 +81,7 @@ function NewsRow({ item }: { item: NewsTopItem }) {
   );
 }
 
-/** 首页与资讯页共用的热门 TOP 10 榜单组件（同一份 API 数据与翻译结果）。 */
+/** 资讯页热门 TOP 10 榜单组件（API 数据与翻译结果同源复用）。 */
 export function TopNewsList({
   items,
   loading,

@@ -6,6 +6,8 @@ export interface Book {
   is_important: boolean;
   id: number;
   title: string;
+  title_cn: string; // 标题中文翻译（可空）
+  book_type: string; // book/article/video/essay
   author: string;
   note: string;
   status: string;
@@ -21,15 +23,46 @@ export interface BookNote {
 }
 
 export const BOOK_STATUS_LABELS: Record<string, string> = {
-  todo: "待读",
+  todo: "未读",
   reading: "正在读",
   done: "已读",
 };
 
-export function useBooks(status: string | null = null) {
+/** 阅读类型（新增/编辑可选）。 */
+export const BOOK_TYPE_LABELS: Record<string, string> = {
+  book: "书籍",
+  article: "文章",
+  video: "视频",
+  essay: "随笔",
+};
+
+export const BOOK_TYPES = Object.keys(BOOK_TYPE_LABELS);
+
+/** 类型徽标配色：书籍=天蓝、文章=紫、视频=玫红、随笔=琥珀（与状态徽标错开）。 */
+export const BOOK_TYPE_BADGE_CLASS: Record<string, string> = {
+  book: "bg-sky-50 text-sky-700",
+  article: "bg-violet-50 text-violet-700",
+  video: "bg-rose-50 text-rose-600",
+  essay: "bg-amber-50 text-amber-700",
+};
+
+/** 状态徽标配色：正在读=蓝、未读=中性灰、已读=绿（与页面中性风格协调，三色易区分）。 */
+export const BOOK_STATUS_BADGE_CLASS: Record<string, string> = {
+  reading: "bg-blue-50 text-blue-600",
+  todo: "bg-neutral-100 text-neutral-500",
+  done: "bg-green-50 text-green-600",
+};
+
+export function useBooks(status: string | null = null, bookType: string | null = null) {
   return useQuery({
-    queryKey: ["books", status],
-    queryFn: () => api<Book[]>(status ? `/books?status=${status}` : "/books"),
+    queryKey: ["books", status, bookType],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (status) params.set("status", status);
+      if (bookType) params.set("book_type", bookType);
+      const qs = params.toString();
+      return api<Book[]>(qs ? `/books?${qs}` : "/books");
+    },
   });
 }
 

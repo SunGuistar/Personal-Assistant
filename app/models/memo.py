@@ -24,6 +24,7 @@ class Memo(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(128))
     content: Mapped[str] = mapped_column(Text, default="")
+    task_type: Mapped[str] = mapped_column(String(16), default="")  # 任务类型（空=存量未保存，按 daily 回退）
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(String(32), default=_now)
     updated_at: Mapped[str] = mapped_column(String(32), default=_now, onupdate=_now)

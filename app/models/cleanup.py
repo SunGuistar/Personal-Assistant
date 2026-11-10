@@ -28,6 +28,7 @@ class CleanupReview(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     week_id: Mapped[str] = mapped_column(String(16), unique=True)  # 所在周日 YYYY-MM-DD
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    summary: Mapped[str] = mapped_column(Text, default="")  # 审核说明（生成候选时写入）
     confirmed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reviewed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[str] = mapped_column(String(32), default=_now)

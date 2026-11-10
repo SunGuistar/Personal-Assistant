@@ -25,9 +25,13 @@ import {
 } from "../components/ui/dialog";
 import { Input, Label, Select, Textarea } from "../components/ui/input";
 import { todayStr } from "../lib/api";
+import { ImportantInfosPanel } from "../components/rail/ImportantInfosPanel";
+import { MemosPanel } from "../components/rail/MemosPanel";
+import { CleanupBanner } from "./CleanupPage";
 import {
   DailyTask,
   Plan,
+  TASK_TYPE_BADGE_CLASS,
   TASK_TYPE_LABELS,
   TASK_TYPES,
   TaskType,
@@ -65,13 +69,7 @@ function importantTitleClass(isImportant: boolean, done: boolean): string {
   return isImportant ? "text-red-700" : "text-neutral-900";
 }
 
-/** 任务类型徽标配色（日常/功能添加/功能优化/奇思妙想）。 */
-const TYPE_BADGE_CLASS: Record<TaskType, string> = {
-  daily: "bg-neutral-100 text-neutral-500",
-  feature_add: "bg-blue-50 text-blue-600",
-  feature_optimize: "bg-amber-50 text-amber-600",
-  idea: "bg-purple-50 text-purple-600",
-};
+/** 任务类型徽标配色（复用 api/plans 的 TASK_TYPE_BADGE_CLASS）。 */
 
 export function PlansPage() {
   const [date, setDate] = useState(todayStr());
@@ -81,10 +79,22 @@ export function PlansPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">计划管理</h1>
+      <CleanupBanner />
       <DateBar date={date} onChange={setDate} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DailyPanel date={date} tasks={tasks} loading={isLoading} />
-        <PlansPanel plans={plans} />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 self-start xl:grid-cols-2 lg:col-span-2">
+          <DailyPanel date={date} tasks={tasks} loading={isLoading} />
+          <PlansPanel plans={plans} />
+        </div>
+        {/* 重要信息与随手备忘仅在此页面展示（原为全局右栏） */}
+        <div className="flex flex-col gap-4">
+          <div className="flex max-h-[38vh] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white">
+            <ImportantInfosPanel />
+          </div>
+          <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white">
+            <MemosPanel />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -232,7 +242,7 @@ function TaskRow({ task, date }: { task: DailyTask; date: string }) {
         onDoubleClick={() => setEditOpen(true)}
       >
         <span className="break-words">{task.title}</span>
-        <span className={`ml-2 rounded px-1.5 py-0.5 text-[11px] ${TYPE_BADGE_CLASS[task.task_type]}`}>
+        <span className={`ml-2 rounded px-1.5 py-0.5 text-[11px] ${TASK_TYPE_BADGE_CLASS[task.task_type]}`}>
           {TASK_TYPE_LABELS[task.task_type]}
         </span>
         {task.task_date !== date && (

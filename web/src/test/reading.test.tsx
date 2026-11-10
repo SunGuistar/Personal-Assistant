@@ -8,9 +8,12 @@ import { ReadingPage } from "../pages/ReadingPage";
 const BOOK_WITH_NOTES = {
   id: 1,
   title: "三体",
+  title_cn: "",
+  book_type: "book",
   author: "刘慈欣",
   note: "",
   status: "reading",
+  is_important: false,
   note_count: 2,
 };
 
@@ -48,12 +51,72 @@ function stubBooksFetch(deleteSpy?: () => void) {
 describe("阅读管理页面", () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  it("渲染书籍卡片与状态筛选", async () => {
+  it("默认列表展示：渲染书籍行、类型/状态徽标与状态筛选", async () => {
     stubBooksFetch();
     renderPage();
     expect(await screen.findByText("三体")).toBeInTheDocument();
     expect(screen.getAllByText("正在读").length).toBeGreaterThan(0);
-    expect(screen.getByText("待读")).toBeInTheDocument();
+    expect(screen.getByText("未读")).toBeInTheDocument();
+    expect(screen.getAllByText("书籍").length).toBeGreaterThan(0); // 类型徽标 + 类型筛选
+    // 默认列表模式（行容器存在，卡片网格不存在）
+    expect(document.querySelector("ul")?.textContent).toContain("三体");
+  });
+
+  it("类型筛选：点击类型按钮带 book_type 参数请求", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        urls.push(url);
+        if (url.startsWith("/api/books")) {
+          return new Response(JSON.stringify([BOOK_WITH_NOTES]), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+    await screen.findByText("三体");
+    fireEvent.click(screen.getByRole("button", { name: "文章" }));
+    await waitFor(() => expect(urls.some((u) => u.includes("book_type=article"))).toBe(true));
+    expect(urls.some((u) => u.includes("/api/books?"))).toBe(true);
+  });
+
+  it("列表/卡片切换：默认列表，切换持久化且不影响数据", async () => {
+    stubBooksFetch();
+    renderPage();
+    expect(await screen.findByText("三体")).toBeInTheDocument();
+    expect(localStorage.getItem("hub.reading.view")).not.toBe("card");
+
+    fireEvent.click(screen.getByRole("button", { name: "卡片展示" }));
+    await screen.findByText("笔记 2 份"); // 卡片视图渲染
+    expect(localStorage.getItem("hub.reading.view")).toBe("card");
+
+    fireEvent.click(screen.getByRole("button", { name: "列表展示" }));
+    expect(localStorage.getItem("hub.reading.view")).toBe("list");
+  });
+
+  it("标题翻译单独展示；未填作者不显示作者占位", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/books")) {
+          return new Response(
+            JSON.stringify([
+              { ...BOOK_WITH_NOTES, id: 2, title: "Deep Work", title_cn: "深度工作", author: "" },
+            ]),
+            { status: 200 }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+    expect(await screen.findByText("Deep Work")).toBeInTheDocument();
+    expect(screen.getByText("译：深度工作")).toBeInTheDocument();
+    expect(screen.queryByText("未知作者")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^\s*刘慈欣\s*$/)).not.toBeInTheDocument();
   });
 
   it("有笔记的书籍禁止删除：前端预检直接提示且不发起 DELETE", async () => {

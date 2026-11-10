@@ -14,6 +14,7 @@ DATE = "2026-11-05"
 def test_memos_crud_and_persist(fclient):
     created = fclient.post("/api/memos", json={"title": "搁置的想法", "content": "多行\n内容"}).json()
     assert created["sort_order"] == 1
+    assert created["task_type"] == "daily"  # 默认类型
     listed = fclient.get("/api/memos").json()
     assert [m["id"] for m in listed] == [created["id"]]
 
@@ -24,6 +25,33 @@ def test_memos_crud_and_persist(fclient):
     assert fclient.delete(f"/api/memos/{created['id']}").status_code == 204
     assert fclient.get("/api/memos").json() == []
     assert fclient.patch("/api/memos/9999", json={"title": "x"}).status_code == 404
+
+
+def test_memos_task_type_create_update(fclient):
+    """随手备忘任务类型：新增可选（默认 daily）、新增后可修改、展示返回。"""
+    created = fclient.post(
+        "/api/memos", json={"title": "新想法", "task_type": "idea"}
+    ).json()
+    assert created["task_type"] == "idea"
+
+    updated = fclient.patch(f"/api/memos/{created['id']}", json={"task_type": "feature_optimize"}).json()
+    assert updated["task_type"] == "feature_optimize"
+    assert fclient.get("/api/memos").json()[0]["task_type"] == "feature_optimize"
+
+    # 非法类型：422（Literal 校验）/ Service 直调 400
+    bad = fclient.post("/api/memos", json={"title": "x", "task_type": "nope"})
+    assert bad.status_code == 422
+
+    from app.services import memos_service
+
+    session = fclient.app.state.session_factory()
+    try:
+        import pytest
+
+        with pytest.raises(Exception):
+            memos_service.create_memo(session, title="y", task_type="nope")
+    finally:
+        session.close()
 
 
 def test_memos_reorder(fclient):
@@ -79,24 +107,36 @@ def test_legacy_memo_empty_file_noop(fclient, tmp_path, monkeypatch):
 
 # ---------- 双向转换 ----------
 
-def test_memo_to_task_moves_with_content(fclient):
+def test_memo_to_task_one_click_defaults(fclient):
+    """一键转换：不要求选择时间/类型；默认今天、未保存类型回退 daily。"""
     memo = fclient.post("/api/memos", json={"title": "写报告", "content": "要点 A\n要点 B"}).json()
-    task = fclient.post(
-        f"/api/memos/{memo['id']}/to_task",
-        json={"target_date": DATE, "task_type": "feature_add", "is_important": True},
-    ).json()
+    task = fclient.post(f"/api/memos/{memo['id']}/to_task").json()
     assert task["title"] == "写报告"
     assert task["content"] == "要点 A\n要点 B"  # 内容不丢失
-    assert task["task_type"] == "feature_add" and task["is_important"] is True
-    assert task["task_date"] == DATE
+    assert task["task_type"] == "daily"  # 默认规则
 
+    from datetime import date
+
+    assert task["task_date"] == date.today().isoformat()
     assert fclient.get("/api/memos").json() == []  # 原备忘移除（移动非复制）
-    daily = fclient.get(f"/api/tasks/daily?date={DATE}").json()
-    assert any(t["id"] == task["id"] for t in daily)
 
     # 重复转换 → 404（源已不存在，天然防重复点击）
-    again = fclient.post(f"/api/memos/{memo['id']}/to_task", json={"target_date": DATE})
+    again = fclient.post(f"/api/memos/{memo['id']}/to_task")
     assert again.status_code == 404
+
+
+def test_task_type_preserved_in_memo_roundtrip(fclient):
+    """每日任务 → 备忘 → 每日任务：计划类型双向保留，不丢失。"""
+    task = fclient.post(
+        "/api/tasks", json={"task_date": DATE, "title": "优化入口", "task_type": "feature_optimize"}
+    ).json()
+    memo = fclient.post(f"/api/tasks/{task['id']}/to_memo").json()
+    assert memo["task_type"] == "feature_optimize"  # 内部保存（前端不展示）
+
+    restored = fclient.post(f"/api/memos/{memo['id']}/to_task").json()
+    assert restored["task_type"] == "feature_optimize"  # 转回时恢复
+    assert restored["title"] == "优化入口"
+    assert fclient.get("/api/memos").json() == []
 
 
 def test_task_to_memo_moves_with_content(fclient):
@@ -106,6 +146,7 @@ def test_task_to_memo_moves_with_content(fclient):
     memo = fclient.post(f"/api/tasks/{task['id']}/to_memo").json()
     assert memo["title"] == "暂缓任务"
     assert memo["content"] == "说明文字"
+    assert memo["task_type"] == "idea"  # 计划类型内部保存（展示层不显示）
 
     assert fclient.get(f"/api/tasks/{task['id']}").status_code == 404  # 原任务移除
     assert any(m["id"] == memo["id"] for m in fclient.get("/api/memos").json())

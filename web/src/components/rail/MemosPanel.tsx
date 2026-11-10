@@ -11,8 +11,7 @@ import {
 } from "../ui/dialog";
 import { Input, Label, Select, Textarea } from "../ui/input";
 import { RecordCard } from "./RecordCard";
-import { TASK_TYPES, TASK_TYPE_LABELS, TaskType } from "../../api/plans";
-import { todayStr } from "../../lib/api";
+import { TASK_TYPE_BADGE_CLASS, TASK_TYPE_LABELS, TASK_TYPES, TaskType } from "../../api/plans";
 import {
   Memo,
   useCreateMemo,
@@ -36,6 +35,7 @@ function MemoDialog({
   const updateMemo = useUpdateMemo();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [taskType, setTaskType] = useState<TaskType>("daily");
 
   const [prevOpen, setPrevOpen] = useState(false);
   if (open !== prevOpen) {
@@ -43,6 +43,8 @@ function MemoDialog({
     if (open) {
       setTitle(memo?.title ?? "");
       setContent(memo?.content ?? "");
+      // 存量备忘未保存过类型时按默认规则回退日常
+      setTaskType((memo?.task_type || "daily") as TaskType);
     }
   }
 
@@ -50,9 +52,9 @@ function MemoDialog({
     const trimmed = title.trim();
     if (!trimmed) return;
     if (memo) {
-      updateMemo.mutate({ id: memo.id, title: trimmed, content }, { onSuccess: () => onOpenChange(false) });
+      updateMemo.mutate({ id: memo.id, title: trimmed, content, task_type: taskType }, { onSuccess: () => onOpenChange(false) });
     } else {
-      createMemo.mutate({ title: trimmed, content }, { onSuccess: () => onOpenChange(false) });
+      createMemo.mutate({ title: trimmed, content, task_type: taskType }, { onSuccess: () => onOpenChange(false) });
     }
   };
 
@@ -71,6 +73,16 @@ function MemoDialog({
             <Label>内容（支持基础 Markdown）</Label>
             <Textarea rows={4} value={content} onChange={(e) => setContent(e.target.value)} />
           </div>
+          <div>
+            <Label>任务类型（与每日任务一致，转每日任务时保留）</Label>
+            <Select value={taskType} onChange={(e) => setTaskType(e.target.value as TaskType)} aria-label="任务类型">
+              {TASK_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {TASK_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -85,77 +97,14 @@ function MemoDialog({
   );
 }
 
-/** 随手备忘 → 每日任务 的确认弹窗（默认今天/日常/非重要，可改）。 */
-function MemoToTaskDialog({
-  memo,
-  onClose,
-}: {
-  memo: Memo;
-  onClose: () => void;
-}) {
-  const memoToTask = useMemoToTask();
-  const [targetDate, setTargetDate] = useState(todayStr());
-  const [taskType, setTaskType] = useState<TaskType>("daily");
-  const [isImportant, setIsImportant] = useState(false);
-
-  return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>转为每日任务</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-neutral-500">
-          「{memo.title}」将转为每日任务并从备忘中移除；内容将保存到任务备注。
-        </p>
-        <div className="space-y-3">
-          <div>
-            <Label>执行日期</Label>
-            <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
-          </div>
-          <div>
-            <Label>任务类型</Label>
-            <Select value={taskType} onChange={(e) => setTaskType(e.target.value as TaskType)}>
-              {TASK_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {TASK_TYPE_LABELS[t]}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={isImportant} onChange={(e) => setIsImportant(e.target.checked)} className="accent-red-500" />
-            标记为重要
-          </label>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            disabled={memoToTask.isPending}
-            onClick={() =>
-              memoToTask.mutate(
-                { id: memo.id, target_date: targetDate, task_type: taskType, is_important: isImportant },
-                { onSuccess: onClose }
-              )
-            }
-          >
-            转换
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** 右侧栏下部：随手备忘（约 60% 高度，独立滚动；可转为每日任务）。 */
+/** 随手备忘面板（独立滚动，可一键转为今日每日任务）。仅计划管理页面展示。 */
 export function MemosPanel() {
   const { data: memos = [] } = useMemos();
   const reorder = useReorderMemos();
   const deleteMemo = useDeleteMemo();
+  const memoToTask = useMemoToTask();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Memo | null>(null);
-  const [converting, setConverting] = useState<Memo | null>(null);
   const ids = memos.map((m) => m.id);
 
   const swap = (index: number, direction: -1 | 1) => {
@@ -192,6 +141,13 @@ export function MemosPanel() {
                 key={memo.id}
                 title={memo.title}
                 content={memo.content}
+                badge={
+                  <span
+                    className={`ml-1 inline-block rounded px-1.5 py-0.5 align-middle text-[10px] ${TASK_TYPE_BADGE_CLASS[(memo.task_type || "daily") as TaskType]}`}
+                  >
+                    {TASK_TYPE_LABELS[(memo.task_type || "daily") as TaskType]}
+                  </span>
+                }
                 canUp={index > 0}
                 canDown={index < memos.length - 1}
                 onMove={(direction) => swap(index, direction)}
@@ -203,10 +159,11 @@ export function MemosPanel() {
                 deleteConfirm={`删除随手备忘「${memo.title}」？`}
                 extraAction={
                   <button
-                    onClick={() => setConverting(memo)}
+                    onClick={() => memoToTask.mutate({ id: memo.id })}
+                    disabled={memoToTask.isPending}
                     aria-label="转为每日任务"
-                    title="转为每日任务"
-                    className="p-0.5 text-neutral-400 hover:text-green-600"
+                    title="一键转为今日每日任务（计划类型自动恢复）"
+                    className="p-0.5 text-neutral-400 hover:text-green-600 disabled:opacity-40"
                   >
                     <ListChecks className="h-3.5 w-3.5" />
                   </button>
@@ -217,7 +174,6 @@ export function MemosPanel() {
         )}
       </div>
       <MemoDialog open={dialogOpen} onOpenChange={setDialogOpen} memo={editing} />
-      {converting && <MemoToTaskDialog memo={converting} onClose={() => setConverting(null)} />}
     </section>
   );
 }

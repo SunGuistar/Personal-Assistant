@@ -49,11 +49,13 @@ export function useReorderInfos() {
   });
 }
 
-/** 随手备忘（右侧栏下部，SQLite 多条记录，与重要信息概念独立）。 */
+/** 随手备忘（SQLite 多条记录，与重要信息概念独立）。 */
 export interface Memo {
   id: number;
   title: string;
   content: string;
+  /** 任务类型（与每日任务同一套；空=存量未保存，展示/转换时按 daily 回退）。 */
+  task_type?: string;
   sort_order: number;
 }
 
@@ -64,7 +66,7 @@ export function useMemos() {
 export function useCreateMemo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { title: string; content?: string }) =>
+    mutationFn: (body: { title: string; content?: string; task_type?: string }) =>
       api<Memo>("/memos", { method: "POST", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["memos"] }),
   });
@@ -73,7 +75,7 @@ export function useCreateMemo() {
 export function useUpdateMemo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number } & Partial<Pick<Memo, "title" | "content">>) =>
+    mutationFn: ({ id, ...body }: { id: number } & Partial<Pick<Memo, "title" | "content" | "task_type">>) =>
       api<Memo>(`/memos/${id}`, { method: "PATCH", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["memos"] }),
   });
@@ -96,12 +98,12 @@ export function useReorderMemos() {
   });
 }
 
-/** 随手备忘 → 每日任务（移动语义）。 */
+/** 随手备忘 → 每日任务（移动语义，一键转换：默认今天，恢复备忘保存的计划类型）。 */
 export function useMemoToTask() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number; target_date: string; task_type: string; is_important: boolean }) =>
-      api<unknown>(`/memos/${id}/to_task`, { method: "POST", json: body }),
+    mutationFn: ({ id }: { id: number }) =>
+      api<unknown>(`/memos/${id}/to_task`, { method: "POST", json: {} }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["memos"] });
       qc.invalidateQueries({ queryKey: ["daily-tasks"] });

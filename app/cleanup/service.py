@@ -96,7 +96,39 @@ def ensure_review(
     session.commit()
     session.refresh(review)
     generate_candidates(session, review, protected=protected, paths=paths, today=today, keep_days=keep_days)
+    review.summary = _build_review_summary(session, review, protected=protected, keep_days=keep_days)
+    session.commit()
+    session.refresh(review)
     return review
+
+
+def _build_review_summary(session: Session, review: CleanupReview, *, protected: list[str], keep_days: int) -> str:
+    """每次审核生成一段简短说明：解释本次扫描的主要结果与判断依据。"""
+
+    candidates = session.execute(
+        select(CleanupCandidate).where(CleanupCandidate.review_id == review.id)
+    ).scalars().all()
+    groups = len(candidates)
+    protected_text = "、".join(sorted(protected)) or "无"
+    if groups == 0:
+        return (
+            f"本周扫描未发现可清理候选：数据未超过 {keep_days} 天保留期，"
+            f"或全部命中永久保护日期（{protected_text}）。无需人工处理。"
+        )
+    snapshot = sum(c.snapshot_count for c in candidates)
+    normalized = sum(c.normalized_count for c in candidates)
+    chunks_del = sum(c.chunk_delete_count for c in candidates)
+    chunks_keep = sum(c.chunk_keep_count for c in candidates)
+    keep_note = (
+        f"；另有 {chunks_keep} 个 chunk 因混合/保护/归属未知被保守保留"
+        if chunks_keep
+        else ""
+    )
+    return (
+        f"本周扫描微信聊天缓存，共 {groups} 组消息超过 {keep_days} 天保留期进入候选："
+        f"快照 {snapshot} 条、归一化 {normalized} 条、可删 Chroma chunk {chunks_del} 个{keep_note}。"
+        f"永久保护日期（{protected_text}）整组排除；删除需人工勾选并二次确认，未勾选分组绝不删除。"
+    )
 
 
 def generate_candidates(
@@ -194,6 +226,7 @@ def review_to_dict(session: Session, review: CleanupReview) -> dict:
         "id": review.id,
         "week_id": review.week_id,
         "status": review.status,
+        "summary": review.summary,
         "confirmed_at": review.confirmed_at,
         "reviewed_at": review.reviewed_at,
         "candidates": [candidate_to_dict(c) for c in candidates],
@@ -544,6 +577,23 @@ def active_task_exists(session: Session, kinds: list[str]) -> bool:
         select(Task.id).where(Task.kind.in_(kinds), Task.status.in_(["pending", "running"])).limit(1)
     ).first()
     return row is not None
+
+
+def cleanup_rules(keep_days: int, protected: list[str]) -> dict:
+    """当前实际生效的清理审核规则（审核页完整展示用，与执行逻辑同源）。"""
+
+    return {
+        "keep_days": keep_days,
+        "protected_dates": sorted(protected),
+        "timezone": "Asia/Shanghai（消息日期按本地时间解释，不随机器时区变化）",
+        "schedule": "每周日生成审核周期（错过周日于下次启动补发，同一周幂等，不覆盖未处理的旧周期）",
+        "age_rule": f"仅早于『今天前 {keep_days} 天』的消息日期进入候选（严格早于，当天及保留期内不清理）",
+        "protection_rule": "永久保护日期整组不出现在候选中；候选生成/确认/执行/重试各入口均复检，禁止绕过",
+        "chunk_policy": "Chroma chunk 保守处置：仅整组命中可删日期才删除；跨日期混合/含保护日期/消息归属未知一律保留并记录原因",
+        "dedupe_rule": "同一 (chat, date) 分组跨周去重：任何历史审核生成过的分组不重复进入新审核",
+        "execute_rule": "无自动删除：人工勾选 → 二次确认生成删除计划（明细落库）→ 后台逐项执行；执行前逐组复检保护日期与数据一致性，单组失败不扩大范围、断点可续",
+        "conflict_rule": "清理执行与微信同步互斥（双向 409）；同一周期需确认后才能执行，不可重复确认",
+    }
 
 
 def cleanup_status(session: Session) -> dict:

@@ -4,7 +4,6 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { NewsPage } from "../pages/NewsPage";
-import { HomePage } from "../pages/HomePage";
 import { NEWS_NAV_SITES } from "../lib/newsNav";
 
 const TOP = {
@@ -172,98 +171,5 @@ describe("技术资讯页 TOP 10 + 导航", () => {
     );
     renderPage(<NewsPage />);
     expect(await screen.findByText(/还没有资讯/)).toBeInTheDocument();
-  });
-});
-
-describe("首页计划管理卡片", () => {
-  beforeEach(() => vi.unstubAllGlobals());
-
-  const TASK = (id: number, done: boolean, taskDate: string, important = false) => ({
-    id,
-    task_date: taskDate,
-    title: `任务${id}`,
-    content: null,
-    task_type: "daily",
-    done,
-    sort_order: id,
-    is_important: important,
-    completed_at: done ? new Date().toISOString() : null,
-    moved_from_date: null,
-  });
-
-  it("显示今日计划小标题，X/Y 与今日视图口径一致（含逾期未完成）", async () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
-    const rows = [
-      TASK(1, true, today),
-      TASK(2, true, today),
-      TASK(3, false, today, true), // 未完成且重要 → 展示在卡片列表
-      TASK(4, false, yesterday), // 逾期未完成 → 计入 Y，不计入 X
-    ];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/api/news/")) return new Response("boom", { status: 500 });
-        if (url.includes("/api/tasks/daily")) return new Response(JSON.stringify(rows), { status: 200 });
-        if (url.includes("/api/books")) return new Response(JSON.stringify([]), { status: 200 });
-        if (url === "/api/health") {
-          return new Response(JSON.stringify({ status: "ok", service: "personal-assistant", version: "0.1.0" }), { status: 200 });
-        }
-        return new Response("not found", { status: 404 });
-      })
-    );
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <HomePage />
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
-
-    expect(await screen.findByText("今日计划")).toBeInTheDocument();
-    // 视图口径：完成 2 / 总数 4（含逾期未完成）；findByText 等待任务查询返回
-    expect(await screen.findByText("2/4 已完成")).toBeInTheDocument();
-    // 只展示未完成的重要任务（任务3），不展示普通任务（任务4）
-    expect(screen.getByText(/任务3/)).toBeInTheDocument();
-    expect(screen.queryByText(/任务4/)).not.toBeInTheDocument();
-  });
-});
-
-describe("首页 TOP 10", () => {
-  beforeEach(() => vi.unstubAllGlobals());
-
-  it("首页完整展示与资讯页相同的 TOP 10", async () => {
-    vi.stubGlobal("fetch", makeFetchMock());
-    renderPage(<HomePage />);
-
-    for (let i = 1; i <= 10; i++) {
-      expect(await screen.findByText(`热门资讯第 ${i} 条`)).toBeInTheDocument();
-    }
-    expect(screen.getByText("近期热门资讯 TOP 10")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /查看资讯导航/ })).toHaveAttribute("href", "/news");
-  });
-
-  it("资讯接口失败不影响首页其他模块", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/api/news/")) return new Response("boom", { status: 500 });
-        if (url === "/api/tasks/daily") return new Response(JSON.stringify([]), { status: 200 });
-        if (url.includes("/api/books")) return new Response(JSON.stringify([]), { status: 200 });
-        if (url === "/api/health") {
-          return new Response(JSON.stringify({ status: "ok", service: "personal-assistant", version: "0.1.0" }), { status: 200 });
-        }
-        return new Response("not found", { status: 404 });
-      })
-    );
-    renderPage(<HomePage />);
-    // 资讯区显示错误提示，其他模块照常
-    expect(await screen.findByText(/资讯暂不可用/)).toBeInTheDocument();
-    expect(screen.getByText("计划管理")).toBeInTheDocument();
-    expect(screen.getByText("正在阅读")).toBeInTheDocument();
-    expect(screen.getByText(/已连接/)).toBeInTheDocument();
   });
 });

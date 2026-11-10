@@ -119,7 +119,7 @@ def test_api_rejects_book_delete_with_notes(fclient):
 
 
 def test_book_important_pinned_and_persist(fclient):
-    """需求十：重要书籍置顶（筛选内）、切换持久化，不影响既有删除规则。"""
+    """重要全局置顶、切换持久化；非重要区域按 在读 > 未读 > 已读 排序。"""
     normal = fclient.post("/api/books", json={"title": "普通书"}).json()
     important = fclient.post(
         "/api/books", json={"title": "重要书", "status": "reading", "is_important": True}
@@ -133,14 +133,81 @@ def test_book_important_pinned_and_persist(fclient):
     reading = fclient.get("/api/books?status=reading").json()
     assert [b["id"] for b in reading] == [important["id"]]
 
-    # 取消重要 → 回落默认顺序
+    # 取消重要 → 回落状态排序（在读仍在前）
     fclient.patch(f"/api/books/{important['id']}", json={"is_important": False})
     listed = fclient.get("/api/books").json()
-    assert [b["id"] for b in listed] == [normal["id"], important["id"]]
+    assert [b["id"] for b in listed] == [important["id"], normal["id"]]
 
-    # 重新标记（持久化）
+    # 重新标记（持久化）：重要全局置顶，跨状态排在最前
     fclient.patch(f"/api/books/{normal['id']}", json={"is_important": True})
-    assert fclient.get("/api/books").json()[0]["id"] == normal["id"]
+    listed = fclient.get("/api/books").json()
+    assert listed[0]["id"] == normal["id"]
+    assert listed[1]["id"] == important["id"]
+
+
+def test_book_status_sort_order(fclient):
+    """排序：重要置顶（在读/未读内）→ 正在读 > 未读 > 已读；已读（含重要）始终沉底；组内 id 顺序。"""
+    done_important = fclient.post(
+        "/api/books", json={"title": "已读重要", "status": "done", "is_important": True}
+    ).json()
+    todo_a = fclient.post("/api/books", json={"title": "待读A"}).json()
+    reading_important = fclient.post(
+        "/api/books", json={"title": "在读重要", "status": "reading", "is_important": True}
+    ).json()
+    reading_b = fclient.post("/api/books", json={"title": "在读B", "status": "reading"}).json()
+    todo_important = fclient.post("/api/books", json={"title": "待读重要", "is_important": True}).json()
+
+    listed = fclient.get("/api/books").json()
+    assert [b["id"] for b in listed] == [
+        reading_important["id"],  # 重要置顶：在读重要先于未读重要
+        todo_important["id"],
+        reading_b["id"],
+        todo_a["id"],
+        done_important["id"],  # 已读即使重要也沉底
+    ]
+
+
+def test_book_title_cn_and_book_type(fclient):
+    """需求：标题翻译与阅读类型（书籍/文章/视频/随笔）分别保存、可编辑，存量默认书籍。"""
+    created = fclient.post(
+        "/api/books",
+        json={"title": "Deep Work", "title_cn": "深度工作", "book_type": "book", "author": "Cal Newport"},
+    ).json()
+    assert created["title_cn"] == "深度工作" and created["book_type"] == "book"
+
+    patched = fclient.patch(
+        f"/api/books/{created['id']}", json={"title_cn": "深度工作（修订）", "book_type": "article"}
+    ).json()
+    assert patched["title_cn"] == "深度工作（修订）" and patched["book_type"] == "article"
+
+    # 存量数据（未填写）兼容：默认空翻译 + 书籍类型
+    legacy = fclient.post("/api/books", json={"title": "存量书"}).json()
+    assert legacy["title_cn"] == "" and legacy["book_type"] == "book"
+    listed = {b["id"]: b for b in fclient.get("/api/books").json()}
+    assert listed[created["id"]]["title_cn"] == "深度工作（修订）"
+
+    # 非法阅读类型 → 422（Literal 校验）
+    bad = fclient.post("/api/books", json={"title": "x", "book_type": "magazine"})
+    assert bad.status_code == 422
+
+
+def test_book_type_filter(fclient):
+    """展示页类型筛选：book_type 参数过滤，非法类型 400，与状态筛选可叠加。"""
+    book = fclient.post("/api/books", json={"title": "文章A", "book_type": "article"}).json()
+    fclient.post("/api/books", json={"title": "视频B", "book_type": "video"}).json()
+    fclient.post("/api/books", json={"title": "书籍C"}).json()
+
+    articles = fclient.get("/api/books?book_type=article").json()
+    assert [b["id"] for b in articles] == [book["id"]]
+
+    # 与状态筛选叠加
+    both = fclient.get("/api/books?book_type=article&status=todo").json()
+    assert [b["id"] for b in both] == [book["id"]]
+    assert fclient.get("/api/books?book_type=article&status=done").json() == []
+
+    invalid = fclient.get("/api/books?book_type=magazine")
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"]["code"] == "invalid_book_type"
 
 
 # ---------- Markdown 笔记：导入 + 在线编写 ----------

@@ -27,6 +27,14 @@ export const TASK_TYPE_LABELS: Record<TaskType, string> = {
 
 export const TASK_TYPES = Object.keys(TASK_TYPE_LABELS) as TaskType[];
 
+/** 任务类型徽标配色（每日计划与随手备忘共用同一套）。 */
+export const TASK_TYPE_BADGE_CLASS: Record<TaskType, string> = {
+  daily: "bg-neutral-100 text-neutral-500",
+  feature_add: "bg-blue-50 text-blue-600",
+  feature_optimize: "bg-amber-50 text-amber-600",
+  idea: "bg-purple-50 text-purple-600",
+};
+
 export interface DailyTask {
   id: number;
   task_date: string;

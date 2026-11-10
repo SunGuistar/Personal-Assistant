@@ -19,10 +19,16 @@ router = APIRouter(prefix="/books", tags=["reading"])
 
 
 @router.get("", response_model=list[BookOut])
-def list_books(status: str | None = None, session: Session = Depends(get_session)):
+def list_books(
+    status: str | None = None,
+    book_type: str | None = None,
+    session: Session = Depends(get_session),
+):
     if status is not None and status not in reading_service.BOOK_STATUS:
         raise DomainError(f"非法阅读状态: {status}", code="invalid_status", status_code=400)
-    return reading_service.list_books(session, status)
+    if book_type is not None and book_type not in reading_service.BOOK_TYPES:
+        raise DomainError(f"非法阅读类型: {book_type}", code="invalid_book_type", status_code=400)
+    return reading_service.list_books(session, status, book_type)
 
 
 @router.post("", response_model=BookOut, status_code=201)

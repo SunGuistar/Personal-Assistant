@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .plan import TaskType
+
 
 class InfoIn(BaseModel):
     title: str = Field(min_length=1, max_length=128)
@@ -37,17 +39,20 @@ class InfoReorderIn(BaseModel):
 class MemoIn(BaseModel):
     title: str = Field(min_length=1, max_length=128)
     content: str = ""
+    task_type: TaskType = "daily"  # 与每日任务同一套类型（展示/转回时恢复）
 
 
 class MemoPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=128)
     content: str | None = None
+    task_type: TaskType | None = None  # 新增后允许修改
 
 
 class MemoOut(BaseModel):
     id: int
     title: str
     content: str
+    task_type: str = ""  # 任务类型（与每日任务同一套；空=存量未保存，按 daily 回退）
     sort_order: int
     created_at: str
     updated_at: str

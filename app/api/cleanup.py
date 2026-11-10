@@ -16,6 +16,7 @@ from ..cleanup import service
 from ..cleanup.service import ACTIVE_TASK_KINDS_BLOCKING_CLEANUP, CLEANUP_TASK_KIND
 from ..exceptions import DomainError
 from ..schemas.cleanup import (
+    CleanupRulesOut,
     CleanupStatusOut,
     ConfirmIn,
     ExecuteIn,
@@ -42,6 +43,13 @@ def status(request: Request, session: Session = Depends(get_session)):
         protected=_protected(request),
     )
     return service.cleanup_status(session)
+
+
+@router.get("/rules", response_model=CleanupRulesOut)
+def rules(request: Request):
+    """当前实际生效的清理审核规则（审核页完整展示，与执行逻辑同源）。"""
+
+    return service.cleanup_rules(service.KEEP_DAYS, _protected(request))
 
 
 @router.get("/reviews", response_model=list[ReviewOut])

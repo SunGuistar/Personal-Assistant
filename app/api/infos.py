@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..schemas.info import InfoIn, InfoOut, InfoPatch, InfoReorderIn
 from ..schemas.info import MemoIn, MemoOut, MemoPatch, MemoReorderIn
-from ..schemas.plan import DailyTaskOut, MemoToTaskIn
+from ..schemas.plan import DailyTaskOut
 from ..services import infos_service, memos_service
 from .deps import get_session
 
@@ -71,13 +71,10 @@ def reorder_memos(payload: MemoReorderIn, session: Session = Depends(get_session
 
 
 @memos_router.post("/{memo_id}/to_task", response_model=DailyTaskOut)
-def memo_to_task(memo_id: int, payload: MemoToTaskIn, session: Session = Depends(get_session)):
-    """随手备忘 → 每日任务（移动）：原备忘删除，标题/内容完整迁移。"""
+def memo_to_task(memo_id: int, session: Session = Depends(get_session)):
+    """随手备忘 → 每日任务（移动）：一键转换，默认今天、恢复备忘保存的计划类型。
 
-    return memos_service.memo_to_task(
-        session,
-        memo_id,
-        task_date=payload.target_date,
-        task_type=payload.task_type,
-        is_important=payload.is_important,
-    )
+    不要求选择时间或填写类型；原备忘删除，标题/内容完整迁移。
+    """
+
+    return memos_service.memo_to_task(session, memo_id)
