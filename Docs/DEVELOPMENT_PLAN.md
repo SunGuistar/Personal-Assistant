@@ -98,3 +98,59 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - 重复启动处理
 
 另：PRD §4 与 Architecture §7 中的 V2.0 演进约束（局域网 → 认证 → HTTPS → 移动端同步）继续有效，不提前实现。
+
+---
+
+# V2 专项：今日晨报 V2.0 开发计划（2026-11-10 启动）
+
+> 依据：`Docs/V0.6产品设计.md`（最终产品需求）、`Docs/V0.6.1额外信息.md`（技术约束）、`Docs/technical-validation-v2/`（T1–T22 及专项验证）。
+> 开发方式：一次性授权、分阶段自动推进；每阶段真实测试 PASS 后进入下一阶段（规则见任务书 §七）。
+> 阶段状态图例：`[ ]` 未开始 / `[~]` 进行中 / `[P]` PASS / `[B]` BLOCKED。每阶段记录：修改文件、测试命令与结果、关键决定、遗留项。
+
+## 阶段总览
+
+| 阶段 | 目标 | 状态 |
+|---|---|---|
+| 1 基础设施与数据隔离 | 晨报模块骨架、独立 SQLite+迁移、hub 只读访问、配置与状态、FastAPI 集成 | [~] |
+| 2 资讯获取与处理 | AIHOT/中新网归档/热摸爽接入、窗口过滤、去重、失败处理 | [ ] |
+| 3 RAG、索引与缓存 | Qdrant 双 Collection、混合检索、统一 RAG Tool、Embedding 复用、阶段缓存、一致性检查 | [ ] |
+| 4 LangGraph 与 Agent 工作流 | 全流程编排、三个 Subagent、模型路由、Checkpoint、幂等 | [ ] |
+| 5 晨报生成与质量保障 | 五部分正文、事实校验、五维评价 quality_score_v1、版本与快照、用量统计 | [ ] |
+| 6 前端与用户交互 | 三页导航、晨报助手与 Memory、重新生成、SSE 日志、深色模式 | [ ] |
+| 7 完整系统验收 | 端到端真实验证、调度测试、故障注入、回归、交付报告 | [ ] |
+
+## 阶段 1：基础设施与数据隔离
+
+**目标**：模块骨架 + 独立 DB 读写 + hub 只读 + API 集成。
+
+**任务与文件**：
+- `app/morning_report/__init__.py`、`config.py`（MRSettings：DB 路径、Qdrant URL、Collection 名、模型端点、调度开关）
+- `app/morning_report/db.py`（独立 engine + 轻量迁移器，迁移脚本 `migrations/`）
+- `app/morning_report/models.py`（news_items / reports / report_versions / memories / stage_cache / token_usage / run_records / run_logs / index_state / event_groups）
+- `app/morning_report/schemas.py`（pydantic）
+- `app/morning_report/services/hub_readonly.py`（hub.db 只读：每日任务、长期计划、重要信息、阅读记录）
+- `app/morning_report/api/__init__.py` + `status.py`、`memory.py` 基础路由
+- `app/main.py` 集成（独立 engine/session 存 app.state；调度器后续阶段接入）
+- `tests/test_morning_stage1_*.py`
+
+**验收标准**：
+- 隔离库自动建表迁移，可读写；hub.db 无写入/结构变更（测试断言 hub 文件 hash 或只读会话）
+- 现有 pytest 全套仍绿（回归）
+- 新模块单测全绿
+
+**证据**：`tests/` 结果输出；本节"完成记录"。
+
+## 阶段 2–7 详细任务
+
+（各阶段开始时展开填写，完成后补"完成记录"。）
+
+## 完成记录
+
+（每阶段 PASS 后追加。）
+
+### 阶段 1 完成记录（2026-11-10 PASS）
+
+- **修改文件**：`app/morning_report/`（`__init__/config/db/models/schemas` + `api/{__init__,deps,status,memory}.py` + `services/{__init__,hub_readonly}.py`）、`app/main.py`（`_init_morning_report`）、`tests/test_morning_stage1_infra.py`
+- **测试**：`pytest tests/test_morning_stage1_infra.py` 6 passed；全量回归 **212 passed**（LIVE/INTEGRATION 隔离库）
+- **关键决定**：晨报独立 SQLite 用内置轻量迁移器（`schema_migrations` 版本表，v1 建全部核心表）；hub 只读经 `app.state.session_factory` 纯 SELECT；晨报路由直接挂 app（不进全局 api_router，避免重复装配）；MRSettings 独立 `PH_MR_` 前缀
+- **遗留**：调度器（阶段 4 接入）；新闻模型本阶段已建，采集管线阶段 2 实现

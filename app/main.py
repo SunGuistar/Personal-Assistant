@@ -24,6 +24,22 @@ from .tasks import TaskRunner
 logger = logging.getLogger(__name__)
 
 
+def _init_morning_report(app: FastAPI, settings: Settings) -> None:
+    """晨报 V2.0 模块装配：独立 SQLite + 独立路由（hub 只读访问经 app.state.session_factory）。"""
+
+    from .morning_report import api as mr_api
+    from .morning_report import db as mr_db
+    from .morning_report.config import get_mr_settings
+
+    mr_settings = get_mr_settings()
+    mr_engine = mr_db.make_engine(settings.data_dir / mr_settings.db_filename)
+    mr_db.run_migrations(mr_engine)
+    app.state.mr_settings = mr_settings
+    app.state.mr_engine = mr_engine
+    app.state.mr_session_factory = mr_db.make_session_factory(mr_engine)
+    app.include_router(mr_api.morning_router)
+
+
 class SPAStaticFiles(StaticFiles):
     """单页应用回退：未命中的非 API 路径返回 index.html；/api/* 未命中仍走统一 JSON 404。"""
 
@@ -59,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     wechat_jobs.configure(app.state.task_runner)  # summarize_chat 工具经此提交后台总结任务
 
+    _init_morning_report(app, settings)
     app.include_router(api_router)
 
     @app.on_event("startup")
