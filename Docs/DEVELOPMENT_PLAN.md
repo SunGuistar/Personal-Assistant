@@ -229,3 +229,21 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - `web/src/test/` 前端单测（Vitest）
 
 **验收**：三页数据真实来自后端；状态一致（正文/评价/历史指向同版本）；SSE 日志可断开重连；Memory 管理可用；tsc + vitest + build 全过。
+
+### 阶段 6 完成记录（2026-11-10 PASS）
+
+- **修改文件**：后端 `api/{assistant,logs}.py`；前端 `web/src/api/morning.ts`、`pages/MorningReportPage.tsx`、`App.tsx`、`components/layout/AppLayout.tsx`（导航+/morning 隐藏全局右栏）、`tailwind.config.js`（darkMode class）、`index.css`、补 `web/index.html`（仓库此前缺失未跟踪）、`test/morning.test.tsx`
+- **测试**：后端 4 个全过（SSE 全量+done、after_id 续传、助手无 Key 降级、MEMORY_PROPOSAL 块解析后剥离）；前端 Vitest **50 passed**（9 文件）、tsc + vite build 通过；后端全量回归 **243 passed**
+- **关键决定**：Memory 提议经 SSE 结构化块返回、前端确认后才 POST 写入（source=chat，满足"征得确认"）；SSE 日志以 after_id 续传支持断线重连；深色模式用 html.dark class 策略，晨报页内切换并持久化 localStorage
+- **修复**：lucide 无 Morning 图标（改 Sunrise）；助手系统提示词花括号与 format 冲突；TestClient 对无限流需用 client.stream 有界读取
+- **遗留**：右栏助手/日志在 <lg 窄屏隐藏（PC 优先，符合 V2.0 范围）
+
+## 阶段 7：完整系统验收
+
+**任务**：
+- 端到端真实流程：真实采集（已有）→ 真实索引（DashScope Embedding + fastembed）→ 真实生成（manual/DashScope；auto/DeepSeek 视时段）→ 前端展示
+- 08:00 调度与防重复触发测试（模拟时间触发 job_fn）
+- 故障注入：源失败降级、索引脏阻塞、事实校验阻塞（单测已覆盖，补端到端核验）
+- 现有模块回归（243 passed 已含）
+- V0.6 需求逐项对照、使用说明、人工验收指南
+- 交付报告

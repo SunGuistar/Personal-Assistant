@@ -5,6 +5,7 @@ import {
   CleanupPage,
   GithubPage,
   HomePage,
+  MorningReportPage,
   NewsPage,
   PlansPage,
   ReadingPage,
@@ -19,6 +20,7 @@ export function AppRoutes() {
       <Route path="/" element={<HomePage />} />
       <Route path="/wechat" element={<WechatPage />} />
       <Route path="/news" element={<NewsPage />} />
+      <Route path="/morning" element={<MorningReportPage />} />
       <Route path="/plans" element={<PlansPage />} />
       <Route path="/github" element={<GithubPage />} />
       <Route path="/reading" element={<ReadingPage />} />

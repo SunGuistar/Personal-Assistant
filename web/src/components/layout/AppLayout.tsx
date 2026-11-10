@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   BookOpen,
   CalendarCheck,
   Github,
   LayoutGrid,
   MessageSquareText,
+  Sunrise,
   Newspaper,
   PanelRightClose,
   PanelRightOpen,
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { to: "/", label: "首页", icon: LayoutGrid },
   { to: "/wechat", label: "微信助手", icon: MessageSquareText },
   { to: "/news", label: "技术资讯", icon: Newspaper },
+  { to: "/morning", label: "今日晨报", icon: Sunrise },
   { to: "/plans", label: "计划管理", icon: CalendarCheck },
   { to: "/github", label: "GitHub", icon: Github },
   { to: "/reading", label: "阅读管理", icon: BookOpen },
@@ -43,6 +45,9 @@ function navLinkClass(active: boolean) {
  * 右侧栏折叠状态存 localStorage；折叠只隐藏宽度、组件保持挂载（编辑内容不丢）。
  */
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  // 晨报页自带右栏（助手+实时日志），隐藏全局右栏避免双栏拥挤
+  const hideRail = location.pathname.startsWith("/morning");
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSE_KEY) === "1"
   );
@@ -77,18 +82,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* 中央：业务工作区（独立纵向滚动） */}
       <main className="min-w-[650px] flex-1 overflow-y-auto p-4">{children}</main>
 
-      {/* 右栏折叠按钮（常驻中央区右缘，折叠/展开均可用） */}
-      <button
+      {/* 右栏折叠按钮（常驻中央区右缘，折叠/展开均可用；晨报页隐藏） */}
+      {!hideRail && <button
         onClick={toggle}
         aria-label={collapsed ? "展开右侧栏" : "折叠右侧栏"}
         title={collapsed ? "展开右侧栏" : "折叠右侧栏"}
         className="my-4 ml-1 flex w-5 shrink-0 items-center justify-center rounded-l border border-r-0 border-neutral-200 bg-white text-neutral-400 hover:text-neutral-700"
       >
         {collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
-      </button>
+      </button>}
 
       {/* 右栏：重要信息（上）+ 随手备忘（下）。折叠时保持挂载，仅隐藏宽度。 */}
-      <aside
+      {!hideRail && <aside
         className={cn(
           "shrink-0 border-l border-neutral-200 bg-neutral-50",
           collapsed ? "hidden" : "flex w-[340px] flex-col"
@@ -98,7 +103,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <ImportantInfosPanel />
           <MemosPanel />
         </div>
-      </aside>
+      </aside>}
     </div>
   );
 }
