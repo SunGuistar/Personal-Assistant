@@ -1,0 +1,14 @@
+{
+  "cn": {
+    "status": 429,
+    "elapsed_s": 11.5,
+    "content_type": "",
+    "head": "Please limit requests to one every 5 seconds or contact kalev.leetaru5@gmail.com for larger queries. All high-traffic users should switch to our ngram"
+  },
+  "en": {
+    "status": 429,
+    "elapsed_s": 38.8,
+    "content_type": "",
+    "head": "Please limit requests to one every 5 seconds or contact kalev.leetaru5@gmail.com for larger queries. All high-traffic users should switch to our ngram"
+  }
+}

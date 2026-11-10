@@ -1,0 +1,285 @@
+{
+  "probe": "window_collection",
+  "run_at_cst": "2026-11-10T13:40:44+08:00",
+  "window_cst": {
+    "start_inclusive": "2026-11-09T08:00:00+08:00",
+    "end_exclusive": "2026-11-10T08:00:00+08:00"
+  },
+  "window_utc": {
+    "start": "2026-11-09T00:00:00+00:00",
+    "end": "2026-11-10T00:00:00+00:00"
+  },
+  "chinanews_scroll_r1": {
+    "url": "https://www.chinanews.com.cn/rss/scroll-news.xml",
+    "status": 200,
+    "elapsed_s": 2.412,
+    "content_type": "text/xml",
+    "feed_title": "中新网即时新闻",
+    "total_items": 30,
+    "in_window": 0,
+    "earliest_utc": "2026-11-10T04:03:09+00:00",
+    "latest_utc": "2026-11-10T05:29:56+00:00",
+    "sample_items": [
+      {
+        "title": "玉林海关2026年12月份“关领导接待日”公告",
+        "link": "https://www.chinanews.com.cn/aseaninfo/2026/11-10/10729371.shtml",
+        "published_utc": "2026-11-10T05:29:56+00:00",
+        "in_window": false,
+        "summary_len": 57
+      },
+      {
+        "title": "柬埔寨一运送学生车辆坠塘致多人死伤",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729363.shtml",
+        "published_utc": "2026-11-10T05:25:02+00:00",
+        "in_window": false,
+        "summary_len": 83
+      },
+      {
+        "title": "美共和党众议员再次对防长赫格塞思发起弹劾",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729358.shtml",
+        "published_utc": "2026-11-10T05:24:14+00:00",
+        "in_window": false,
+        "summary_len": 86
+      },
+      {
+        "title": "星云星座计划在合肥发布 国产太空算力网建设提速",
+        "link": "https://www.chinanews.com.cn/gn/2026/11-10/10729365.shtml",
+        "published_utc": "2026-11-10T05:19:17+00:00",
+        "in_window": false,
+        "summary_len": 50
+      },
+      {
+        "title": "贵金属价格震荡加剧 中国金币集团发布风险提示",
+        "link": "https://www.chinanews.com.cn/cj/2026/11-10/10729368.shtml",
+        "published_utc": "2026-11-10T05:18:43+00:00",
+        "in_window": false,
+        "summary_len": 131
+      },
+      {
+        "title": "中央美术学院雕塑系金属工作室优秀师生作品亮相景德镇",
+        "link": "https://www.chinanews.com.cn/cul/2026/11-10/10729366.shtml",
+        "published_utc": "2026-11-10T05:18:03+00:00",
+        "in_window": false,
+        "summary_len": 124
+      },
+      {
+        "title": "2026中阿青年创新发展对话会在海口举行",
+        "link": "https://www.chinanews.com.cn/sh/2026/11-10/10729367.shtml",
+        "published_utc": "2026-11-10T05:17:33+00:00",
+        "in_window": false,
+        "summary_len": 136
+      },
+      {
+        "title": "东西问丨聂茂：让西方读懂王船山，最难的是传递一个活生生的人",
+        "link": "https://www.chinanews.com.cn/dxw/2026/11-10/10729355.shtml",
+        "published_utc": "2026-11-10T05:15:41+00:00",
+        "in_window": false,
+        "summary_len": 37
+      }
+    ]
+  },
+  "chinanews_world_r1": {
+    "url": "https://www.chinanews.com.cn/rss/world.xml",
+    "status": 200,
+    "elapsed_s": 2.31,
+    "content_type": "text/xml",
+    "feed_title": "中新网国际新闻",
+    "total_items": 30,
+    "in_window": 11,
+    "earliest_utc": "2026-11-09T21:49:09+00:00",
+    "latest_utc": "2026-11-10T05:25:02+00:00",
+    "sample_items": [
+      {
+        "title": "柬埔寨一运送学生车辆坠塘致多人死伤",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729363.shtml",
+        "published_utc": "2026-11-10T05:25:02+00:00",
+        "in_window": false,
+        "summary_len": 83
+      },
+      {
+        "title": "美共和党众议员再次对防长赫格塞思发起弹劾",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729358.shtml",
+        "published_utc": "2026-11-10T05:24:14+00:00",
+        "in_window": false,
+        "summary_len": 86
+      },
+      {
+        "title": "联合国气候变化安塔利亚大会开幕 聚焦气候融资和能源转型等议题",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729350.shtml",
+        "published_utc": "2026-11-10T04:36:59+00:00",
+        "in_window": false,
+        "summary_len": 111
+      },
+      {
+        "title": "英国大雾侵袭多地扰乱交通",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729277.shtml",
+        "published_utc": "2026-11-10T04:11:20+00:00",
+        "in_window": false,
+        "summary_len": 76
+      },
+      {
+        "title": "国际最新研究：预计2026年全球二氧化碳排放量将暂时性下降0.4%",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729301.shtml",
+        "published_utc": "2026-11-10T04:11:14+00:00",
+        "in_window": false,
+        "summary_len": 132
+      },
+      {
+        "title": "圭亚那“放射日”：两国三地“云”聚 中国文化亮眼",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729324.shtml",
+        "published_utc": "2026-11-10T04:05:29+00:00",
+        "in_window": false,
+        "summary_len": 121
+      },
+      {
+        "title": "“你好！中国”水韵江苏文旅推介会在巴黎举办",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729313.shtml",
+        "published_utc": "2026-11-10T04:05:07+00:00",
+        "in_window": false,
+        "summary_len": 82
+      },
+      {
+        "title": "中国—土耳其绿色发展商务论坛在伊斯坦布尔举办",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729305.shtml",
+        "published_utc": "2026-11-10T04:04:01+00:00",
+        "in_window": false,
+        "summary_len": 116
+      }
+    ]
+  },
+  "chinanews_scroll_r2": {
+    "url": "https://www.chinanews.com.cn/rss/scroll-news.xml",
+    "status": 200,
+    "elapsed_s": 2.286,
+    "content_type": "text/xml",
+    "feed_title": "中新网即时新闻",
+    "total_items": 30,
+    "in_window": 0,
+    "earliest_utc": "2026-11-10T04:03:09+00:00",
+    "latest_utc": "2026-11-10T05:29:56+00:00",
+    "sample_items": [
+      {
+        "title": "玉林海关2026年12月份“关领导接待日”公告",
+        "link": "https://www.chinanews.com.cn/aseaninfo/2026/11-10/10729371.shtml",
+        "published_utc": "2026-11-10T05:29:56+00:00",
+        "in_window": false,
+        "summary_len": 57
+      },
+      {
+        "title": "柬埔寨一运送学生车辆坠塘致多人死伤",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729363.shtml",
+        "published_utc": "2026-11-10T05:25:02+00:00",
+        "in_window": false,
+        "summary_len": 83
+      },
+      {
+        "title": "美共和党众议员再次对防长赫格塞思发起弹劾",
+        "link": "https://www.chinanews.com.cn/gj/2026/11-10/10729358.shtml",
+        "published_utc": "2026-11-10T05:24:14+00:00",
+        "in_window": false,
+        "summary_len": 86
+      },
+      {
+        "title": "星云星座计划在合肥发布 国产太空算力网建设提速",
+        "link": "https://www.chinanews.com.cn/gn/2026/11-10/10729365.shtml",
+        "published_utc": "2026-11-10T05:19:17+00:00",
+        "in_window": false,
+        "summary_len": 50
+      },
+      {
+        "title": "贵金属价格震荡加剧 中国金币集团发布风险提示",
+        "link": "https://www.chinanews.com.cn/cj/2026/11-10/10729368.shtml",
+        "published_utc": "2026-11-10T05:18:43+00:00",
+        "in_window": false,
+        "summary_len": 131
+      },
+      {
+        "title": "中央美术学院雕塑系金属工作室优秀师生作品亮相景德镇",
+        "link": "https://www.chinanews.com.cn/cul/2026/11-10/10729366.shtml",
+        "published_utc": "2026-11-10T05:18:03+00:00",
+        "in_window": false,
+        "summary_len": 124
+      },
+      {
+        "title": "2026中阿青年创新发展对话会在海口举行",
+        "link": "https://www.chinanews.com.cn/sh/2026/11-10/10729367.shtml",
+        "published_utc": "2026-11-10T05:17:33+00:00",
+        "in_window": false,
+        "summary_len": 136
+      },
+      {
+        "title": "东西问丨聂茂：让西方读懂王船山，最难的是传递一个活生生的人",
+        "link": "https://www.chinanews.com.cn/dxw/2026/11-10/10729355.shtml",
+        "published_utc": "2026-11-10T05:15:41+00:00",
+        "in_window": false,
+        "summary_len": 37
+      }
+    ]
+  },
+  "chinanews_stability": {
+    "r1_total": 30,
+    "r2_total": 30,
+    "overlap_links": 30,
+    "r1_only": 0,
+    "r2_only": 0
+  },
+  "gdelt_cn_exact": {
+    "params": {
+      "query": "*",
+      "mode": "artlist",
+      "maxrecords": 75,
+      "format": "json",
+      "startdatetime": "20261109000000",
+      "enddatetime": "20261110000000",
+      "sourcelang": "chinese",
+      "sort": "hybridrel"
+    },
+    "note": "chinese exact window",
+    "failed": {
+      "error": "ReadTimeout: HTTPSConnectionPool(host='api.gdeltproject.org', port=443): Read timed out. (read timeout=40)"
+    }
+  },
+  "gdelt_en_exact": {
+    "params": {
+      "query": "*",
+      "mode": "artlist",
+      "maxrecords": 75,
+      "format": "json",
+      "startdatetime": "20261109000000",
+      "enddatetime": "20261110000000",
+      "sourcelang": "english",
+      "sort": "hybridrel"
+    },
+    "note": "english exact window",
+    "failed": {
+      "status": 429,
+      "retry_in_s": 60
+    }
+  },
+  "gdelt_cn_timespan": {
+    "params": {
+      "query": "*",
+      "mode": "artlist",
+      "maxrecords": 20,
+      "format": "json",
+      "timespan": "24h",
+      "sourcelang": "chinese"
+    },
+    "status": 200,
+    "elapsed_s": 11.214,
+    "note": "chinese timespan 24h rolling (control)",
+    "content_type": "text/html; charset=utf-8",
+    "parse_error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+    "head": "Your query was too short or too long.\n"
+  },
+  "remoshuang_daily": {
+    "sitemap": null,
+    "events_sampled": [],
+    "sitemap_status": 200,
+    "event_urls_for_window_days": 2,
+    "event_url_sample": [
+      "https://remoshuang.com/daily/2026-11-10",
+      "https://remoshuang.com/daily/2026-11-09"
+    ]
+  }
+}

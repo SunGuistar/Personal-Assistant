@@ -1,0 +1,96 @@
+{
+  "description": "人工核实的重大事件参考清单（窗口 2026-11-09 08:00 ~ 2026-11-10 08:00 CST）。清单由多个独立于候选 API 的权威来源交叉核实（财新、新华社、路透/朝日、澎湃新闻、同花顺转央视），不从任何单一候选源生成，避免循环验证。",
+  "window_cst": {"start_inclusive": "2026-11-09T08:00:00+08:00", "end_exclusive": "2026-11-10T08:00:00+08:00"},
+  "verified_at_cst": "2026-11-10T13:55:00+08:00",
+  "domestic": [
+    {
+      "id": "D1",
+      "title": "山西太原高层建筑火灾 死亡人数升至14人",
+      "category": "重大社会事件",
+      "event_time_cst": "2026-11-08T16:59:00+08:00 起火；11-09 白天官方通报死亡升至14人（通报在窗口内，属新进展）",
+      "evidence": "https://photos.caixin.com/2026-11-09/102502611.html",
+      "evidence_note": "财新 2026-11-09 图集报道，引用新华社通报。边界样本：事件本体起于窗口前，窗口内为其重大新进展。",
+      "verification": "web_search 独立命中"
+    },
+    {
+      "id": "D2",
+      "title": "四家人民币境外清算行试点境内外汇交易（外汇交易中心11月9日公告）",
+      "category": "重大经济新闻",
+      "event_time_cst": "2026-11-09",
+      "evidence": "https://finance.caixin.com/2026-11-10/102502928.html",
+      "evidence_note": "财新 2026-11-10：首批试点外汇交易达成，政策落地（金融街论坛预告落地）。",
+      "verification": "web_search 独立命中；财新原站本机直连超时（网络限制），证据以搜索摘要为准"
+    },
+    {
+      "id": "D3",
+      "title": "国家统计局新设国情国力普查司 整合民生消费统计职能",
+      "category": "重要公共政策",
+      "event_time_cst": "2026-11-09 报道（三定方案 11-06 公布，10-28 施行）",
+      "evidence": "https://economy.caixin.com/2026-11-09/102502826.html",
+      "evidence_note": "财新 2026-11-09 经济频道。",
+      "verification": "web_search 独立命中"
+    },
+    {
+      "id": "D4",
+      "title": "“星云星座计划”在合肥发布 国产太空算力网建设提速",
+      "category": "全国性公共事件/科技",
+      "event_time_cst": "2026-11-09（11-10 05:19 中新网补报道）",
+      "evidence": "https://news.10jqka.com.cn/20261109/c681610431.shtml",
+      "evidence_note": "同花顺财经转央视新闻，原文直接抓取成功核实（11-09 发布）。中新网 11-10 13:19 补发：链接 https://www.chinanews.com.cn/gn/2026/11-10/10729365.shtml",
+      "verification": "原始链接直接抓取核实"
+    }
+  ],
+  "international": [
+    {
+      "id": "I1",
+      "title": "特朗普称伊朗‘铁门特遣队’生效，预计 APEC 峰会与习近平、普京会晤",
+      "category": "重大国际政治/外交",
+      "event_time_cst": "2026-11-09",
+      "evidence": "https://www.asahi.com/ajw/articles/17035015 ; https://gulfnews.com/world/mena/middle-east-conflict-trump-says-iran-task-force-iron-gate-is-in-effect-expects-xi-and-putin-meeting-next-week-1.500740691",
+      "evidence_note": "朝日新闻 11-09 14:45 JST 转路透社；Gulf News 11-09。另：外交部 11-09 例行记者会回应（腾讯新闻 view.inews.qq.com/a/20261109A09BX600）",
+      "verification": "web_search 独立命中（两个独立媒体）"
+    },
+    {
+      "id": "I2",
+      "title": "特朗普淡化再袭伊朗可能 国际油价早盘一度跌超5%",
+      "category": "全球性经济变化",
+      "event_time_cst": "2026-11-09（纽约早盘）",
+      "evidence": "http://www.news.cn/20261110/acc81cd34476496486cd25e8fd553c35/c.html",
+      "evidence_note": "新华社纽约 11月9日电（记者刘亚南）。本机直连 news.cn 超时（网络限制），内容经热摸爽快照与事件页双重复核。",
+      "verification": "部分核实（原站本机不可达，交叉来源一致）"
+    },
+    {
+      "id": "I3",
+      "title": "俄副外长重申俄无意进攻欧洲国家",
+      "category": "国际冲突/安全",
+      "event_time_cst": "2026-11-09",
+      "evidence": "https://m.thepaper.cn/newsDetail_forward_34442164",
+      "evidence_note": "澎湃新闻移动端，原始链接直接抓取成功（200）。",
+      "verification": "原始链接直接抓取核实"
+    },
+    {
+      "id": "I4",
+      "title": "鲁比奥曾被指对黄仁勋与中国‘间谍’关系提出警告（纽约时报调查）",
+      "category": "重大国际政治/科技安全",
+      "event_time_cst": "2026-11-09",
+      "evidence": "https://cn.nytimes.com/usa/20261109/rubio-nvidia-ceo-chinese-spy/",
+      "evidence_note": "纽约时报中文网 11-09。本机 DNS 无法解析 cn.nytimes.com（FetchURL 与本机一致失败），内容经热摸爽事件页快照交叉确认。",
+      "verification": "部分核实（原站本机不可达，存在独立转述）"
+    },
+    {
+      "id": "I5",
+      "title": "美伊对峙持续：霍尔木兹海峡袭船频发，美伊在战与和间摇摆",
+      "category": "国际冲突/安全（持续性事件的窗口内进展）",
+      "event_time_cst": "窗口内持续（财新 11-09 周报）",
+      "evidence": "https://database.caixin.com/2026-11-09/102502704.html",
+      "evidence_note": "财新霍尔木兹周报 2026-11-09。",
+      "verification": "web_search 独立命中"
+    }
+  ],
+  "limitations": [
+    "样本为单日窗口（2026-11-09 08:00 ~ 11-10 08:00），覆盖率结论不可外推为长期性能保证。",
+    "D1/I5 为窗口前开始事件的窗口内新进展，用于检验各源的新进展识别而非全新事件发现。",
+    "I2/I4 原站本机网络不可达，以两个以上独立转述交叉确认，可信度略低于直接核实。",
+    "参考清单共 4 国内 + 5 国际，规模小；仅用于相对比较候选源，不构成统计显著覆盖结论。"
+  ]
+}

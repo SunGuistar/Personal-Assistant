@@ -1,0 +1,11 @@
+{
+  "run_at": "2026-11-10T14:04:40+08:00",
+  "cn": {
+    "status": 429,
+    "head": "Please limit requests to one every 5 seconds or contact kalev.leetaru5@gmail.com for larger queries."
+  },
+  "en": {
+    "status": 429,
+    "head": "Please limit requests to one every 5 seconds or contact kalev.leetaru5@gmail.com for larger queries."
+  }
+}

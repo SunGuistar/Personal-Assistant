@@ -1,0 +1,213 @@
+{
+  "probe": "availability",
+  "run_at_cst": "2026-11-10T13:35:29+08:00",
+  "tz": "Asia/Shanghai",
+  "note": "所有请求不携带任何 API Key；无 Key 接口的预期错误响应同样记录。",
+  "results": {
+    "remoshuang_home": {
+      "url": "https://remoshuang.com/",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 0.202,
+      "content_type": "text/html;charset=utf-8",
+      "final_url": "https://remoshuang.com/",
+      "bytes": 330898,
+      "head_text": "<!DOCTYPE html><html  lang=\"zh-CN\" data-stealth=\"true\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>热摸爽｜热点摸清，爽快阅读</title>\n<link rel=\"preconnect\" href=\"https://dingyue.ws.126.net\" crossorigin>\n<link rel=\"preconnect\" href=\"https://p3-sign.tou"
+    },
+    "remoshuang_www": {
+      "url": "https://www.remoshuang.com/",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 0.605,
+      "content_type": "text/html;charset=utf-8",
+      "final_url": "https://www.remoshuang.com/",
+      "bytes": 329648,
+      "head_text": "<!DOCTYPE html><html  lang=\"zh-CN\" data-stealth=\"true\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>热摸爽｜热点摸清，爽快阅读</title>\n<link rel=\"preconnect\" href=\"https://dingyue.ws.126.net\" crossorigin>\n<link rel=\"preconnect\" href=\"https://p3-sign.tou"
+    },
+    "remoshuang_rss": {
+      "url": "https://remoshuang.com/rss",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 0.089,
+      "content_type": "text/html;charset=utf-8",
+      "final_url": "https://remoshuang.com/rss",
+      "bytes": 115801,
+      "head_text": "<!DOCTYPE html><html  lang=\"zh-CN\" data-stealth=\"true\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>热榜 RSS 订阅｜全网热点 RSS、正在升温 RSS、AI 科技财经热点订阅源 - 热摸爽</title>\n<link rel=\"preconnect\" href=\"https://dingyue.ws.126.net\" crossorigin>\n<link rel=\"prec"
+    },
+    "remoshuang_feed": {
+      "url": "https://remoshuang.com/feed",
+      "method": "GET",
+      "status": 404,
+      "elapsed_s": 0.177,
+      "content_type": "text/html;charset=utf-8",
+      "final_url": "https://remoshuang.com/feed",
+      "bytes": 105703,
+      "head_text": "<!DOCTYPE html><html  lang=\"zh-CN\" data-stealth=\"true\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>feed热榜｜实时热点与新闻榜单 - 行业热点资讯</title>\n<link rel=\"preconnect\" href=\"https://dingyue.ws.126.net\" crossorigin>\n<link rel=\"preconnect\" href=\"https:/"
+    },
+    "remoshuang_api": {
+      "url": "https://remoshuang.com/api",
+      "method": "GET",
+      "status": 404,
+      "elapsed_s": 0.17,
+      "content_type": "text/html;charset=utf-8",
+      "final_url": "https://remoshuang.com/api",
+      "bytes": 105678,
+      "head_text": "<!DOCTYPE html><html  lang=\"zh-CN\" data-stealth=\"true\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>api热榜｜实时热点与新闻榜单 - 行业热点资讯</title>\n<link rel=\"preconnect\" href=\"https://dingyue.ws.126.net\" crossorigin>\n<link rel=\"preconnect\" href=\"https://"
+    },
+    "chinanews_rss_scroll": {
+      "url": "https://www.chinanews.com.cn/rss/scroll-news.xml",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 0.175,
+      "content_type": "text/xml",
+      "final_url": "https://www.chinanews.com.cn/rss/scroll-news.xml",
+      "bytes": 15882,
+      "head_text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<?xml-stylesheet type=\"text/css\" href=\"rsstyle.css\"?>\r\n<rss version=\"2.0\">\r\n<channel>\r\n<title>ä¸­æ°ç½å³æ¶æ°é»</title>\r\n<image>\r\n  <title>ä¸­æ°ç½å³æ¶æ°é»</title>\r\n  <link>https://www.chinanews.com.cn/scroll-news/news1.html</link>\r\n  <url>https://www",
+      "looks_like_feed": true
+    },
+    "chinanews_rss_yaowen": {
+      "url": "https://www.chinanews.com.cn/rss/yaowen.xml",
+      "method": "GET",
+      "status": 404,
+      "elapsed_s": 0.758,
+      "content_type": "text/html",
+      "final_url": "https://www.chinanews.com.cn/rss/yaowen.xml",
+      "bytes": 6131,
+      "head_text": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n<head>\r\n<base target=\"_blank\">\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\r\n<meta http-equiv=\"refresh\" co"
+    },
+    "chinanews_rss_gn": {
+      "url": "https://www.chinanews.com.cn/rss/gn.xml",
+      "method": "GET",
+      "status": 404,
+      "elapsed_s": 0.766,
+      "content_type": "text/html",
+      "final_url": "https://www.chinanews.com.cn/rss/gn.xml",
+      "bytes": 6131,
+      "head_text": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n<head>\r\n<base target=\"_blank\">\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\r\n<meta http-equiv=\"refresh\" co"
+    },
+    "chinanews_rss_sh": {
+      "url": "https://www.chinanews.com.cn/rss/sh.xml",
+      "method": "GET",
+      "status": 404,
+      "elapsed_s": 0.791,
+      "content_type": "text/html",
+      "final_url": "https://www.chinanews.com.cn/rss/sh.xml",
+      "bytes": 6131,
+      "head_text": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n<head>\r\n<base target=\"_blank\">\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\r\n<meta http-equiv=\"refresh\" co"
+    },
+    "chinanews_rss_cj": {
+      "url": "https://www.chinanews.com.cn/rss/cj.xml",
+      "method": "GET",
+      "status": 404,
+      "elapsed_s": 0.745,
+      "content_type": "text/html",
+      "final_url": "https://www.chinanews.com.cn/rss/cj.xml",
+      "bytes": 6131,
+      "head_text": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n<head>\r\n<base target=\"_blank\">\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\r\n<meta http-equiv=\"refresh\" co"
+    },
+    "chinanews_rss_world": {
+      "url": "https://www.chinanews.com.cn/rss/world.xml",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 0.066,
+      "content_type": "text/xml",
+      "final_url": "https://www.chinanews.com.cn/rss/world.xml",
+      "bytes": 16099,
+      "head_text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<?xml-stylesheet type=\"text/css\" href=\"rsstyle.css\"?>\r\n<rss version=\"2.0\">\r\n<channel>\r\n<title>ä¸­æ°ç½å½éæ°é»</title>\r\n<image>\r\n  <title>ä¸­æ°ç½å½éæ°é»</title>\r\n  <link>http://www.chinanews.com/world.shtml</link>\r\n  <url>https://www.chinanews.com/",
+      "looks_like_feed": true
+    },
+    "juhe_docs_dailybrief": {
+      "url": "https://www.juhe.cn/docs",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 0.258,
+      "content_type": "text/html; charset=utf-8",
+      "final_url": "https://www.juhe.cn/docs",
+      "bytes": 222969,
+      "head_text": "<!DOCTYPE html>\n<html lang=\"zh_cn\">\n\n<head>\n    <meta charset=\"UTF-8\">\n    <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\n    <meta name=\"csrf-token\" content=\"94zmRVd2bHbkS10sThcUgMmz9ImGWXdlHWzGUe97\">\n    <meta name=\"view-path-attr\" uuid=\"\" openid=\"\" pageType=\"docs\">\n    <meta name=\"encrypt-"
+    },
+    "juhe_simple_nokey": {
+      "url": "https://v.juhe.cn/toutiao/index",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 0.134,
+      "content_type": "application/json;charset=utf-8",
+      "final_url": "https://v.juhe.cn/toutiao/index?type=guoji&key=",
+      "bytes": 83,
+      "head_text": "{\"resultcode\":\"101\",\"reason\":\"错误的请求KEY\",\"result\":null,\"error_code\":10001}",
+      "json_type": "dict",
+      "json_keys": [
+        "resultcode",
+        "reason",
+        "result",
+        "error_code"
+      ]
+    },
+    "gnews_top_nokey": {
+      "url": "https://gnews.io/api/v4/top-headlines",
+      "method": "GET",
+      "status": 400,
+      "elapsed_s": 7.228,
+      "content_type": "application/json; charset=utf-8",
+      "final_url": "https://gnews.io/api/v4/top-headlines?category=world&lang=en&max=5",
+      "bytes": 159,
+      "head_text": "{\"errors\":[\"No API key was sent. Add your API key as the apikey query parameter or in the X-Api-Key header. Your API key is on https:\\/\\/gnews.io\\/dashboard\"]}",
+      "json_type": "dict",
+      "json_keys": [
+        "errors"
+      ]
+    },
+    "gnews_search_nokey": {
+      "url": "https://gnews.io/api/v4/search",
+      "method": "GET",
+      "status": 400,
+      "elapsed_s": 1.35,
+      "content_type": "application/json; charset=utf-8",
+      "final_url": "https://gnews.io/api/v4/search?q=china&lang=en&max=5",
+      "bytes": 159,
+      "head_text": "{\"errors\":[\"No API key was sent. Add your API key as the apikey query parameter or in the X-Api-Key header. Your API key is on https:\\/\\/gnews.io\\/dashboard\"]}",
+      "json_type": "dict",
+      "json_keys": [
+        "errors"
+      ]
+    },
+    "gnews_docs": {
+      "url": "https://gnews.io/docs/",
+      "method": "GET",
+      "error": "Timeout: HTTPSConnectionPool(host='gnews.io', port=443): Read timed out. (read timeout=20)",
+      "elapsed_s": 20.321
+    },
+    "bbc_world_rss": {
+      "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "method": "GET",
+      "error": "ConnectionError: HTTPSConnectionPool(host='feeds.bbci.co.uk', port=443): Max retries exceeded with url: /news/world/rss.xml (Caused by NameResolutionError(\"HTTPSConnection(host='feeds.bbci.co.uk', port=443): Failed to resolve 'feeds.bbci.co.uk' ([Errno 11001] getaddrinfo failed)\"))",
+      "elapsed_s": 11.056
+    },
+    "bbc_top_rss": {
+      "url": "https://feeds.bbci.co.uk/news/rss.xml",
+      "method": "GET",
+      "error": "ConnectionError: HTTPSConnectionPool(host='feeds.bbci.co.uk', port=443): Max retries exceeded with url: /news/rss.xml (Caused by NameResolutionError(\"HTTPSConnection(host='feeds.bbci.co.uk', port=443): Failed to resolve 'feeds.bbci.co.uk' ([Errno 11001] getaddrinfo failed)\"))",
+      "elapsed_s": 11.056
+    },
+    "gdelt_v2_cn_48h": {
+      "url": "https://api.gdeltproject.org/api/v2/doc/doc",
+      "method": "GET",
+      "status": 200,
+      "elapsed_s": 11.042,
+      "content_type": "text/html; charset=utf-8",
+      "final_url": "https://api.gdeltproject.org/api/v2/doc/doc?query=%2A&mode=artlist&maxrecords=20&format=json&timespan=48h&sourcelang=chinese",
+      "bytes": 38,
+      "head_text": "Your query was too short or too long.\n"
+    },
+    "gdelt_v2_en_48h": {
+      "url": "https://api.gdeltproject.org/api/v2/doc/doc",
+      "method": "GET",
+      "status": 429,
+      "elapsed_s": 12.531,
+      "content_type": "",
+      "final_url": "https://api.gdeltproject.org/api/v2/doc/doc?query=%2A&mode=artlist&maxrecords=20&format=json&timespan=48h&sourcelang=english",
+      "bytes": 444,
+      "head_text": "Please limit requests to one every 5 seconds or contact kalev.leetaru5@gmail.com for larger queries. All high-traffic users should switch to our ngrams dataset: https://blog.gdeltproject.org/using-the-new-web-ngrams-dataset-to-find-relevant-coverage/. For trend analysis, please see our daily newslet"
+    }
+  }
+}

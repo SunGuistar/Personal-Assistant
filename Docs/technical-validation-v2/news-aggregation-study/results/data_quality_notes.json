@@ -1,0 +1,69 @@
+{
+  "probe": "data_quality_notes",
+  "checked_at_cst": "2026-11-10T14:05:00+08:00",
+  "checks": [
+    {
+      "source": "remoshuang_daily_md",
+      "item": "D1 太原火灾",
+      "finding": "摘要与中新网/新华社事实一致（14人遇难、9危重4重伤12轻伤、1500余人次、41辆消防车）。",
+      "verdict": "通过",
+      "evidence": "fixtures/remoshuang_daily_2026-11-10.md 第 11 条 vs results/coverage_hits.json chinanews_archive D1 匹配"
+    },
+    {
+      "source": "remoshuang_daily_md",
+      "item": "I2 国际油价",
+      "finding": "摘要细节（跌幅 5.11%/5.61%、WTI 86.19、Brent 92.80）与新华社纽约 11月9日电口径一致，未夸大。",
+      "verdict": "通过",
+      "evidence": "fixtures/remoshuang_daily_2026-11-10.md 第 18 条"
+    },
+    {
+      "source": "remoshuang_daily_md",
+      "item": "I3 俄副外长",
+      "finding": "摘要时间表述为『2026年11月左右』，模糊且无法用于窗口归属判断；典型 AI 生成模糊时间。条目无原始发布时间字段。",
+      "verdict": "问题",
+      "evidence": "fixtures/remoshuang_daily_2026-11-10.md 第 16 条"
+    },
+    {
+      "source": "remoshuang_feed_xml",
+      "item": "全部 30 条",
+      "finding": "RSS published 时间全部为同一时刻（2026-11-10 05:00 CST 生成时间），不是逐条原始发布时间；RSS 无法支持精确窗口过滤。",
+      "verdict": "问题",
+      "evidence": "api_tests/probe_remoshuang.py 输出 distinct timestamps = 1；fixtures/remoshuang_feed_xml.xml"
+    },
+    {
+      "source": "remoshuang_event_page",
+      "item": "事件页 sources 字段",
+      "finding": "仅 capturedAt（抓取时间）与 originalUrl，无原始发布时间；事件 createdAt 为聚合生成时间。",
+      "verdict": "问题",
+      "evidence": "https://remoshuang.com/event/20261110-ff6260d1 Nuxt payload 解析（probe 会话记录）"
+    },
+    {
+      "source": "remoshuang_daily_md",
+      "item": "I4 黄仁勋/鲁比奥",
+      "finding": "同一事件出现两条（第 17 条独立条目 + 第 10 条『8点1氪』合集内提及），事件级去重需处理合集类条目。",
+      "verdict": "注意",
+      "evidence": "fixtures/remoshuang_daily_2026-11-10.md 第 10、17 条"
+    },
+    {
+      "source": "remoshuang_daily_md",
+      "item": "整体",
+      "finding": "摘要为 AI 生成（版权页：AI 日报使用本站重新组织的简短事实表达），存在无来源传言混入风险（如 I4 的间谍指控本身未经证实，系『指控』框架，摘要未混淆事实与指控，处理得当）。",
+      "verdict": "通过（需保留核查环节）",
+      "evidence": "https://remoshuang.com/copyright 与 daily md 第 17 条"
+    },
+    {
+      "source": "chinanews_archive",
+      "item": "整体",
+      "finding": "归档页条目带精确到分钟的时间戳（北京时间），窗口归属可直接判定；标题为编辑标题，无夸大样本。",
+      "verdict": "通过",
+      "evidence": "fixtures/chinanews_archive_20261109.html 解析 478 条"
+    },
+    {
+      "source": "network",
+      "item": "原站回溯",
+      "finding": "本机直连 news.cn、caixin.com 超时/失败，cn.nytimes.com DNS 解析失败，m.thepaper.cn、10jqka 可达；『回溯原站核对正文』不可全源保障。",
+      "verdict": "注意",
+      "evidence": "probe 会话记录（13:55 前后）"
+    }
+  ]
+}
