@@ -174,3 +174,40 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - `tests/test_morning_stage3_rag.py`（真本地 Qdrant，tmp_mr_* 集合用后清理；Embedding 用假实现）
 
 **验收标准**：真实向量写入/检索/更新/删除；Embedding 复用（同 hash 不重复调用）；缓存命中/失效/到期；索引一致性检查能识别不一致并置 dirty/failed。
+
+### 阶段 3 完成记录（2026-11-10 PASS）
+
+- **修改文件**：`adapters/embedding.py`（DashScope dense + fastembed sparse + EmbeddingCache 复用）、`services/{qdrant_store,rag_tool,stage_cache,index_sync}.py`、`tests/test_morning_stage3_rag.py`
+- **测试**：6 个全过（真本地 Qdrant，tmp_mr_* 集合用后清理；假 Embedding）——混合检索命中、幂等 upsert（重复同步点数不变）、Embedding 缓存复用零新增、Query 改写成功/失败回退、索引 dirty 阻塞、阶段缓存 TTL/清理、晨报分块索引与过滤检索、缺失索引检测
+- **关键决定**：点 ID = uint64 确定性哈希（Qdrant 拒绝负 int64）；Rerank 默认关闭（T21 结论），接口预留；必要索引异常抛 IndexUnavailableError 由工作流阻塞
+- **回归**：全量 pytest 结果见 stage3 回归输出（随阶段 4 提交前复核）
+
+## 阶段 4：LangGraph 与 Agent 工作流
+
+**任务与文件**：
+- `services/llm_router.py`：DeepSeek/DashScope 路由 + 允许时段检查 + Thinking 节点级配置 + Token 落库
+- `graph/prompts.py`：系统提示词（版本化 prompt_version）
+- `graph/workflow.py`：LangGraph 编排（快照→并行资讯/个人分析→技术研究∥目标分析 Subagent→建议 Subagent→主编→事实校验→质量评价→发布），AsyncSqliteSaver Checkpoint，阶段缓存指纹复用，幂等防重复主报告
+- `services/report_service.py`：run_generate 入口（08:00 流程编排：清缓存→采集→索引检查→图执行）
+- `api/runs.py` 增加 generate 触发；调度器（APScheduler 每日 08:00）
+- `tests/test_morning_stage4_graph.py`（FakeLLM + 假 Embedding + 真 Checkpoint 恢复/并行/后置断言）
+
+**验收标准**：并行关系正确；三 Subagent 固定调用；建议后置；时段外正式模型拒绝且不换模型；失败节点恢复重跑语义不重复写主报告；缓存命中跳过重算。
+
+### 阶段 4 完成记录（2026-11-10 PASS）
+
+- **修改文件**：`services/{llm_router,report_service,scheduler}.py`、`graph/{prompts,workflow,subagents}.py`、`api/runs.py`（generate 触发）、`app/main.py`（调度器接线）、`tests/test_morning_stage4_graph.py`
+- **测试**：10 个全过——全流程发布（主报告唯一/五维等权 87 分/quality_score_v1）、附加版本不覆盖主报告、事实校验阻塞发布、评价失败不阻塞、Subagent 降级、并行真实重叠（事件轨迹）、阶段缓存跨轮复用、Checkpoint 注入失败后 `invoke(None)` 恢复、时段规则（周二 08:00 允许/15:00 禁止/周六允许）、report_service 级 blocked；全量回归 **234 passed**
+- **关键决定**：图入口需显式两条 START 边（info/personal 并行）；提示词 JSON 花括号 `{{}}` 转义；同步节点统一 `asyncio.to_thread` 包装保证真并行；LangGraph 默认节点重试存在，Subagent 节点内部 try/except 走降级、主编等关键节点不捕获（传播出图触发恢复）；生产路径必须注入 mr/hub 双 factory
+- **修复**：调度器 start/shutdown 幂等（两次 startup 事件场景）
+- **遗留**：正式模型（auto）真实调用验证留待阶段 7 低谷时段或手动 manual（DashScope）验证；Rerank 未接入（默认关闭）
+
+## 阶段 5：晨报生成与质量保障
+
+**任务与文件**：
+- `api/report.py`：GET /report（当日/历史/指定版本）、GET /evaluation、POST /regenerate（reuse/full 高级重算）
+- `services/report_service.py`：regenerate 语义（full=缓存全清重算；默认可复用阶段缓存）、个人事件快照落 personal_event_snapshots
+- 用量统计查询 API（TokenUsage 聚合）
+- `tests/test_morning_stage5_report.py`
+
+**验收**：主报告唯一与版本切换；重新生成不覆盖历史；评价绑定版本；0-3 条建议约束；费用/耗时字段可查。

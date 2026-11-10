@@ -33,6 +33,37 @@ def trigger_collect(
     return {"run_id": run.id, "run_date": date, "status": "pending"}
 
 
+@router.post("/generate", status_code=202)
+def trigger_generate(
+    request: Request,
+    report_date: str | None = None,
+    mode: str = "manual",
+    mr: Session = Depends(get_mr_session),
+) -> dict:
+    """手动重新生成：默认复用缓存/局部重算；mode=full 完整重算。正式模型时段外将失败。"""
+    from ..models import RunRecord
+    from ..services import report_service
+
+    date = report_date or datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    run = RunRecord(run_date=date, kind="generate", status="pending")
+    mr.add(run)
+    mr.commit()
+    settings = request.app.state.mr_settings
+
+    def fn(session, run_id):
+        report_service.run_generate(
+            session, run_id, settings, mode="auto" if mode == "auto" else "manual",
+            hub_session_factory=request.app.state.session_factory,
+            mr_session_factory=request.app.state.mr_session_factory,
+        )
+
+    if not request.app.state.mr_runner.submit("generate", run.id, fn):
+        mr.delete(run)
+        mr.commit()
+        raise DomainError("已有一期生成在进行中，请勿重复提交", code="task_conflict", status_code=409)
+    return {"run_id": run.id, "run_date": date, "status": "pending"}
+
+
 @router.get("/{run_id}/logs", response_model=list[LogOut])
 def run_logs(run_id: int, mr: Session = Depends(get_mr_session)) -> list[LogOut]:
     if mr.get(RunRecord, run_id) is None:

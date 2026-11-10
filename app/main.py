@@ -24,7 +24,7 @@ from .tasks import TaskRunner
 logger = logging.getLogger(__name__)
 
 
-def _init_morning_report(app: FastAPI, settings: Settings) -> None:
+def _init_morning_report(app: FastAPI, settings: Settings, hub_session_factory) -> None:
     """晨报 V2.0 模块装配：独立 SQLite + 独立路由（hub 只读访问经 app.state.session_factory）。"""
 
     from .morning_report import api as mr_api
@@ -42,6 +42,29 @@ def _init_morning_report(app: FastAPI, settings: Settings) -> None:
 
     app.state.mr_runner = MorningRunner(app.state.mr_session_factory)
     app.include_router(mr_api.morning_router)
+
+    # 每日 08:00 调度（测试/显式关闭时不启动）
+    if mr_settings.schedule_enabled:
+        from .morning_report.services import scheduler as mr_scheduler
+
+        scheduler, _ = mr_scheduler.create_scheduler(
+            mr_settings, app.state.mr_runner,
+            app.state.mr_session_factory, hub_session_factory,
+        )
+        app.state.mr_scheduler = scheduler
+
+        @app.on_event("startup")
+        def _start_mr_scheduler() -> None:
+            if scheduler.running:
+                return
+            scheduler.start()
+            logger.info("晨报调度已启动：每天 %02d:%02d（Asia/Shanghai）",
+                        mr_settings.schedule_hour, mr_settings.schedule_minute)
+
+        @app.on_event("shutdown")
+        def _stop_mr_scheduler() -> None:
+            if scheduler.running:
+                scheduler.shutdown(wait=False)
 
 
 class SPAStaticFiles(StaticFiles):
@@ -79,7 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     wechat_jobs.configure(app.state.task_runner)  # summarize_chat 工具经此提交后台总结任务
 
-    _init_morning_report(app, settings)
+    _init_morning_report(app, settings, session_factory)
     app.include_router(api_router)
 
     @app.on_event("startup")
