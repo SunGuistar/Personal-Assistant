@@ -89,9 +89,13 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
                                  api_key=settings.qdrant_api_key)
     provider = provider or DefaultEmbeddingProvider()
     if deps_override is None:
+        # 首日无历史晨报：先确保两个 Collection 存在（空历史不阻塞首期生成）
+        store.ensure_collection(settings.collections.tech_news)
+        store.ensure_collection(settings.collections.reports)
         sync = index_sync.sync_tech_news(mr, store, provider, collect.id,
                                          settings.collections.tech_news)
         log_run(mr, run_id, "index", "AI 索引同步完成", detail=sync)
+        _recover_dirty_report_index(mr, store, provider, settings)
         problems = index_sync.check_required_indexes(
             mr, store, [settings.collections.tech_news, settings.collections.reports])
         if problems:
@@ -110,6 +114,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         "published_at": r.published_at, "content_hash": r.content_hash,
         "event_group_id": r.event_group_id,
     } for r in news_rows]
+    news = _trim_for_llm(news)
     memory_rows = mr.execute(select(Memory)).scalars().all()
     memory = [{"id": m.id, "kind": m.kind, "content": m.content, "enabled": m.enabled,
                "updated_at": m.updated_at} for m in memory_rows]
@@ -138,10 +143,10 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
             with mr_session_factory() as s:
                 _ru(s, run_id, node, _ClientShim(model, base_url), result,
                     allowed="off_peak" if mode == "auto" else "dev")
-        deps.recorder = _recorder
         subagents = LangChainSubagentRunner(settings, rag_tool=rag)
         deps = WorkflowDeps(llm=llm, subagents=subagents,
                             mr_session_factory=mr_session_factory, run_id=run_id)
+        deps.recorder = _recorder
         log_run(mr, run_id, "generate", f"模型路由: {client_note} ({deps.llm.model})")
 
     initial = {
@@ -177,6 +182,22 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     run.finished_at = _now()
     mr.commit()
     log_run(mr, run_id, "publish", "晨报已发布", detail=final.get("publish"))
+
+    # 历史晨报索引更新（V0.6 流程末步）；失败记 dirty 并降级，不阻塞本期已校验内容
+    pub = final.get("publish") or {}
+    if pub.get("version_id") and store is not None and provider is not None:
+        try:
+            rs = index_sync.sync_report_version(mr, store, provider, pub["version_id"],
+                                                settings.collections.reports)
+            log_run(mr, run_id, "index", "历史晨报索引已更新", detail=rs)
+        except Exception as exc:
+            logger.warning("历史晨报索引更新失败: %s", f"{type(exc).__name__}: {exc}"[:150])
+            index_sync._touch_state(mr, settings.collections.reports, "dirty",
+                                    f"version {pub['version_id']} sync failed")
+            if run.status == "success":
+                run.status = "degraded"
+                mr.commit()
+            log_run(mr, run_id, "index", "历史晨报索引更新失败（已标记 dirty）", level="warning")
     return {"status": run.status, "publish": final.get("publish"),
             "fact_check": final["fact_check"], "evaluation": final.get("evaluation")}
 
@@ -217,6 +238,23 @@ class _ClientShim:
         self.base_url = base_url
 
 
+def _trim_for_llm(news: list[dict]) -> list[dict]:
+    """LLM 输入截断：每类按时间倒序保留上限（国内120/国际80/AI60），防上下文溢出。
+
+    截断只影响分析输入，DB 与索引保留全量；信息说明中体现覆盖。
+    """
+
+    caps = {"domestic": 120, "international": 80, "ai": 60}
+    by_cat: dict[str, list[dict]] = {}
+    for n in news:
+        by_cat.setdefault(n["category"], []).append(n)
+    out: list[dict] = []
+    for cat, items in by_cat.items():
+        items.sort(key=lambda x: x.get("published_at") or "", reverse=True)
+        out.extend(items[: caps.get(cat, 80)])
+    return out
+
+
 def _snapshot_personal(mr: Session, run_id: int, snapshot_id: str, ctx: dict) -> None:
     """个人事件证据快照（只读 hub 的当期副本；不倒推历史）。"""
 
@@ -233,3 +271,28 @@ def _snapshot_personal(mr: Session, run_id: int, snapshot_id: str, ctx: dict) ->
     add("daily_tasks", ctx.get("daily_done", []))
     add("long_term_plans", ctx.get("longterm_highlight", []), time_key="target_date")
     mr.commit()
+
+
+def _recover_dirty_report_index(mr: Session, store, provider, settings: MRSettings) -> None:
+    """历史晨报索引 dirty 时的恢复检查：重同步最近已发布版本，成功即恢复 ok。"""
+
+    from ..models import IndexState
+
+    row = mr.execute(
+        select(IndexState).where(IndexState.collection_name == settings.collections.reports)
+    ).scalars().first()
+    if row is None or row.status != "dirty":
+        return
+    from ..models import ReportVersion
+    ver = mr.execute(
+        select(ReportVersion).where(ReportVersion.status == "published")
+        .order_by(ReportVersion.id.desc()).limit(1)
+    ).scalars().first()
+    if ver is None:
+        index_sync._touch_state(mr, settings.collections.reports, "ok", "无已发布版本，恢复为空索引")
+        return
+    try:
+        index_sync.sync_report_version(mr, store, provider, ver.id, settings.collections.reports)
+        log_run(mr, 0, "index", f"历史晨报索引已恢复（重同步版本 {ver.id}）")
+    except Exception as exc:
+        logger.warning("历史晨报索引恢复失败: %s", f"{type(exc).__name__}: {exc}"[:150])

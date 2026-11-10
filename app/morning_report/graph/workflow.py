@@ -206,13 +206,31 @@ def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
         return {"advice_result": {"status": "failed", "advices": [], "note": "建议输出解析失败"}}
 
 
+def _selected_with_urls(state: MRState, cat: str) -> list[dict]:
+    """把资讯分析选中的条目补上 summary 与 source_url（主编只能用材料内链接）。"""
+
+    sel = state["news_selection"].get(cat) or []
+    by_id = {n["id"]: n for n in state["news"]}
+    out = []
+    for item in sel:
+        src_news = by_id.get(item.get("id")) or {}
+        out.append({
+            "title": item.get("title") or src_news.get("title"),
+            "summary": src_news.get("summary", ""),
+            "url": src_news.get("source_url", ""),
+            "why": item.get("why", ""),
+            "value": item.get("value", ""),
+        })
+    return out
+
+
 def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
     sel = state["news_selection"]
     result = deps.llm.chat([{"role": "user", "content": prompts.EDITOR.format(
         generated_at=datetime.now(CST).isoformat(timespec="seconds"),
-        domestic=json.dumps(sel.get("domestic", []), ensure_ascii=False),
-        international=json.dumps(sel.get("international", []), ensure_ascii=False),
-        ai=json.dumps(sel.get("ai", []), ensure_ascii=False),
+        domestic=json.dumps(_selected_with_urls(state, "domestic"), ensure_ascii=False),
+        international=json.dumps(_selected_with_urls(state, "international"), ensure_ascii=False),
+        ai=json.dumps(_selected_with_urls(state, "ai"), ensure_ascii=False),
         personal=state.get("personal_summary", ""),
         tech=state["tech_result"].get("content", "") or "（技术研究缺失，本期不作技术深评）",
         goal=state["goal_result"].get("content", "") or "（目标分析缺失）",
@@ -223,9 +241,22 @@ def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_fact_check(state: MRState, deps: WorkflowDeps) -> dict:
+    # 规则层先算好窗口归属，LLM 只做事实一致性判断（避免模型日期比较错误）
+    ws, we = state["window_start"], state["window_end"]
+
+    def in_window(ts: str | None) -> bool:
+        return ts is not None and ws <= ts < we
+
+    cited_pool = [{"title": n["title"][:60], "url": n.get("source_url", ""),
+                   "published_at": n.get("published_at", ""),
+                   "in_window": in_window(n.get("published_at"))} for n in state["news"]]
     material = json.dumps({
-        "news": state["news"], "personal": state["personal"],
-    }, ensure_ascii=False)[:6000]
+        "cited_pool": cited_pool,
+        "selected": state["news_selection"],
+        "personal_done": state["personal"].get("daily_done", []),
+        "longterm_highlight": state["personal"].get("longterm_highlight", []),
+        "window": f"{ws} ~ {we}",
+    }, ensure_ascii=False)
     result = deps.llm.chat([{"role": "user", "content": prompts.FACT_CHECK.format(
         material=material, content=state["draft"])}], json_mode=True)
     deps.record("fact_check", result)
@@ -234,14 +265,18 @@ def node_fact_check(state: MRState, deps: WorkflowDeps) -> dict:
     except ValueError:
         check = {"ok": False, "issues": ["事实校验输出无法解析，按不通过处理"]}
     check.setdefault("issues", [])
-    # 规则校验：正文中出现的来源链接必须来自本期材料
-    urls_in_material = {n.get("source_url") for n in state["news"] if n.get("source_url")}
+    # 规则层（确定性）：链接必须来自本期材料且引用项须在窗口内
     import re
+    by_url = {n.get("source_url"): n for n in state["news"] if n.get("source_url")}
     cited = set(re.findall(r"\((https?://[^)]+)\)", state["draft"]))
-    orphan = [u for u in cited if u not in urls_in_material]
+    orphan = [u for u in cited if u not in by_url]
+    out_win = [u for u in cited
+               if u in by_url and not (by_url[u].get("published_at") and ws <= by_url[u]["published_at"] < we)]
     if orphan:
         check["issues"].append(f"正文引用了材料外的链接: {orphan[:3]}")
-    check["ok"] = bool(check["ok"]) and not orphan
+    if out_win:
+        check["issues"].append(f"正文引用了窗口外发布的新闻链接: {out_win[:3]}")
+    check["ok"] = bool(check["ok"]) and not orphan and not out_win
     return {"fact_check": check}
 
 

@@ -247,3 +247,11 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - 现有模块回归（243 passed 已含）
 - V0.6 需求逐项对照、使用说明、人工验收指南
 - 交付报告
+
+### 阶段 7 完成记录（2026-11-10 PASS）
+
+- **修改文件**：`services/report_service.py`（LLM 输入截断、双 Collection 预建、发布版本索引同步、dirty 恢复路径）、`graph/workflow.py` + `graph/prompts.py`（主编补 URL、事实校验规则层化）、`tests/test_morning_stage7_scheduler.py`、证据目录 `Docs/technical-validation-v2/morning-report-dev/`
+- **LIVE 端到端**：真实采集（550 条）→ 真实索引（DashScope dense + BM25 sparse，23 点）→ 真实生成（qwen-flash，17.7s）→ 事实校验通过 → 评价 96 分 → 主报告发布 → 历史晨报索引 9 块 → RAG 检索命中。证据 `stage7_live_e2e.json`，复跑 `e2e_live_run.py`
+- **关键决定**：事实校验=规则层（孤儿链接/窗口外引用，确定性）+LLM 层（事实一致性），避免模型日期比较错误；主编输入必须带材料内 URL（此前模型编造链接被真实拦截两次——系统按设计工作）；manual 复用缓存导致 run5 用量调用少，属预期
+- **回归**：后端 244 passed；前端 50 passed；build 通过
+- **上线观察项**（不阻塞交付）：DeepSeek auto 路径首跑（明早 08:00 低谷）、连续多日覆盖、中新网结构监控告警、Subagent 接 RAG 工具、Docker Desktop 自启

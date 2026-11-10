@@ -1,0 +1,18 @@
+{
+  "run_id": 1,
+  "summary": {
+    "window": "2026-11-09T08:00:00+08:00 ~ 2026-11-10T08:00:00+08:00",
+    "per_source": {
+      "aihot": 20,
+      "chinanews": 1006,
+      "remoshuang": 60
+    },
+    "in_window": 490,
+    "clue_only": 60,
+    "out_of_window_dropped": 536,
+    "duplicates_merged": 0,
+    "saved_unique": 550,
+    "event_groups": 530,
+    "source_failures": {}
+  }
+}
