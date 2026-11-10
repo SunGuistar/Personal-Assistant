@@ -154,3 +154,23 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - **测试**：`pytest tests/test_morning_stage1_infra.py` 6 passed；全量回归 **212 passed**（LIVE/INTEGRATION 隔离库）
 - **关键决定**：晨报独立 SQLite 用内置轻量迁移器（`schema_migrations` 版本表，v1 建全部核心表）；hub 只读经 `app.state.session_factory` 纯 SELECT；晨报路由直接挂 app（不进全局 api_router，避免重复装配）；MRSettings 独立 `PH_MR_` 前缀
 - **遗留**：调度器（阶段 4 接入）；新闻模型本阶段已建，采集管线阶段 2 实现
+
+### 阶段 2 完成记录（2026-11-10 PASS）
+
+- **修改文件**：`app/morning_report/adapters/{__init__,http_common,aihot,chinanews,remoshuang}.py`、`services/{news_pipeline,runner}.py`、`api/runs.py`、`api/__init__.py`、`app/main.py`（mr_runner）、`tests/test_morning_stage2_collect.py`
+- **测试**：新增 6 个全过（适配器解析/分类、管线全流程、跨源去重、失败降级、runner 冲突）；LIVE 真实采集一轮（窗口 2026-11-09 08:00~11-10 08:00）：aihot 20 条游标翻页成功、中新网 1006 条、热摸爽 60 条线索、窗口内 490 条、存 550 条、零源失败；证据 `Docs/technical-validation-v2/morning-report-dev/stage2_live_collect.json`
+- **关键决定**：HTTP 统一走 httpx（项目标准，respx 可 mock）；外交部/中方 纳入涉外时政关键词；热摸爽条目无发布时间→仅线索（published_at=None，不入窗口统计）；事件归组阈值 bigram Jaccard 0.55（保守，只打组标不删记录）
+- **修复**：runner 并发判重需排除自身 run_id；respx 对 requests 无效（已切 httpx）
+- **遗留**：中新网归档页当前日期含未来条目由窗口过滤兜住；AIHOT 摘要使用规则在阶段 5 摘要生成时遵守（聚合摘要不当事实证明）
+
+## 阶段 3：RAG、索引与缓存
+
+**任务与文件**：
+- `adapters/embedding.py`：DashScope text-embedding-v4（1024 维，batch≤10）+ fastembed BM25 sparse；EmbeddingProvider 协议可注入假实现
+- `services/qdrant_store.py`：双 Collection 建配（dense cosine + sparse IDF）、幂等 upsert（内容哈希 ID）、混合检索（prefetch+RRF）、payload 过滤
+- `services/rag_tool.py`：统一 RAG Tool（dense+BM25、来源回溯、可选 Query 改写/回退、Rerank 暂缺省关闭可配置）
+- `services/stage_cache.py`：输入指纹 + 12h TTL + 新轮清理
+- `services/index_sync.py`：AI 资讯→tech_news、晨报版本→reports 分块索引、index_state 一致性检查（必要索引失败→阻塞标记）
+- `tests/test_morning_stage3_rag.py`（真本地 Qdrant，tmp_mr_* 集合用后清理；Embedding 用假实现）
+
+**验收标准**：真实向量写入/检索/更新/删除；Embedding 复用（同 hash 不重复调用）；缓存命中/失效/到期；索引一致性检查能识别不一致并置 dirty/failed。

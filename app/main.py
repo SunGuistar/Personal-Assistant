@@ -37,6 +37,10 @@ def _init_morning_report(app: FastAPI, settings: Settings) -> None:
     app.state.mr_settings = mr_settings
     app.state.mr_engine = mr_engine
     app.state.mr_session_factory = mr_db.make_session_factory(mr_engine)
+
+    from .morning_report.services.runner import MorningRunner
+
+    app.state.mr_runner = MorningRunner(app.state.mr_session_factory)
     app.include_router(mr_api.morning_router)
 
 
