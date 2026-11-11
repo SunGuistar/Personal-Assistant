@@ -334,11 +334,19 @@ function AssistantPanel() {
   );
 }
 
-interface LogRow { id: number; at: string; stage: string; level: string; message: string }
+interface LogRow {
+  id: number;
+  at: string;
+  stage: string;
+  level: string;
+  message: string;
+  detail?: Record<string, unknown> | null;
+}
 
 function LogPanel({ runId }: { runId: number | null }) {
   const [rows, setRows] = useState<LogRow[]>([]);
   const [live, setLive] = useState(false);
+  const [openId, setOpenId] = useState<number | null>(null);
 
   useEffect(() => {
     setRows([]);
@@ -348,6 +356,17 @@ function LogPanel({ runId }: { runId: number | null }) {
     let es: EventSource | null = null;
     let retryTimer: number | undefined;
 
+    // 先拉全量历史日志，再以最后一条为断点接实时流
+    fetch(`/api/morning/runs/${runId}/logs`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((all: LogRow[]) => {
+        if (cancelled) return;
+        setRows(all);
+        after = all.length ? all[all.length - 1].id : 0;
+        connect();
+      })
+      .catch(() => connect());
+
     const connect = () => {
       if (cancelled || typeof EventSource === "undefined") return; // 测试环境（jsdom）无 EventSource
       es = new EventSource(`/api/morning/logs/stream?run_id=${runId}&after_id=${after}`);
@@ -356,7 +375,7 @@ function LogPanel({ runId }: { runId: number | null }) {
           const d = JSON.parse(e.data);
           if (d.id) {
             after = d.id;
-            setRows((r) => [...r.slice(-199), d]);
+            setRows((r) => [...r, d]);
           }
           if (d.done) {
             setLive(false);
@@ -367,10 +386,9 @@ function LogPanel({ runId }: { runId: number | null }) {
       es.onopen = () => setLive(true);
       es.onerror = () => {
         es?.close();
-        if (!cancelled) retryTimer = window.setTimeout(connect, 3000); // 断线自动重连（带 after_id 续传）
+        if (!cancelled) retryTimer = window.setTimeout(connect, 3000);
       };
     };
-    connect();
     return () => {
       cancelled = true;
       window.clearTimeout(retryTimer);
@@ -387,19 +405,30 @@ function LogPanel({ runId }: { runId: number | null }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 font-mono text-xs">
         {rows.length === 0 && <p className="text-neutral-400">暂无日志。</p>}
         {rows.map((r) => (
-          <div key={r.id} className="flex gap-2 py-0.5 text-left">
-            <span className="text-neutral-400">{r.at.slice(11, 19)}</span>
-            <span
-              className={cn(
-                "rounded px-1",
-                r.level === "error" ? "bg-red-100 text-red-700"
-                : r.level === "warning" ? "bg-amber-100 text-amber-700"
-                : "bg-neutral-100 text-neutral-600",
-              )}
+          <div key={r.id}>
+            <button
+              className="flex w-full gap-2 py-0.5 text-left"
+              onClick={() => setOpenId(openId === r.id ? null : r.id)}
+              title={openId === r.id ? "收起详情" : "展开详情"}
             >
-              {r.stage}
-            </span>
-            <span className="flex-1 truncate text-neutral-700">{r.message}</span>
+              <span className="text-neutral-400">{r.at.slice(11, 19)}</span>
+              <span
+                className={cn(
+                  "rounded px-1",
+                  r.level === "error" ? "bg-red-100 text-red-700"
+                  : r.level === "warning" ? "bg-amber-100 text-amber-700"
+                  : "bg-neutral-100 text-neutral-600",
+                )}
+              >
+                {r.stage}
+              </span>
+              <span className="flex-1 truncate text-neutral-700">{r.message}</span>
+            </button>
+            {openId === r.id && (
+              <pre className="mb-1 ml-16 whitespace-pre-wrap break-all rounded bg-neutral-50 p-2 text-[11px] leading-4 text-neutral-500">
+                {r.detail ? JSON.stringify(r.detail, null, 2) : "（无技术详情）"}
+              </pre>
+            )}
           </div>
         ))}
       </div>
