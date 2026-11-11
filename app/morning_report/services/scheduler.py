@@ -47,9 +47,11 @@ def create_scheduler(settings, runner, mr_session_factory, hub_session_factory):
 
     def _generate_fn(settings, hub_sf, mr_sf):
         def fn(mr, run_id):
+            token = runner.token_for(run_id)
             report_service.run_generate(
                 mr, run_id, settings, mode="auto",
-                hub_session_factory=hub_sf, mr_session_factory=mr_sf)
+                hub_session_factory=hub_sf, mr_session_factory=mr_sf,
+                cancel_token=token)
         return fn
 
     scheduler = BackgroundScheduler(timezone=CST)

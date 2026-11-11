@@ -266,3 +266,10 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - **测试**：后端新增 9 个全过（生命周期/快照/脱敏/活动判定/SSE 快照+done+增量去重/409 互斥/interrupted 清理/run_generate 全阶段流转）；前端新增 4 个全过（阶段列表/并行标识/高亮/悬浮详情/按钮禁用与恢复）；全量回归后端 253、前端 54、tsc+build 通过
 - **面板尺寸验证**：section 保持 `h-2/5` 与原右栏结构，无新增常驻技术日志区（证据：组件类名未变 + 前端测试通过）
 - **已知缺口（不属本次范围）**：Subagent 仍 tools=[]（RAG 工具未挂载，已在验收报告记录）；自动重试 3 次未实现；`npx vitest` 与 npm test 环境不一致时 jsdom 曾丢失（重装恢复），建议用 npm test
+
+### 停止生成功能完成记录（2026-11-11 PASS）
+
+- **协作式取消**：`services/cancel.py`（CancelToken/GenerationCancelled，不杀线程）；Runner 注册令牌（`token_for/request_cancel`，submit 创建、终态清理）；工作流全部 9 节点入口 + report_service 四阶段 + 采集源之间设安全检查点；取消后后续节点不执行、不发布不完整晨报
+- **状态与数据**：run.status 新增 stopping/cancelled（迁移 v3：run_records.stop_reason/stopped_at）；stop API（`POST /runs/{id}/stop`）UPDATE 守卫防与自然完成竞态、幂等；stopping 属活动态（互斥不松）；Runner 统一落 cancelled：进行中阶段标记"用户主动停止"、stop 日志（请求时间/停止阶段/已完成标记）、缓存与历史数据全保留；进程重启时 stopping→cancelled（确认已停止）
+- **前端**：第三按钮「停止生成」（无任务禁用/活动可用/点击 confirm 确认框/请求后"正在停止…"禁用，任务终态自动复位）；状态标签补"正在停止/已停止"；**修复进行中按钮误恢复 bug**：SSE 每帧同步 active（此前只初次/done 同步，轮询间隙有启用窗口）
+- **测试**：后端 5 个（工作流中途取消后续节点不执行且不发布、Runner cancelled 终态+阶段标记+缓存保留+令牌清理、stop API 幂等+stopping 互斥+终态守卫、竞态自然完成不改、采集源间协作式停止）；前端 2 个（停止流程+确认取消）；全量回归后端 258、前端 56、tsc+build 通过

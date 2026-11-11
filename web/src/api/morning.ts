@@ -232,3 +232,8 @@ export const fetchProgress = (runId: number) =>
 
 export const fetchActiveProgress = (reportDate?: string) =>
   api<ProgressSnapshot>(`/morning/progress/active${reportDate ? `?report_date=${reportDate}` : ""}`);
+
+export const stopRun = (runId: number) =>
+  api<{ run_id: number; status: string; note?: string }>(`/morning/runs/${runId}/stop`, {
+    method: "POST",
+  });

@@ -20,6 +20,7 @@ from ..adapters.embedding import DefaultEmbeddingProvider
 from ..config import MRSettings
 from ..models import Memory, NewsItem, RunRecord
 from ..services import index_sync, news_pipeline, progress as progress_mod, stage_cache
+from ..services.cancel import check_cancel
 from ..services.llm_router import (ModelNotAllowedError, dev_client, formal_client,
                                    record_usage)
 from ..services.qdrant_store import QdrantStore
@@ -56,8 +57,10 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
                  *, mode: str = "auto", deps_override: WorkflowDeps | None = None,
                  store: QdrantStore | None = None,
                  provider=None, hub_session_factory=None, mr_session_factory=None,
-                 clear_cache: bool | None = None, personal_ctx_override: dict | None = None) -> dict:
+                 clear_cache: bool | None = None, personal_ctx_override: dict | None = None,
+                 cancel_token=None) -> dict:
     """执行一期生成。deps_override 仅供测试注入（此时 LLM 无真实调用）。
+    cancel_token：协作式取消令牌（Runner 注册）；检查点处抛 GenerationCancelled。
 
     缓存清理：auto（每天 08:00 新一轮）默认清理；manual 默认复用；clear_cache 显式覆盖
     （manual+full 重算时由 API 传 True）。
@@ -71,6 +74,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     mr.commit()
     tracker = progress_mod.ProgressTracker(
         mr_session_factory if mr_session_factory is not None else mr, run_id)
+    check_cancel(cancel_token)
     tracker.stage_started("collect")
     if clear_cache:
         log_run(mr, run_id, "generate", f"开始生成（mode={mode}），清理上一轮阶段缓存")
@@ -97,6 +101,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
                                 summary=f"复用本期采集（{c_rows_n} 条）",
                                 status="skipped", reason="使用已完成的采集结果")
 
+    check_cancel(cancel_token)
     # 2) AI 索引同步 + 必要索引检查（阻塞规则）
     store = store or QdrantStore(settings.qdrant_url, dense_dims=settings.embedding_dims,
                                  api_key=settings.qdrant_api_key)
@@ -124,6 +129,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
             log_run(mr, run_id, "index", run.error, level="error")
             raise RuntimeError(run.error)
 
+    check_cancel(cancel_token)
     # 3) 冻结快照
     news_rows = mr.execute(select(NewsItem).where(NewsItem.run_id == collect.id)).scalars().all()
     news = [{
@@ -175,6 +181,8 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     }
     if getattr(deps, "progress", None) is None:
         deps.progress = tracker  # 节点级阶段跟踪
+    deps.cancel_token = cancel_token
+    check_cancel(cancel_token)
     try:
         final = asyncio.run(_execute(deps, initial, run_id))
     except ModelNotAllowedError as exc:

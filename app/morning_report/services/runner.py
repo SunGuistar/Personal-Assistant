@@ -10,12 +10,14 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import threading
+from datetime import datetime, timezone, timedelta
 from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..models import RunRecord
+from ..models import RunLog, RunRecord, RunStage
+from .cancel import CancelToken, GenerationCancelled
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +30,12 @@ class MorningRunner:
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         self._lock = threading.Lock()
         self._active_kinds: set[str] = set()
+        self._tokens: dict[int, CancelToken] = {}  # run_id -> 取消令牌
 
     def _has_unfinished(self, kind: str, exclude_run_id: int | None = None) -> bool:
         q = select(RunRecord.id).where(
-            RunRecord.kind == kind, RunRecord.status.in_(["pending", "running"])
+            RunRecord.kind == kind,
+            RunRecord.status.in_(["pending", "running", "stopping"]),
         )
         if exclude_run_id is not None:
             q = q.where(RunRecord.id != exclude_run_id)
@@ -46,13 +50,60 @@ class MorningRunner:
             if kind in self._active_kinds or self._has_unfinished(kind, exclude_run_id=run_id):
                 return False
             self._active_kinds.add(kind)
+            self._tokens[run_id] = CancelToken()
         self._pool.submit(self._wrap, kind, run_id, fn)
+        return True
+
+    def token_for(self, run_id: int) -> CancelToken | None:
+        return self._tokens.get(run_id)
+
+    def request_cancel(self, run_id: int) -> bool:
+        """请求协作式取消；返回是否找到了活动令牌（幂等）。"""
+
+        token = self._tokens.get(run_id)
+        if token is None:
+            return False
+        token.cancel()
         return True
 
     def _wrap(self, kind: str, run_id: int, fn: RunFn) -> None:
         try:
             with self._sf() as s:
                 fn(s, run_id)
+        except GenerationCancelled:
+            # 用户主动停止：转 cancelled 终态，保留已完成阶段与数据
+            cst = timezone(timedelta(hours=8))
+            stopped_at = datetime.now(cst).isoformat()
+            try:
+                with self._sf() as s:
+                    run = s.get(RunRecord, run_id)
+                    if run is not None and run.status in ("pending", "running", "stopping"):
+                        running_stages = s.execute(
+                            select(RunStage).where(RunStage.run_id == run_id,
+                                                   RunStage.status == "running")
+                        ).scalars().all()
+                        for st in running_stages:
+                            st.status = "cancelled"
+                            st.reason = "用户主动停止"
+                            st.finished_at = stopped_at
+                        run.status = "cancelled"
+                        run.finished_at = stopped_at
+                        run.stop_reason = run.stop_reason or "用户主动停止"
+                        run.stopped_at = stopped_at
+                        s.add(RunLog(
+                            run_id=run_id, stage="stop", level="warning",
+                            message="用户主动停止生成",
+                            detail={
+                                "requested_at": stopped_at,
+                                "stopped_at": stopped_at,
+                                "stage_at_stop": [st.stage for st in running_stages],
+                                "finished_stages_done": True,
+                            },
+                        ))
+                        s.commit()
+                        logger.info("晨报任务已停止: run_id=%s", run_id)
+            except Exception:
+                logger.exception("停止状态落库异常: run_id=%s", run_id)
         except Exception as exc:  # 阻塞规则：后台异常必须落库
             logger.exception("晨报任务执行失败: kind=%s run_id=%s", kind, run_id)
             try:
@@ -67,6 +118,7 @@ class MorningRunner:
         finally:
             with self._lock:
                 self._active_kinds.discard(kind)
+                self._tokens.pop(run_id, None)
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False)

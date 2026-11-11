@@ -54,9 +54,21 @@ def _v2_run_stages(engine) -> None:
         run_stages.create(engine)
 
 
+def _v3_stop_fields(engine) -> None:
+    from sqlalchemy import inspect, text
+
+    cols = {c["name"] for c in inspect(engine).get_columns("run_records")}
+    with engine.begin() as conn:
+        if "stop_reason" not in cols:
+            conn.execute(text("ALTER TABLE run_records ADD COLUMN stop_reason TEXT"))
+        if "stopped_at" not in cols:
+            conn.execute(text("ALTER TABLE run_records ADD COLUMN stopped_at TEXT"))
+
+
 MIGRATIONS: list[tuple[int, str, object]] = [
     (1, "init_core_tables", _v1_init),
     (2, "run_stages", _v2_run_stages),
+    (3, "stop_fields", _v3_stop_fields),
 ]
 
 

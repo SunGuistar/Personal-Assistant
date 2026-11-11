@@ -7,6 +7,7 @@ import {
 
 import {
   fetchActiveProgress, fetchProgress, HistoryItem, MemoryItem, ProgressSnapshot,
+  stopRun,
   Report, StageInfo, assistantChat, useCreateMemory, useDeleteMemory,
   useMorningHistory, useMorningMemories, useMorningReport, usePatchMemory, useRegenerate,
 } from "../api/morning";
@@ -54,6 +55,7 @@ export function MorningReportPage() {
           </div>
           <RegenerateMenu
             running={taskActive}
+            runId={runId}
             onSubmitted={(id) => {
               setActive(null);
               // 立即切换到新任务并置活动态（不等 5s 轮询，按钮即刻互斥）
@@ -114,14 +116,19 @@ export function MorningReportPage() {
   );
 }
 
-function RegenerateMenu({ running, onSubmitted }: {
-  running: boolean; // 后端活动任务存在即禁用（多标签页经 5s 轮询同步）
+function RegenerateMenu({ running, runId, onSubmitted }: {
+  running: boolean; // 后端活动任务存在即禁用生成按钮（多标签页经 5s 轮询同步）
+  runId: number | null;
   onSubmitted: (runId: number) => void;
 }) {
   const regenerate = useRegenerate();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!running) setStopping(false); // 任务离开活动态后复位停止按钮
+  }, [running]);
   const run = async (mode: "reuse" | "full") => {
     setBusy(true);
     setMessage(null);
@@ -138,6 +145,21 @@ function RegenerateMenu({ running, onSubmitted }: {
     }
   };
   const disabled = busy || running;
+  const stop = async () => {
+    if (runId == null) return;
+    if (!window.confirm("确定停止本次晨报生成吗？已完成的阶段结果和历史记录会保留，尚未完成的晨报不会发布。")) {
+      return; // 用户取消：不改变任何任务状态
+    }
+    setStopping(true);
+    try {
+      await stopRun(runId);
+      setMessage("已请求停止，正在停止…");
+    } catch (e) {
+      const err = e as { message?: string };
+      setMessage(`停止请求失败：${err.message ?? "未知错误"}`);
+      setStopping(false);
+    }
+  };
   return (
     <div className="flex items-center gap-2">
       <Button size="sm" disabled={disabled} onClick={() => run("reuse")}>
@@ -145,6 +167,14 @@ function RegenerateMenu({ running, onSubmitted }: {
       </Button>
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => run("full")}>
         完整重算
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={!running || stopping}
+        onClick={stop}
+      >
+        {stopping ? "正在停止…" : "停止生成"}
       </Button>
       {message && (
         <span className="text-xs text-neutral-500" role="status">{message}</span>
@@ -388,6 +418,8 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   failed: { label: "失败", className: "bg-red-100 text-red-700" },
   skipped: { label: "降级/跳过", className: "bg-amber-100 text-amber-700" },
   interrupted: { label: "中断·待确认", className: "bg-neutral-200 text-neutral-600" },
+  stopping: { label: "正在停止", className: "bg-sky-100 text-sky-700" },
+  cancelled: { label: "已停止", className: "bg-neutral-200 text-neutral-600" },
 };
 
 function fmtClock(iso: string | null | undefined): string {
@@ -445,7 +477,10 @@ function ProgressPanel({ runId, onStatus }: {
           const d = JSON.parse(e.data);
           if (d.stages && d.seq > lastSeq) {
             lastSeq = d.seq;
-            if (!cancelled) setSnap(d);
+            if (!cancelled) {
+              setSnap(d);
+              onStatus(!!d.active); // 每帧同步活动态：进行中持续禁用生成按钮
+            }
           }
           if (d.done) {
             setLive(false);

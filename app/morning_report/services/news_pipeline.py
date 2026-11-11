@@ -86,8 +86,13 @@ def _in_window(published: str | None, start: str, end: str) -> bool:
     return published is not None and start <= published < end
 
 
-def run_collect(mr: Session, run_id: int) -> dict:
-    """执行一期采集（run_record 已建好 pending）。返回覆盖摘要。"""
+def run_collect(mr: Session, run_id: int, cancel_token=None) -> dict:
+    """执行一期采集（run_record 已建好 pending）。返回覆盖摘要。
+
+    cancel_token：源之间的协作式取消检查点（正在进行的 HTTP 请求自然完成后停止）。
+    """
+
+    from .cancel import check_cancel
 
     run = mr.get(RunRecord, run_id)
     run.status = "running"
@@ -112,6 +117,7 @@ def run_collect(mr: Session, run_id: int) -> dict:
     candidates: list[NewsCandidate] = []
     failures: dict[str, str] = {}
     for name, fn in sources.items():
+        check_cancel(cancel_token)  # 安全检查点：用户停止则不再启动后续来源
         try:
             got = fn()
             candidates.extend(got)

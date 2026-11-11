@@ -17,6 +17,7 @@ from typing import Any, Callable, Protocol, TypedDict
 from langgraph.graph import END, StateGraph
 
 from ..services import stage_cache
+from ..services.cancel import check_cancel
 from . import prompts
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class WorkflowDeps:
         self.prompt_version = prompt_version
         self.recorder = None  # callable(node, result, model, base_url)，生产注入落 TokenUsage
         self.progress = None  # ProgressTracker（可选）；节点据此上报阶段状态
+        self.cancel_token = None  # CancelToken（可选）；节点入口安全检查点
 
     def record(self, node: str, result) -> None:
         if self.recorder is not None:
@@ -100,6 +102,7 @@ def _json_of(content: str) -> dict:
 # ---------- 节点 ----------
 
 def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("info_analysis")
     fp = stage_cache.fingerprint(
         "news", [n["content_hash"] for n in state["news"]],
@@ -128,6 +131,7 @@ def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_personal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("personal_analysis")
     p = state["personal"]
     fp = stage_cache.fingerprint(
@@ -157,6 +161,7 @@ def node_personal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_tech_research(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     if not state["news_selection"].get("ai"):
         deps.progress and deps.progress.stage_completed(
             "tech_research", summary="本期无 AI 候选，跳过", status="skipped",
@@ -192,6 +197,7 @@ def node_tech_research(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("goal_analysis")
     fp = stage_cache.fingerprint(
         "goal", state["personal"], "memory", [m["updated_at"] for m in state["memory"]],
@@ -226,6 +232,7 @@ def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("advice")
     ctx = {
         "news": state["news_selection"],
@@ -271,6 +278,7 @@ def _selected_with_urls(state: MRState, cat: str) -> list[dict]:
 
 
 def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("editor")
     sel = state["news_selection"]
     result = deps.llm.chat([{"role": "user", "content": prompts.EDITOR.format(
@@ -289,6 +297,7 @@ def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_fact_check(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     # 规则层先算好窗口归属，LLM 只做事实一致性判断（避免模型日期比较错误）
     ws, we = state["window_start"], state["window_end"]
 
@@ -329,6 +338,7 @@ def node_fact_check(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_quality_eval(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     try:
         result = deps.llm.chat([{"role": "user", "content": prompts.QUALITY_EVAL.format(
             content=state["draft"])}], json_mode=True)
@@ -349,6 +359,7 @@ def node_quality_eval(state: MRState, deps: WorkflowDeps) -> dict:
 
 
 def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
+    check_cancel(deps.cancel_token)
     from sqlalchemy import func as sqla_func
     from sqlalchemy import select as sqla_select
 

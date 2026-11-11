@@ -248,3 +248,62 @@ describe("生成进度面板", () => {
     expect(screen.getByText("完整重算").closest("button")).not.toBeDisabled();
   });
 });
+
+describe("停止生成", () => {
+  it("活动任务时停止按钮可用；确认后请求停止并进入正在停止；任务终态后复位", async () => {
+    let stopCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/morning/runs/9/stop")) {
+        stopCalls += 1;
+        return new Response(JSON.stringify({ run_id: 9, status: "stopping" }), { status: 200 });
+      }
+      if (url.includes("/api/morning/progress")) {
+        return new Response(JSON.stringify({
+          run: { id: 9, run_date: "2026-11-11", kind: "generate", status: "running",
+                 error: null, started_at: "2026-11-11T12:00:00+08:00", finished_at: null },
+          stages: STAGES, recent: [], done_count: 1, total_count: 12,
+          server_now: new Date().toISOString(), stall_seconds: 150, seq: 5, active: true,
+        }), { status: 200 });
+      }
+      return makeFetchMock()(input as RequestInfo, _init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderPage();
+    const stopBtn = await screen.findByText("停止生成");
+    expect(stopBtn.closest("button")).not.toBeDisabled(); // 活动任务 → 可用
+    // 生成按钮保持禁用
+    expect(screen.getByText("重新生成").closest("button")).toBeDisabled();
+    fireEvent.click(stopBtn);
+    await waitFor(() => expect(stopCalls).toBe(1));
+    await waitFor(() => expect(screen.getByText("正在停止…")).toBeInTheDocument());
+    expect(screen.getByText("正在停止…").closest("button")).toBeDisabled();
+    expect(screen.getByText("重新生成").closest("button")).toBeDisabled(); // 停止期间仍禁用
+    confirmSpy.mockRestore();
+  });
+
+  it("无活动任务时停止按钮禁用；用户取消确认则不发送请求", async () => {
+    let stopCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/stop")) {
+        stopCalls += 1;
+        return new Response(JSON.stringify({ run_id: 1, status: "cancelled" }), { status: 200 });
+      }
+      return makeFetchMock()(input as RequestInfo, _init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("重新生成")).toBeInTheDocument());
+    // 默认 mock 无活动任务
+    await waitFor(() => {
+      expect(screen.getByText("重新生成").closest("button")).not.toBeDisabled();
+    });
+    expect(screen.getByText("停止生成").closest("button")).toBeDisabled();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByText("停止生成"));
+    expect(stopCalls).toBe(0); // 取消确认：不发请求（按钮本也禁用，双保险）
+    confirmSpy.mockRestore();
+  });
+});

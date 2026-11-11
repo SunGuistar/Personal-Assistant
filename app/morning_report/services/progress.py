@@ -39,8 +39,8 @@ STAGE_DEFS: list[dict] = [
     {"stage": "publish", "title": "发布归档", "group": None},
 ]
 STAGE_ORDER = {d["stage"]: i for i, d in enumerate(STAGE_DEFS)}
-TERMINAL_RUN_STATUS = ("success", "failed", "degraded")
-ACTIVE_RUN_STATUS = ("pending", "running")
+TERMINAL_RUN_STATUS = ("success", "failed", "degraded", "cancelled")
+ACTIVE_RUN_STATUS = ("pending", "running", "stopping")
 
 _KEY_RE = re.compile(r"sk-[A-Za-z0-9_\-]{6,}")
 _SENSITIVE_KEYS = {"prompt", "prompts", "api_key", "apikey", "authorization", "messages", "system"}

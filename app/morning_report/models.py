@@ -36,6 +36,8 @@ class RunRecord(MRBase):
     started_at = Column(String(32))
     finished_at = Column(String(32))
     error = Column(Text)
+    stop_reason = Column(String(64))  # 用户主动停止等（迁移 v3 追加）
+    stopped_at = Column(String(32))
     created_at = Column(String(32), default=_ts)
 
 

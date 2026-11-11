@@ -69,9 +69,16 @@ def _init_morning_report(app: FastAPI, settings: Settings, hub_session_factory) 
     # 进程重启后，遗留的 pending/running 晨报任务实际已不在执行（与 hub 任务同理）
     @app.on_event("startup")
     def _reconcile_stale_mr_tasks() -> None:
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+        from datetime import timedelta as _td
+
         from sqlalchemy import select as _select
 
         from .morning_report.models import RunRecord as _MRRun
+
+        def _dt_now() -> str:
+            return _dt.now(_tz(_td(hours=8))).isoformat()
 
         with app.state.mr_session_factory() as s:
             stale = s.execute(
