@@ -3,8 +3,10 @@
 规则（V0.6 §6.1 / V0.6.1 §6.1）：
 - 正式自动晨报用 DeepSeek `deepseek-flash`；调用前检查允许时段（低谷），
   不在允许时段 → ModelNotAllowedError，**禁止静默切换模型**。
-- 开发/手动重新生成与质量评价用 DashScope `qwen-flash`（OpenAI 兼容端点）。
+- 开发/手动重新生成与质量评价用 DashScope `qwen3.7-plus`（OpenAI 兼容端点）。
 - Thinking 按节点显式配置（deepseek-flash 默认开，显式关闭可降延迟/费用）。
+- 所有请求强制 JSON mode；供应商返回不支持 json_object 的 400 报错时抛出
+  JsonModeUnsupportedError，禁止静默关闭 JSON mode 或回退纯文本。
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 from ..models import TokenUsage
 
@@ -28,6 +30,29 @@ PEAK_WINDOWS_UTC = ((1, 4), (6, 10))
 
 class ModelNotAllowedError(RuntimeError):
     """正式模型不在允许时段（或配置缺失），必须阻塞，不得切换其他模型。"""
+
+
+class JsonModeUnsupportedError(RuntimeError):
+    """模型不支持 JSON mode（json_object）。
+
+    禁止静默关闭 JSON mode 重试或回退纯文本；必须显式失败，由调用方走
+    降级/阻塞流程，并在错误信息中指明需更换支持 JSON mode 的模型。
+    """
+
+
+_JSON_MODE_MARKERS = ("json_object", "json mode", "structured output", "structured_output")
+
+
+def json_mode_error_from(exc: BadRequestError, model: str) -> JsonModeUnsupportedError | None:
+    """供应商 400 报错命中 JSON mode 不支持特征时返回显式领域错误，否则返回 None。"""
+
+    message = str(exc).lower()
+    if not (any(marker in message for marker in _JSON_MODE_MARKERS)
+            or ("not support" in message and "format" in message)):
+        return None
+    return JsonModeUnsupportedError(
+        f"模型 {model} 不支持 JSON mode（json_object），请更换支持 JSON mode 的模型；"
+        f"禁止静默关闭 JSON mode 或回退纯文本。供应商报错摘要：{str(exc)[:200]}")
 
 
 def is_allowed_period(now_cst: datetime | None = None,
@@ -69,19 +94,29 @@ class ChatClient:
         self.thinking = thinking
         self.base_url = base_url
 
-    def chat(self, messages: list[dict], *, json_mode: bool = False,
+    def chat(self, messages: list[dict], *, json_mode: bool = True,
              tools: list[dict] | None = None, thinking: bool | None = None) -> ChatResult:
-        kwargs: dict = {"model": self.model, "messages": messages, "temperature": 0}
+        if json_mode is not True:
+            raise ValueError("晨报 LLM 调用必须启用 JSON mode")
+        kwargs: dict = {"model": self.model, "messages": messages, "temperature": 0,
+                        "response_format": {"type": "json_object"}}
         use_thinking = self.thinking if thinking is None else thinking
         if "deepseek" in self.base_url:
             # V4.1 Flash：thinking 默认开，显式关闭传 chat_template_kwargs
-            kwargs["chat_template_kwargs"] = {"thinking": bool(use_thinking)}
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
+            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": bool(use_thinking)}}
+        if "dashscope" in self.base_url:
+            kwargs["extra_body"] = {"enable_thinking": bool(use_thinking)}
         if tools:
             kwargs["tools"] = tools
         t0 = time.perf_counter()
-        resp = self._client.chat.completions.create(**kwargs)
+        try:
+            resp = self._client.chat.completions.create(**kwargs)
+        except BadRequestError as exc:
+            converted = json_mode_error_from(exc, self.model)
+            if converted is not None:
+                logger.error("模型 %s 不支持 JSON mode（json_object），请求显式失败", self.model)
+                raise converted from exc
+            raise
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         msg = resp.choices[0].message
         usage = resp.usage
