@@ -56,7 +56,10 @@ export function MorningReportPage() {
             running={taskActive}
             onSubmitted={(id) => {
               setActive(null);
-              fetchProgress(id).then(setActive).catch(() => undefined); // 立即切换到新任务
+              // 立即切换到新任务并置活动态（不等 5s 轮询，按钮即刻互斥）
+              fetchProgress(id)
+                .then((s) => setActive({ ...s, active: true }))
+                .catch(() => undefined);
             }}
           />
         </header>

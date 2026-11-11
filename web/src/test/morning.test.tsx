@@ -119,14 +119,26 @@ describe("MorningReportPage", () => {
     await waitFor(() => expect(screen.queryByText("下载 Markdown")).not.toBeInTheDocument());
   });
 
-  it("重新生成触发后端调用", async () => {
-    const fetchMock = makeFetchMock();
+  it("重新生成触发后端调用，提交后立即互斥（不等轮询）", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/morning/regenerate")) {
+        return new Response(JSON.stringify({ run_id: 42, mode: "reuse", status: "pending" }),
+          { status: 202 });
+      }
+      return makeFetchMock()(input as RequestInfo, _init);
+    });
     vi.stubGlobal("fetch", fetchMock);
     renderPage();
     fireEvent.click(await screen.findByText("重新生成"));
     await waitFor(() => {
       const calls = fetchMock.mock.calls.map((c) => String(c[0]));
       expect(calls.some((u) => u.includes("/api/morning/regenerate"))).toBe(true);
+    });
+    // 提交成功后两个按钮立即禁用（onSubmitted 置 active，不依赖 5s 轮询）
+    await waitFor(() => {
+      expect(screen.getByText("重新生成").closest("button")).toBeDisabled();
+      expect(screen.getByText("完整重算").closest("button")).toBeDisabled();
     });
   });
 

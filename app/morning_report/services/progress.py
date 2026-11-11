@@ -244,6 +244,7 @@ def snapshot(mr: Session, run_id: int, stall_seconds: int = 150) -> dict:
             "id": run.id, "run_date": run.run_date, "kind": run.kind, "status": run.status,
             "error": run.error, "started_at": run.started_at, "finished_at": run.finished_at,
         },
+        "active": run.status in ACTIVE_RUN_STATUS,
         "stages": stages,
         "recent": recent,
         "done_count": done,
