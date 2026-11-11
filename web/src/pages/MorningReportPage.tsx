@@ -338,67 +338,68 @@ interface LogRow { id: number; at: string; stage: string; level: string; message
 
 function LogPanel({ runId }: { runId: number | null }) {
   const [rows, setRows] = useState<LogRow[]>([]);
-  const [open, setOpen] = useState<number | null>(null);
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
     setRows([]);
     if (!runId) return;
     let cancelled = false;
     let after = 0;
-    const connect = async () => {
-      const resp = await fetch(`/api/morning/logs/stream?run_id=${runId}&after_id=${after}`);
-      if (!resp.ok || !resp.body) return;
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done || cancelled) break;
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-        for (const evt of events) {
-          const line = evt.trim();
-          if (!line.startsWith("data:")) continue;
-          try {
-            const d = JSON.parse(line.slice(5));
-            if (d.id) {
-              after = d.id;
-              if (!cancelled) setRows((r) => [...r.slice(-199), d]);
-            }
-          } catch { /* 忽略不完整帧 */ }
-        }
-      }
+    let es: EventSource | null = null;
+    let retryTimer: number | undefined;
+
+    const connect = () => {
+      if (cancelled || typeof EventSource === "undefined") return; // 测试环境（jsdom）无 EventSource
+      es = new EventSource(`/api/morning/logs/stream?run_id=${runId}&after_id=${after}`);
+      es.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.id) {
+            after = d.id;
+            setRows((r) => [...r.slice(-199), d]);
+          }
+          if (d.done) {
+            setLive(false);
+            es?.close();
+          }
+        } catch { /* 忽略坏帧 */ }
+      };
+      es.onopen = () => setLive(true);
+      es.onerror = () => {
+        es?.close();
+        if (!cancelled) retryTimer = window.setTimeout(connect, 3000); // 断线自动重连（带 after_id 续传）
+      };
     };
-    connect().catch(() => undefined);
+    connect();
     return () => {
       cancelled = true;
+      window.clearTimeout(retryTimer);
+      es?.close();
     };
   }, [runId]);
 
   return (
     <section className="flex h-2/5 min-h-0 flex-col">
-      <header className="px-4 py-2">
+      <header className="flex items-center justify-between px-4 py-2">
         <h2 className="text-sm font-medium">实时执行日志</h2>
+        {live && <span className="text-xs text-emerald-600">● 连接中</span>}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 font-mono text-xs">
         {rows.length === 0 && <p className="text-neutral-400">暂无日志。</p>}
         {rows.map((r) => (
-          <div key={r.id}>
-            <button className="flex w-full gap-2 py-0.5 text-left" onClick={() => setOpen(open === r.id ? null : r.id)}>
-              <span className="text-neutral-400">{r.at.slice(11, 19)}</span>
-              <span
-                className={cn(
-                  "rounded px-1",
-                  r.level === "error" ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200"
-                  : r.level === "warning" ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200"
-                  : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
-                )}
-              >
-                {r.stage}
-              </span>
-              <span className="flex-1 truncate text-neutral-700 dark:text-neutral-200">{r.message}</span>
-            </button>
+          <div key={r.id} className="flex gap-2 py-0.5 text-left">
+            <span className="text-neutral-400">{r.at.slice(11, 19)}</span>
+            <span
+              className={cn(
+                "rounded px-1",
+                r.level === "error" ? "bg-red-100 text-red-700"
+                : r.level === "warning" ? "bg-amber-100 text-amber-700"
+                : "bg-neutral-100 text-neutral-600",
+              )}
+            >
+              {r.stage}
+            </span>
+            <span className="flex-1 truncate text-neutral-700">{r.message}</span>
           </div>
         ))}
       </div>
