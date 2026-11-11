@@ -93,23 +93,32 @@ function RegenerateMenu() {
   const regenerate = useRegenerate();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const run = async (mode: "reuse" | "full") => {
     setBusy(true);
+    setMessage(null);
     try {
       await regenerate.mutateAsync({ mode });
+      setMessage(mode === "full" ? "已提交完整重算，生成中…" : "已提交重新生成，生成中…");
       setTimeout(() => qc.invalidateQueries({ queryKey: ["morning"] }), 8000);
+    } catch (e) {
+      const err = e as { message?: string };
+      setMessage(`提交失败：${err.message ?? "未知错误"}`);
     } finally {
       setBusy(false);
     }
   };
   return (
-    <div className="flex gap-2">
+    <div className="flex items-center gap-2">
       <Button size="sm" disabled={busy} onClick={() => run("reuse")}>
         <RefreshCw className={cn("mr-1 h-4 w-4", busy && "animate-spin")} /> 重新生成
       </Button>
       <Button size="sm" variant="outline" disabled={busy} onClick={() => run("full")}>
         完整重算
       </Button>
+      {message && (
+        <span className="text-xs text-neutral-500" role="status">{message}</span>
+      )}
     </div>
   );
 }

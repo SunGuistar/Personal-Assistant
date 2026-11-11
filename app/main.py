@@ -66,6 +66,24 @@ def _init_morning_report(app: FastAPI, settings: Settings, hub_session_factory) 
             if scheduler.running:
                 scheduler.shutdown(wait=False)
 
+    # 进程重启后，遗留的 pending/running 晨报任务实际已不在执行（与 hub 任务同理）
+    @app.on_event("startup")
+    def _reconcile_stale_mr_tasks() -> None:
+        from sqlalchemy import select as _select
+
+        from .morning_report.models import RunRecord as _MRRun
+
+        with app.state.mr_session_factory() as s:
+            stale = s.execute(
+                _select(_MRRun).where(_MRRun.status.in_(["pending", "running"]))
+            ).scalars().all()
+            for task in stale:
+                task.status = "failed"
+                task.error = "进程重启，任务中断（可重新提交）"
+            if stale:
+                s.commit()
+                logger.info("晨报陈旧任务清理: %d 个标记为 failed", len(stale))
+
 
 class SPAStaticFiles(StaticFiles):
     """单页应用回退：未命中的非 API 路径返回 index.html；/api/* 未命中仍走统一 JSON 404。"""
