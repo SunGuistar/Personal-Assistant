@@ -28,11 +28,18 @@ CST = timezone(timedelta(hours=8))
 
 
 def _seq_of(mr: Session, run_id: int) -> int:
-    """版本号：阶段表最新自增 ID 与日志表最新 ID 的较大者，单调递增。"""
+    """包含原地阶段更新及任务终态的微秒时间版本，不只依赖插入 ID。"""
 
     s = mr.execute(select(func.max(RunStage.id)).where(RunStage.run_id == run_id)).scalar() or 0
     l = mr.execute(select(func.max(RunLog.id)).where(RunLog.run_id == run_id)).scalar() or 0
-    return max(s, l)
+    stamps = list(mr.execute(select(RunStage.last_event_at).where(
+        RunStage.run_id == run_id)).scalars())
+    stamps.extend(mr.execute(select(RunLog.at).where(RunLog.run_id == run_id)).scalars())
+    run = mr.get(RunRecord, run_id)
+    if run is not None:
+        stamps.extend([run.started_at, run.finished_at])
+    return max([s, l] + [int(datetime.fromisoformat(t).timestamp() * 1_000_000)
+                             for t in stamps if t])
 
 
 @router.get("")
@@ -66,33 +73,24 @@ def progress_stream(run_id: int, after_seq: int = 0,
     settings = get_mr_settings()
     if mr.get(RunRecord, run_id) is None:
         raise NotFoundError("运行记录不存在")
-    last_sent = after_seq
-    idle_rounds = 0
-
     def gen():
-        nonlocal last_sent, idle_rounds
+        last_sent = after_seq
         while True:
-            seq = _seq_of(mr, run_id)
-            if seq > last_sent:
-                idle_rounds = 0
+            # 每轮独立短会话：expire_on_commit=False 的长会话会缓存 running 对象。
+            with Session(bind=mr.get_bind()) as fresh:
+                snap = progress_mod.snapshot(fresh, run_id, settings.progress_stall_seconds)
+                seq = _seq_of(fresh, run_id)
+            if snap["run"] is None:
+                break
+            terminal = snap["run"]["status"] in progress_mod.TERMINAL_RUN_STATUS
+            if seq > last_sent or terminal:
                 last_sent = seq
-                snap = progress_mod.snapshot(mr, run_id, settings.progress_stall_seconds)
                 snap["seq"] = seq
                 yield {"data": json.dumps(snap, ensure_ascii=False)}
-                if snap["run"]["status"] in progress_mod.TERMINAL_RUN_STATUS:
-                    time.sleep(0.2)  # 终态：给最后一帧留出传输窗口再发 done
-                    yield {"data": json.dumps({"done": True, "status": snap["run"]["status"],
-                                               "seq": seq}, ensure_ascii=False)}
-                    break
-            else:
-                idle_rounds += 1
-                run = mr.get(RunRecord, run_id)
-                if run is not None and run.status in progress_mod.TERMINAL_RUN_STATUS:
-                    time.sleep(0.2)
-                    yield {"data": json.dumps({"done": True, "status": run.status,
-                                               "seq": last_sent}, ensure_ascii=False)}
-                    break
-                time.sleep(1)
-            mr.commit()  # 刷新会话可见性
+            if terminal:
+                yield {"data": json.dumps({"done": True, "status": snap["run"]["status"],
+                                           "seq": seq}, ensure_ascii=False)}
+                break
+            time.sleep(1)
 
     return EventSourceResponse(gen())

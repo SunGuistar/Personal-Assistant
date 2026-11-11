@@ -8,6 +8,7 @@ GetWechatInfo/VectorStore/
 # 个人助手 V1.0 运行时与构建产物（AGENTS §2：新增运行时数据禁止入库）
 .venv/
 data/
+node_modules/
 web/node_modules/
 web/dist/
 app/static/

@@ -73,6 +73,58 @@ def test_sanitize_masks_keys_and_drops_prompts():
     assert out["nested"]["note"] == "key=sk-*** here"
 
 
+def test_seq_changes_on_stage_update_without_new_rows(fclient):
+    from app.morning_report.api.progress import _seq_of
+
+    rid = _run(fclient)
+    with fclient.app.state.mr_session_factory() as mr:
+        tracker = ProgressTracker(mr, rid)
+        tracker.stage_started("fact_check")
+        before = _seq_of(mr, rid)
+        tracker.stage_failed("fact_check", "校验未通过")
+        assert _seq_of(mr, rid) > before
+
+
+def test_terminal_stream_sends_full_snapshot_even_at_current_seq(fclient):
+    from app.morning_report.api.progress import _seq_of
+
+    rid = _run(fclient, status="failed")
+    with fclient.app.state.mr_session_factory() as mr:
+        ProgressTracker(mr, rid).stage_failed("fact_check", "校验未通过")
+        seq = _seq_of(mr, rid)
+    with fclient.stream("GET", f"/api/morning/progress/stream?run_id={rid}&after_seq={seq}") as resp:
+        frames = [json.loads(m) for m in re.findall(r"data: (.+)", resp.read().decode())]
+    assert frames[0]["run"]["status"] == "failed"
+    assert frames[0]["active"] is False
+    assert frames[-1]["done"] is True
+
+
+def test_running_stream_observes_terminal_without_new_log_or_stage(fclient, monkeypatch):
+    from app.morning_report.api import progress as api
+
+    rid = _run(fclient)
+    # 直接驱动生成器，使跨会话写入发生在两帧之间，不依赖真实线程计时。
+    monkeypatch.setattr(api, "EventSourceResponse", lambda gen: gen)
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    with fclient.app.state.mr_session_factory() as mr:
+        cached_run = mr.get(RunRecord, rid)
+        ProgressTracker(mr, rid).stage_started("fact_check")
+        stream = api.progress_stream(rid, after_seq=0, mr=mr)
+        assert json.loads(next(stream)["data"])["run"]["status"] == "running"
+        with fclient.app.state.mr_session_factory() as writer:
+            run = writer.get(RunRecord, rid)
+            run.status = "failed"
+            run.error = "事实校验未通过"
+            writer.commit()
+        assert cached_run.status == "running"  # 旧会话确实持有过期对象
+        final = json.loads(next(stream)["data"])
+        assert final["run"]["status"] == "failed"
+        assert final["active"] is False
+        assert json.loads(next(stream)["data"])["done"] is True
+        with pytest.raises(StopIteration):
+            next(stream)
+
+
 def test_progress_api_snapshot_and_active(fclient):
     rid = _run(fclient)
     with fclient.app.state.mr_session_factory() as mr:

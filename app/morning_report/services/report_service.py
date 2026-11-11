@@ -131,6 +131,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
 
     check_cancel(cancel_token)
     # 3) 冻结快照
+    tracker.stage_started("snapshot")
     news_rows = mr.execute(select(NewsItem).where(NewsItem.run_id == collect.id)).scalars().all()
     news = [{
         "id": r.id, "category": r.category, "title": r.title, "summary": r.summary or "",
@@ -146,6 +147,8 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         [collect.id, len(news), [m["updated_at"] for m in memory]],
         ensure_ascii=False).encode()).hexdigest()[:16]
     log_run(mr, run_id, "snapshot", f"快照已冻结: {snapshot_id}", detail={"news": len(news)})
+    tracker.stage_completed("snapshot", summary=f"快照 {snapshot_id}",
+                            data={"news": len(news)})
 
     # 4) 工作流
     personal_ctx = personal_ctx_override or _load_personal(hub_session_factory, collect.window_start, collect.window_end)

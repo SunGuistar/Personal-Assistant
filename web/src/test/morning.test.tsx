@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -201,6 +201,84 @@ function makeProgressFetchMock(overrides: { active?: boolean; status?: string } 
 }
 
 describe("生成进度面板", () => {
+  it("SSE 相同 seq 的终态快照也生效，并关闭连接", async () => {
+    const connections: MockEventSource[] = [];
+    class MockEventSource {
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+      constructor(_url: string) { connections.push(this); }
+    }
+    const originalEventSource = globalThis.EventSource;
+    vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal("fetch", makeProgressFetchMock());
+    const view = renderPage();
+    try {
+      await screen.findByText("进行中");
+      await waitFor(() => expect(connections).toHaveLength(1));
+      await act(async () => {
+        connections[0].onmessage!({ data: JSON.stringify({
+          run: { id: 9, status: "failed", error: "事实校验未通过", started_at: null, finished_at: null },
+          stages: [], recent: [], done_count: 0, total_count: 12, seq: 5,
+          active: false, server_now: new Date().toISOString(), stall_seconds: 150,
+        }) });
+        connections[0].onmessage!({ data: JSON.stringify({ done: true, status: "failed", seq: 5 }) });
+      });
+      expect(screen.queryByText("进行中")).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(connections[0].close).toHaveBeenCalled();
+      expect(screen.getByText("重新生成").closest("button")).not.toBeDisabled();
+    } finally {
+      view.unmount();
+      vi.stubGlobal("EventSource", originalEventSource);
+    }
+  });
+
+  it("轮询收到事实校验失败后更新面板、提示并恢复按钮", async () => {
+    let failed = false;
+    let submitted = false;
+    let poll: (() => void) | undefined;
+    const originalInterval = window.setInterval.bind(window);
+    const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation((handler, timeout, ...args) => {
+      if (timeout === 5000) poll = handler as () => void;
+      return originalInterval(handler, timeout, ...args);
+    });
+    const base = makeFetchMock();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/regenerate")) {
+        submitted = true;
+        return new Response(JSON.stringify({ run_id: 9, status: "pending" }), { status: 202 });
+      }
+      if (url.includes("/progress")) {
+        if (!submitted) return base(input, init);
+        return new Response(JSON.stringify({
+          run: { id: 9, status: failed ? "failed" : "running", error: failed ? "事实校验未通过" : null,
+            started_at: new Date().toISOString(), finished_at: failed ? new Date().toISOString() : null },
+          stages: [], recent: [], done_count: 0, total_count: 12, seq: 5,
+          active: !failed, server_now: new Date().toISOString(), stall_seconds: 150,
+        }));
+      }
+      return base(input, init);
+    }));
+    const view = renderPage();
+    fireEvent.click(await screen.findByText("重新生成"));
+    await screen.findByText("进行中");
+    expect(screen.queryByText("已提交重新生成，生成中…")).not.toBeInTheDocument();
+    try {
+      failed = true;
+      await act(async () => { poll!(); });
+      expect(screen.queryByText("进行中")).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.getByText("重新生成").closest("button")).not.toBeDisabled();
+      expect(screen.getByText("停止生成").closest("button")).toBeDisabled();
+    } finally {
+      view.unmount();
+      intervalSpy.mockRestore();
+    }
+  });
+
   it("展示完整阶段列表：已完成/进行中/未开始与并行标识", async () => {
     vi.stubGlobal("fetch", makeProgressFetchMock());
     renderPage();

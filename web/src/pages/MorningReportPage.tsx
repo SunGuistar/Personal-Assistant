@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, CheckCircle2, Circle, Clock, Loader2, MinusCircle, RefreshCw,
@@ -25,19 +25,27 @@ export function MorningReportPage() {
   const data: Report | undefined = report.data;
   // 活动任务：初始化与兜底轮询 /progress/active（5s）；重新生成提交后立即切换
   const [active, setActive] = useState<ProgressSnapshot | null>(null);
+  const acceptSnapshot = useCallback((s: ProgressSnapshot) => {
+    setActive((prev) => {
+      if (prev?.run && !s.run) return prev;
+      if (prev?.run && s.run && (s.run.id < prev.run.id ||
+          (s.run.id === prev.run.id && (!prev.active && s.active || s.seq < prev.seq)))) return prev;
+      return s;
+    });
+  }, []);
+  const taskActive = active?.active ?? false;
   useEffect(() => {
     let cancelled = false;
     const load = () =>
-      fetchActiveProgress().then((s) => !cancelled && setActive(s)).catch(() => undefined);
+      fetchActiveProgress().then((s) => !cancelled && acceptSnapshot(s)).catch(() => undefined);
     load();
-    const timer = window.setInterval(load, 5000);
+    const timer = window.setInterval(load, taskActive ? 5000 : 30000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [taskActive, acceptSnapshot]);
   const runId = active?.run?.id ?? null;
-  const taskActive = active?.active ?? false;
 
   return (
     <div className="flex h-full min-h-0">
@@ -57,10 +65,13 @@ export function MorningReportPage() {
             running={taskActive}
             runId={runId}
             onSubmitted={(id) => {
-              setActive(null);
+              setActive({ run: { id, run_date: "", kind: "generate", status: "pending",
+                error: null, started_at: null, finished_at: null }, active: true,
+                stages: [], recent: [], done_count: 0, total_count: 12,
+                seq: 0, server_now: new Date().toISOString(), stall_seconds: 150 });
               // 立即切换到新任务并置活动态（不等 5s 轮询，按钮即刻互斥）
               fetchProgress(id)
-                .then((s) => setActive({ ...s, active: true }))
+                .then((s) => { if (s.run) acceptSnapshot(s); })
                 .catch(() => undefined);
             }}
           />
@@ -110,7 +121,7 @@ export function MorningReportPage() {
       {/* 右栏：晨报助手 + 实时日志 */}
       <aside className="hidden w-80 shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 lg:flex">
         <AssistantPanel />
-        <ProgressPanel runId={runId} onStatus={(a) => setActive((prev) => (prev ? { ...prev, active: a } : prev))} />
+        <ProgressPanel snap={active} onSnapshot={acceptSnapshot} />
       </aside>
     </div>
   );
@@ -125,21 +136,20 @@ function RegenerateMenu({ running, runId, onSubmitted }: {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   useEffect(() => {
     if (!running) setStopping(false); // 任务离开活动态后复位停止按钮
   }, [running]);
   const run = async (mode: "reuse" | "full") => {
     setBusy(true);
-    setMessage(null);
+    setErrorMessage(null);
     try {
       const res = await regenerate.mutateAsync({ mode });
       onSubmitted(res.run_id); // 立即切换，不等 /status 轮询
-      setMessage(mode === "full" ? "已提交完整重算，生成中…" : "已提交重新生成，生成中…");
       setTimeout(() => qc.invalidateQueries({ queryKey: ["morning"] }), 8000);
     } catch (e) {
       const err = e as { message?: string };
-      setMessage(`提交失败：${err.message ?? "未知错误"}`);
+      setErrorMessage(`提交失败：${err.message ?? "未知错误"}`);
     } finally {
       setBusy(false);
     }
@@ -151,12 +161,12 @@ function RegenerateMenu({ running, runId, onSubmitted }: {
       return; // 用户取消：不改变任何任务状态
     }
     setStopping(true);
+    setErrorMessage(null);
     try {
       await stopRun(runId);
-      setMessage("已请求停止，正在停止…");
     } catch (e) {
       const err = e as { message?: string };
-      setMessage(`停止请求失败：${err.message ?? "未知错误"}`);
+      setErrorMessage(`停止请求失败：${err.message ?? "未知错误"}`);
       setStopping(false);
     }
   };
@@ -176,8 +186,8 @@ function RegenerateMenu({ running, runId, onSubmitted }: {
       >
         {stopping ? "正在停止…" : "停止生成"}
       </Button>
-      {message && (
-        <span className="text-xs text-neutral-500" role="status">{message}</span>
+      {errorMessage && (
+        <span className="text-xs text-red-600" role="alert">{errorMessage}</span>
       )}
     </div>
   );
@@ -435,9 +445,9 @@ function fmtDuration(ms: number | null | undefined): string {
 function StageIcon({ status }: { status: string }) {
   const cls = "h-3.5 w-3.5 shrink-0";
   switch (status) {
-    case "success": return <CheckCircle2 className={cn(cls, "text-emerald-600")} />;
+    case "success": case "skipped": return <CheckCircle2 className={cn(cls, "text-emerald-600")} />;
     case "running": return <Loader2 className={cn(cls, "animate-spin text-sky-600")} />;
-    case "warning": case "skipped": return <AlertTriangle className={cn(cls, "text-amber-600")} />;
+    case "warning": return <AlertTriangle className={cn(cls, "text-amber-600")} />;
     case "failed": return <XCircle className={cn(cls, "text-red-600")} />;
     case "interrupted": return <MinusCircle className={cn(cls, "text-neutral-500")} />;
     default: return <Circle className={cn(cls, "text-neutral-300")} />;
@@ -445,11 +455,12 @@ function StageIcon({ status }: { status: string }) {
 }
 
 /** 晨报生成进度面板：完整阶段列表 + 整体进度 + 关键动态；点击阶段开悬浮详情。 */
-function ProgressPanel({ runId, onStatus }: {
-  runId: number | null;
-  onStatus: (active: boolean) => void;
+function ProgressPanel({ snap, onSnapshot }: {
+  snap: ProgressSnapshot | null;
+  onSnapshot: (snapshot: ProgressSnapshot) => void;
 }) {
-  const [snap, setSnap] = useState<ProgressSnapshot | null>(null);
+  const runId = snap?.run?.id ?? null;
+  const active = snap?.active ?? false;
   const [live, setLive] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -461,30 +472,30 @@ function ProgressPanel({ runId, onStatus }: {
   }, []);
 
   useEffect(() => {
-    setSnap(null);
     setOpenStage(null);
-    if (!runId) return;
+    setLive(false);
+    if (!runId || !active) return;
     let cancelled = false;
-    let lastSeq = 0;
+    let lastSeq = snap?.seq ?? 0;
+    let done = false;
     let es: EventSource | null = null;
     let retryTimer: number | undefined;
 
     const connect = (afterSeq: number) => {
-      if (cancelled || typeof EventSource === "undefined") return; // jsdom 无 EventSource
+      if (cancelled || done || typeof EventSource === "undefined") return; // jsdom 无 EventSource
       es = new EventSource(`/api/morning/progress/stream?run_id=${runId}&after_seq=${afterSeq}`);
       es.onmessage = (e) => {
         try {
           const d = JSON.parse(e.data);
-          if (d.stages && d.seq > lastSeq) {
+          if (d.stages && d.seq >= lastSeq) {
             lastSeq = d.seq;
             if (!cancelled) {
-              setSnap(d);
-              onStatus(!!d.active); // 每帧同步活动态：进行中持续禁用生成按钮
+              onSnapshot(d);
             }
           }
           if (d.done) {
+            done = true;
             setLive(false);
-            if (!cancelled) onStatus(false);
             es?.close();
           }
         } catch { /* 忽略坏帧 */ }
@@ -493,26 +504,18 @@ function ProgressPanel({ runId, onStatus }: {
       es.onerror = () => {
         es?.close();
         setLive(false);
-        if (!cancelled) retryTimer = window.setTimeout(() => connect(lastSeq), 3000);
+        if (!cancelled && !done) retryTimer = window.setTimeout(() => connect(lastSeq), 3000);
       };
     };
 
-    fetchProgress(runId)
-      .then((s) => {
-        if (cancelled) return;
-        lastSeq = s.seq;
-        setSnap(s);
-        onStatus(s.active ?? false);
-        connect(s.seq);
-      })
-      .catch(() => connect(0));
+    connect(lastSeq);
     return () => {
       cancelled = true;
       window.clearTimeout(retryTimer);
       es?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId]);
+  }, [runId, active, onSnapshot]);
 
   // 服务器时钟偏移（用于卡住判断与耗时，避免客户端时钟不准）
   const serverOffset = snap
