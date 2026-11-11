@@ -16,8 +16,8 @@ type Tab = "report" | "evaluation" | "history";
 export function MorningReportPage() {
   const status = useMorningStatus();
   const [tab, setTab] = useState<Tab>("report");
-  const [selected, setSelected] = useState<{ date: string; versionNo: number } | null>(null);
-  const report = useMorningReport(selected?.date, selected?.versionNo);
+  const [historyView, setHistoryView] = useState<{ date: string; versionNo: number } | null>(null);
+  const report = useMorningReport();
 
   const data: Report | undefined = report.data;
   const runId = status.data?.today_run?.id ?? null;
@@ -63,13 +63,21 @@ export function MorningReportPage() {
           {tab === "evaluation" && <EvaluationTab data={data} />}
           {tab === "history" && (
             <HistoryTab
-              current={selected}
+              current={historyView ?? undefined}
               onSelect={(item: HistoryItem) =>
-                setSelected({ date: item.report_date, versionNo: item.version_no })
+                setHistoryView({ date: item.report_date, versionNo: item.version_no })
               }
             />
           )}
         </main>
+
+        {historyView && (
+          <HistoryModal
+            date={historyView.date}
+            versionNo={historyView.versionNo}
+            onClose={() => setHistoryView(null)}
+          />
+        )}
       </div>
 
       {/* 右栏：晨报助手 + 实时日志 */}
@@ -161,7 +169,7 @@ function EvaluationTab({ data }: { data?: Report }) {
 }
 
 function HistoryTab({ current, onSelect }: {
-  current: { date: string; versionNo: number } | null;
+  current?: { date: string; versionNo: number };
   onSelect: (item: HistoryItem) => void;
 }) {
   const history = useMorningHistory();
@@ -386,5 +394,79 @@ function LogPanel({ runId }: { runId: number | null }) {
         ))}
       </div>
     </section>
+  );
+}
+
+/** 历史晨报弹窗：独立展示所选版本，可关闭（×/Esc/点遮罩）、可下载 Markdown。 */
+function HistoryModal({ date, versionNo, onClose }: {
+  date: string;
+  versionNo: number;
+  onClose: () => void;
+}) {
+  const q = useMorningReport(date, versionNo);
+  const data = q.data;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const download = () => {
+    if (!data) return;
+    const blob = new Blob([data.content_md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `晨报-${data.report_date}-v${data.version_no}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="flex h-[80vh] w-full max-w-3xl flex-col rounded-lg border border-neutral-200 bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-neutral-200 px-5 py-3">
+          <div>
+            <h2 className="text-base font-semibold text-neutral-900">
+              {data ? data.title : `历史晨报 ${date}`}
+            </h2>
+            <p className="text-xs text-neutral-500">
+              {date} · 版本 v{versionNo}
+              {data?.is_primary ? "（主报告）" : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={download} disabled={!data}>
+              下载 Markdown
+            </Button>
+            <Button size="sm" variant="outline" onClick={onClose} aria-label="关闭">
+              ✕
+            </Button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          {q.isLoading && <p className="text-sm text-neutral-500">加载中…</p>}
+          {q.error && <p className="text-sm text-neutral-500">报告不存在或加载失败。</p>}
+          {data && (
+            <article className="mx-auto max-w-2xl text-[15px] leading-7 text-neutral-800">
+              <SafeMarkdown text={data.content_md} />
+              <footer className="mt-6 border-t border-neutral-200 pt-3 text-xs text-neutral-400">
+                窗口 {data.window_start.slice(0, 16)} ~ {data.window_end.slice(0, 16)} ·{" "}
+                {data.generation_mode === "auto" ? "自动生成" : "手动生成"} · {data.created_at.slice(0, 16)}
+              </footer>
+            </article>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

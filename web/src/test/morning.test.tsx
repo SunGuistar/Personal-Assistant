@@ -93,10 +93,18 @@ describe("MorningReportPage", () => {
     expect(screen.getByText("AI 技术分析")).toBeInTheDocument();
   });
 
-  it("历史晨报可切换版本并回显正文", async () => {
+  it("历史晨报在弹窗中独立展示，可关闭、可下载", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("历史晨报"));
-    await waitFor(() => expect(screen.getByText("2026-11-10")).toBeInTheDocument());
+    fireEvent.click(await screen.findByText("2026-11-10"));
+    // 弹窗打开：包含下载按钮与正文内容，正文页签不被替换
+    await waitFor(() => expect(screen.getByText("下载 Markdown")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getAllByText("今天值得关注的事。").length).toBeGreaterThanOrEqual(1),
+    ); // 弹窗内正文渲染完成
+    // 关闭弹窗
+    fireEvent.click(screen.getByLabelText("关闭"));
+    await waitFor(() => expect(screen.queryByText("下载 Markdown")).not.toBeInTheDocument());
   });
 
   it("重新生成触发后端调用", async () => {
