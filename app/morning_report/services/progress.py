@@ -34,7 +34,6 @@ STAGE_DEFS: list[dict] = [
     {"stage": "goal_analysis", "title": "目标分析 Subagent", "group": "parallel_analysis"},
     {"stage": "advice", "title": "建议 Subagent", "group": None},
     {"stage": "editor", "title": "主编整合", "group": None},
-    {"stage": "fact_check", "title": "事实校验", "group": None},
     {"stage": "quality_eval", "title": "质量评价", "group": None},
     {"stage": "publish", "title": "发布归档", "group": None},
 ]

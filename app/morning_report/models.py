@@ -97,7 +97,7 @@ class ReportVersion(MRBase):
     window_start = Column(String(32))
     window_end = Column(String(32))
     snapshot_id = Column(String(64), index=True)
-    fact_check = Column(JSON)  # 校验结果与缺口说明
+    fact_check = Column(JSON)  # 已停用，仅保留历史数据兼容；新版本不写入
     generation_mode = Column(String(16), default="auto")  # auto/manual
     created_at = Column(String(32), default=_ts)
 

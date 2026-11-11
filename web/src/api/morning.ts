@@ -33,7 +33,6 @@ export interface Report {
   window_start: string;
   window_end: string;
   snapshot_id: string;
-  fact_check: { ok?: boolean; issues?: string[] } | null;
   generation_mode: string;
   created_at: string;
   evaluation: Evaluation | null;

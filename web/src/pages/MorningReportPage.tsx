@@ -67,7 +67,7 @@ export function MorningReportPage() {
             onSubmitted={(id) => {
               setActive({ run: { id, run_date: "", kind: "generate", status: "pending",
                 error: null, started_at: null, finished_at: null }, active: true,
-                stages: [], recent: [], done_count: 0, total_count: 12,
+                stages: [], recent: [], done_count: 0, total_count: 11,
                 seq: 0, server_now: new Date().toISOString(), stall_seconds: 150 });
               // 立即切换到新任务并置活动态（不等 5s 轮询，按钮即刻互斥）
               fetchProgress(id)
@@ -406,7 +406,7 @@ function AssistantPanel() {
 
 // 阶段展示辅助
 const STAGE_PURPOSE: Record<string, string> = {
-  collect: "从 AIHOT、中新网归档、热摸爽获取本期窗口内的三类资讯候选",
+  collect: "新浪国内/国际热榜为主，中新网精选补充，结合 AIHOT 和热摸爽获取候选",
   index: "AI 资讯写入 Qdrant 向量索引并做必要索引一致性检查（不通过则阻塞）",
   snapshot: "冻结本期新闻与个人上下文快照，保证生成基于确定的数据版本",
   info_analysis: "从候选中选出值得进入晨报的国内/国际/AI 条目（公共价值优先）",
@@ -415,7 +415,6 @@ const STAGE_PURPOSE: Record<string, string> = {
   goal_analysis: "对照昨日活动、长期计划与 Memory 识别目标进展（Subagent）",
   advice: "综合前两阶段结论与历史建议，形成 0–3 条行动建议（后置）",
   editor: "把材料整合为五部分中文晨报正文",
-  fact_check: "校验事实与引用（发布门槛：严重问题阻止发布）",
   quality_eval: "独立模型对最终正文做五维评分（失败不阻塞发布）",
   publish: "保存报告版本、质量评价并更新历史晨报索引",
 };
@@ -645,6 +644,11 @@ function StagePopover({ stage, onClose, onCopied, copied }: {
   copied: boolean;
 }) {
   const tech = stage.data ?? {};
+  const categoryCounts = tech.by_category as Record<string, number> | undefined;
+  const selectedCounts = tech.selected_by_category as Record<string, number> | undefined;
+  const rawCounts = tech.raw_by_category as Record<string, number> | undefined;
+  const windowCounts = tech.windowed_by_category as Record<string, number> | undefined;
+  const coverageNotes = tech.coverage_notes as string[] | undefined;
   const copy = () => {
     navigator.clipboard?.writeText(JSON.stringify(
       { stage: stage.stage, status: stage.status, summary: stage.summary, reason: stage.reason, data: stage.data },
@@ -670,6 +674,33 @@ function StagePopover({ stage, onClose, onCopied, copied }: {
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-xs leading-5">
         <p className="text-neutral-500">{STAGE_PURPOSE[stage.stage] ?? ""}</p>
+        {stage.stage === "collect" && categoryCounts && (
+          <div className="mt-2 rounded border border-neutral-100 p-2">
+            <p className="mb-1 text-neutral-500">已保存候选资讯（含线索）</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              <span>国内 {categoryCounts.domestic ?? 0} 条</span>
+              <span>国际 {categoryCounts.international ?? 0} 条</span>
+              <span>AI {categoryCounts.ai ?? 0} 条</span>
+            </div>
+          </div>
+        )}
+        {stage.stage === "collect" && rawCounts && windowCounts && categoryCounts && (
+          <div className="mt-2 space-y-1 text-neutral-500">
+            <p>获取候选 → 时间过滤 → 事件去重后保存</p>
+            {([["domestic", "国内"], ["international", "国际"], ["ai", "AI"]] as const).map(([key, label]) => (
+              <p key={key}>{label}：{rawCounts[key] ?? 0} → {windowCounts[key] ?? 0} → {categoryCounts[key] ?? 0}</p>
+            ))}
+            <p>时间过滤只计窗口内新闻；保存数量还包含时间未知的线索。</p>
+          </div>
+        )}
+        {stage.stage === "collect" && selectedCounts && (
+          <p className="mt-2 text-neutral-500">最终选用：国内 {selectedCounts.domestic ?? 0} 条、国际 {selectedCounts.international ?? 0} 条、AI {selectedCounts.ai ?? 0} 条</p>
+        )}
+        {stage.stage === "collect" && coverageNotes && coverageNotes.length > 0 && (
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-amber-700">
+            {coverageNotes.map((note, i) => <li key={i}>{note}</li>)}
+          </ul>
+        )}
         <dl className="mt-2 space-y-1">
           <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">开始</dt><dd>{fmtClock(stage.started_at)}</dd></div>
           <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">结束</dt><dd>{fmtClock(stage.finished_at)}</dd></div>

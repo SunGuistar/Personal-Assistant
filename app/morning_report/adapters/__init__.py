@@ -1,4 +1,4 @@
-"""外部资讯源适配层（AIHOT / 中新网归档 / 热摸爽）。
+"""外部资讯源适配层（新浪热榜 / 中新网精选 / AIHOT / 热摸爽）。
 
 统一产出 NewsCandidate；各源只做获取与字段映射，业务过滤在 services/news_pipeline。
 """
@@ -17,5 +17,5 @@ class NewsCandidate:
     source_name: str
     source_url: str
     published_at: str | None  # ISO8601 CST；None=无可靠时间（仅线索）
-    adapter: str  # aihot/chinanews/remoshuang
+    adapter: str  # aihot/sina_hot/chinanews/remoshuang
     raw: dict = field(default_factory=dict)

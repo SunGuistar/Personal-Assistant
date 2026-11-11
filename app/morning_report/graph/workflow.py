@@ -1,7 +1,7 @@
 """LangGraph 晨报工作流（V0.6 §五 / V0.6.1 §3.2）。
 
 结构：并行(资讯分析, 个人分析) → 并行(技术研究, 目标分析 Subagent) → 建议(后置) → 主编
-      → 事实校验(阻塞) → 质量评价(可缺失) → 发布(幂等主报告)。
+      → 质量评价(可缺失) → 发布(幂等主报告)。
 LLM 与 Subagent 经 WorkflowDeps 注入：生产用真实现，测试用假实现（图结构始终真实）。
 """
 
@@ -69,6 +69,7 @@ class MRState(TypedDict, total=False):
     window_end: str
     news: list[dict]            # 本期窗口内新闻（含 category/title/summary/url/published_at）
     clues: list[dict]           # 无可靠时间线索
+    coverage_notes: list[str]
     memory: list[dict]
     personal: dict              # hub 只读上下文
     news_selection: dict        # 资讯分析输出（缓存）
@@ -77,7 +78,6 @@ class MRState(TypedDict, total=False):
     goal_result: dict
     advice_result: dict         # {status: ok/failed/no_advice, advices}
     draft: str                  # 主编正文 Markdown
-    fact_check: dict            # {ok, issues}
     evaluation: dict            # {status, scores, composite, comment}
     publish: dict               # {version_id, version_no, is_primary}
     degraded: list[str]
@@ -101,11 +101,35 @@ def _json_of(content: str) -> dict:
 
 # ---------- 节点 ----------
 
+def _limit_selection(selection: dict, news: list[dict]) -> dict:
+    output = dict(selection)
+    for category in ("domestic", "international"):
+        pool = {n["id"]: n for n in news if n["category"] == category}
+        seen = set()
+        chosen = []
+        for item in selection.get(category, []):
+            if not isinstance(item, dict) or item.get("id") not in pool:
+                continue
+            source = pool[item["id"]]
+            key = (("group", source["event_group_id"]) if source.get("event_group_id") is not None
+                   else ("item", source["id"]))
+            if key in seen:
+                continue
+            seen.add(key)
+            chosen.append(item)
+            if len(chosen) == 10:
+                break
+        output[category] = chosen
+    return output
+
+
 def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("info_analysis")
     fp = stage_cache.fingerprint(
-        "news", [n["content_hash"] for n in state["news"]],
+        "news", [{key: n.get(key) for key in (
+            "id", "content_hash", "summary", "published_at", "rank", "rank_date",
+            "selection_kind", "event_group_id")} for n in state["news"]],
         "memory", [m["updated_at"] for m in state["memory"]],
         deps.prompt_version, deps.llm.model,
     )
@@ -115,12 +139,12 @@ def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
             deps.progress and deps.progress.stage_completed(
                 "info_analysis", summary="命中阶段缓存",
                 status="skipped", reason="输入未变化，复用缓存")
-            return {"news_selection": cached}
+            return {"news_selection": _limit_selection(cached, state["news"])}
         memory_txt = "；".join(m["content"] for m in state["memory"] if m.get("enabled"))
         result = deps.llm.chat([{"role": "user", "content": prompts.INFO_ANALYSIS.format(
             news=json.dumps(state["news"], ensure_ascii=False), memory=memory_txt)}], json_mode=True)
         deps.record("info_analysis", result)
-        selection = _json_of(result.content)
+        selection = _limit_selection(_json_of(result.content), state["news"])
         stage_cache.put_cache(mr, "info_analysis", fp, selection, model=deps.llm.model,
                               prompt_version=deps.prompt_version)
     deps.progress and deps.progress.stage_completed(
@@ -290,51 +314,15 @@ def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
         tech=state["tech_result"].get("content", "") or "（技术研究缺失，本期不作技术深评）",
         goal=state["goal_result"].get("content", "") or "（目标分析缺失）",
         advice=json.dumps(state["advice_result"], ensure_ascii=False),
+        coverage="；".join(state.get("coverage_notes", [])) or "无额外覆盖缺口",
     )}])
     deps.record("editor", result)
     deps.progress and deps.progress.stage_completed("editor", summary=f"正文 {len(result.content)} 字")
-    return {"draft": result.content.strip()}
-
-
-def node_fact_check(state: MRState, deps: WorkflowDeps) -> dict:
-    check_cancel(deps.cancel_token)
-    # 规则层先算好窗口归属，LLM 只做事实一致性判断（避免模型日期比较错误）
-    ws, we = state["window_start"], state["window_end"]
-
-    def in_window(ts: str | None) -> bool:
-        return ts is not None and ws <= ts < we
-
-    cited_pool = [{"title": n["title"][:60], "url": n.get("source_url", ""),
-                   "published_at": n.get("published_at", ""),
-                   "in_window": in_window(n.get("published_at"))} for n in state["news"]]
-    material = json.dumps({
-        "cited_pool": cited_pool,
-        "selected": state["news_selection"],
-        "personal_done": state["personal"].get("daily_done", []),
-        "longterm_highlight": state["personal"].get("longterm_highlight", []),
-        "window": f"{ws} ~ {we}",
-    }, ensure_ascii=False)
-    result = deps.llm.chat([{"role": "user", "content": prompts.FACT_CHECK.format(
-        material=material, content=state["draft"])}], json_mode=True)
-    deps.record("fact_check", result)
-    try:
-        check = _json_of(result.content)
-    except ValueError:
-        check = {"ok": False, "issues": ["事实校验输出无法解析，按不通过处理"]}
-    check.setdefault("issues", [])
-    # 规则层（确定性）：链接必须来自本期材料且引用项须在窗口内
-    import re
-    by_url = {n.get("source_url"): n for n in state["news"] if n.get("source_url")}
-    cited = set(re.findall(r"\((https?://[^)]+)\)", state["draft"]))
-    orphan = [u for u in cited if u not in by_url]
-    out_win = [u for u in cited
-               if u in by_url and not (by_url[u].get("published_at") and ws <= by_url[u]["published_at"] < we)]
-    if orphan:
-        check["issues"].append(f"正文引用了材料外的链接: {orphan[:3]}")
-    if out_win:
-        check["issues"].append(f"正文引用了窗口外发布的新闻链接: {out_win[:3]}")
-    check["ok"] = bool(check["ok"]) and not orphan and not out_win
-    return {"fact_check": check}
+    draft = result.content.strip()
+    notes = state.get("coverage_notes", [])
+    if notes:
+        draft += "\n\n> 采集说明：" + "；".join(notes)
+    return {"draft": draft}
 
 
 def node_quality_eval(state: MRState, deps: WorkflowDeps) -> dict:
@@ -389,7 +377,6 @@ def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
             content_md=state["draft"],
             window_start=state["window_start"], window_end=state["window_end"],
             snapshot_id=state["snapshot_id"],
-            fact_check=state["fact_check"],
         )
         mr.add(ver)
         mr.flush()
@@ -407,12 +394,6 @@ def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
 
 # ---------- 图装配 ----------
 
-def route_after_fact_check(state: MRState) -> str:
-    if state.get("fact_check", {}).get("ok"):
-        return "quality_eval"
-    return "blocked"
-
-
 def build_workflow(deps: WorkflowDeps):
     g = StateGraph(MRState)
     g.add_node("info_analysis", _async(node_info_analysis, deps))
@@ -421,7 +402,6 @@ def build_workflow(deps: WorkflowDeps):
     g.add_node("goal_analysis", _async(node_goal_analysis, deps))
     g.add_node("advice", _async(node_advice, deps))
     g.add_node("editor", _async(node_editor, deps))
-    g.add_node("fact_check", _async(node_fact_check, deps))
     g.add_node("quality_eval", _async(node_quality_eval, deps))
     g.add_node("publish", _async(node_publish, deps))
 
@@ -432,9 +412,7 @@ def build_workflow(deps: WorkflowDeps):
     g.add_edge("tech_research", "advice")
     g.add_edge("goal_analysis", "advice")
     g.add_edge("advice", "editor")
-    g.add_edge("editor", "fact_check")
-    g.add_conditional_edges("fact_check", route_after_fact_check,
-                            {"quality_eval": "quality_eval", "blocked": END})
+    g.add_edge("editor", "quality_eval")
     g.add_edge("quality_eval", "publish")
     g.add_edge("publish", END)
     return g

@@ -1,5 +1,12 @@
 # 开发计划（Development Plan）
 
+## 现行流程调整（2026-11-11）
+
+国内/国际采集改为新浪点击榜各前 20 条、中新网精选每类最多补充 5 条；热摸爽保留线索、AIHOT 保持精选。按时间与事件整理后每类最终最多选 10 条，详情披露分类漏斗和覆盖缺口。历史全量采集不删除，不直接作为新策略缓存复用。
+
+用户确认删除独立事实校验节点、提示词、链接/发布时间校验和发布阻塞逻辑。现行为“主编整合 → 质量评价 → 发布”，进度为 11 阶段。报告接口不再返回 fact_check；数据库历史列和历史任务记录保留，新报告不写入。下文已有验收记录中的事实校验描述属于调整前证据，不代表当前要求。
+
+
 各阶段需要实现的功能规划。本文档只回答"做哪些功能"，不承担进度追踪职责（开发历史由 Git 记录）；需求规则见 `PRD.md`，技术设计见 `Architecture.md`。
 
 V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELOPMENT_PLAN_V1.md`。本文档管理下一阶段开发规划。
@@ -112,10 +119,10 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 | 阶段 | 目标 | 状态 |
 |---|---|---|
 | 1 基础设施与数据隔离 | 晨报模块骨架、独立 SQLite+迁移、hub 只读访问、配置与状态、FastAPI 集成 | [~] |
-| 2 资讯获取与处理 | AIHOT/中新网归档/热摸爽接入、窗口过滤、去重、失败处理 | [ ] |
+| 2 资讯获取与处理 | 新浪热榜/中新网精选/AIHOT/热摸爽接入、窗口过滤、事件去重、失败处理 | [ ] |
 | 3 RAG、索引与缓存 | Qdrant 双 Collection、混合检索、统一 RAG Tool、Embedding 复用、阶段缓存、一致性检查 | [ ] |
 | 4 LangGraph 与 Agent 工作流 | 全流程编排、三个 Subagent、模型路由、Checkpoint、幂等 | [ ] |
-| 5 晨报生成与质量保障 | 五部分正文、事实校验、五维评价 quality_score_v1、版本与快照、用量统计 | [ ] |
+| 5 晨报生成与质量保障 | 五部分正文、五维评价 quality_score_v1、版本与快照、用量统计 | [ ] |
 | 6 前端与用户交互 | 三页导航、晨报助手与 Memory、重新生成、SSE 日志、深色模式 | [ ] |
 | 7 完整系统验收 | 端到端真实验证、调度测试、故障注入、回归、交付报告 | [ ] |
 
@@ -187,7 +194,7 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 **任务与文件**：
 - `services/llm_router.py`：DeepSeek/DashScope 路由 + 允许时段检查 + Thinking 节点级配置 + Token 落库
 - `graph/prompts.py`：系统提示词（版本化 prompt_version）
-- `graph/workflow.py`：LangGraph 编排（快照→并行资讯/个人分析→技术研究∥目标分析 Subagent→建议 Subagent→主编→事实校验→质量评价→发布），AsyncSqliteSaver Checkpoint，阶段缓存指纹复用，幂等防重复主报告
+- `graph/workflow.py`：LangGraph 编排（快照→并行资讯/个人分析→技术研究∥目标分析 Subagent→建议 Subagent→主编→质量评价→发布），AsyncSqliteSaver Checkpoint，阶段缓存指纹复用，幂等防重复主报告
 - `services/report_service.py`：run_generate 入口（08:00 流程编排：清缓存→采集→索引检查→图执行）
 - `api/runs.py` 增加 generate 触发；调度器（APScheduler 每日 08:00）
 - `tests/test_morning_stage4_graph.py`（FakeLLM + 假 Embedding + 真 Checkpoint 恢复/并行/后置断言）

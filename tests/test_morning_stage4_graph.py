@@ -54,10 +54,9 @@ class FakeLLM:
     model = "fake-llm"
     base_url = "fake://local"
 
-    def __init__(self, fail_eval: bool = False, fact_ok: bool = True):
+    def __init__(self, fail_eval: bool = False):
         self.calls: list[str] = []
         self.fail_eval = fail_eval
-        self.fact_ok = fact_ok
 
     def chat(self, messages, *, json_mode=False, tools=None, thinking=None):
         prompt = messages[-1]["content"]
@@ -75,9 +74,6 @@ class FakeLLM:
                                   "note": ""}, ensure_ascii=False)
         elif "五部分结构" in prompt:
             content = REPORT_MD
-        elif "事实与引用校验" in prompt:
-            content = json.dumps({"ok": self.fact_ok, "issues": [] if self.fact_ok else ["材料不支持结论 X"]},
-                                 ensure_ascii=False)
         elif "五个维度各打" in prompt:
             if self.fail_eval:
                 raise RuntimeError("评价模型不可用")
@@ -144,7 +140,7 @@ def test_allowed_period_rule():
 def test_full_workflow_publish(fclient):
     deps = _deps(fclient)
     final = asyncio.run(_run_graph(fclient, deps, _initial()))
-    assert final["fact_check"]["ok"] is True
+    assert "fact_check" not in final
     assert final["evaluation"]["composite"] == 87  # (88+86+90+84+87)/5=87
     assert final["publish"]["is_primary"] is True and final["publish"]["version_no"] == 1
 
@@ -174,13 +170,21 @@ def test_second_version_not_primary(fclient):
         assert len([v for v in versions if v.is_primary]) == 1
 
 
-def test_fact_check_blocks_publish(fclient):
-    deps = _deps(fclient, llm=FakeLLM(fact_ok=False))
-    final = asyncio.run(_run_graph(fclient, deps, _initial()))
-    assert final["fact_check"]["ok"] is False
-    assert "publish" not in final  # 阻塞：未发布
+@pytest.mark.parametrize("published_at", [None, "2026-11-01T10:00:00+08:00"])
+def test_publish_without_fact_check_for_unknown_or_old_time(fclient, published_at):
+    deps = _deps(fclient)
+    initial = _initial()
+    initial["news"] = [{**n, "published_at": published_at} for n in NEWS]
+    graph = build_workflow(deps).compile()
+    assert "fact_check" not in graph.nodes
+    final = asyncio.run(_run_graph(fclient, deps, initial))
+    assert "fact_check" not in final
+    assert final["publish"]["version_no"] == 1
+    assert not any("事实与引用校验" in call for call in deps.llm.calls)
     with fclient.app.state.mr_session_factory() as mr:
-        assert mr.execute(select(ReportVersion)).scalars().all() == []
+        version = mr.get(ReportVersion, final["publish"]["version_id"])
+        assert version.status == "published"
+        assert version.fact_check is None  # 历史列保留，新版本不写入
 
 
 def test_eval_failure_does_not_block(fclient):
@@ -277,21 +281,22 @@ def test_checkpoint_resume_after_subagent_failure(fclient):
 
     final = asyncio.run(scenario())
     assert final["publish"]["version_no"] == 1
-    assert final["fact_check"]["ok"] is True
+    assert "fact_check" not in final
 
 
-def test_run_generate_blocked_when_fact_check_fails(fclient):
-    """report_service 级：事实校验失败 → run failed，不产出版本。"""
+def test_run_generate_publishes_without_fact_check(fclient):
+    """report_service 不再依赖事实校验结果即可完成发布。"""
     from app.morning_report.models import RunRecord
     from app.morning_report.services import news_pipeline
 
     with fclient.app.state.mr_session_factory() as mr:
         collect = news_pipeline.create_collect_run(mr, "2026-11-10")
+        collect.status = "success"  # 预置数据只用于生成，禁止意外启动真实采集
         run = RunRecord(run_date="2026-11-10", kind="generate", status="pending")
         mr.add(run)
         mr.commit()
         run_id = run.id
-    deps = _deps(fclient, llm=FakeLLM(fact_ok=False), run_id=run_id)
+    deps = _deps(fclient, llm=FakeLLM(), run_id=run_id)
     from app.morning_report.config import MRSettings
 
     with fclient.app.state.mr_session_factory() as mr:
@@ -307,7 +312,8 @@ def test_run_generate_blocked_when_fact_check_fails(fclient):
             mr, run_id, MRSettings(schedule_enabled=False), mode="manual",
             deps_override=deps, hub_session_factory=None,
             mr_session_factory=fclient.app.state.mr_session_factory)
-    assert out["status"] == "blocked"
+    assert out["status"] == "success"
+    assert "fact_check" not in out
     with fclient.app.state.mr_session_factory() as mr:
-        assert mr.get(RunRecord, run_id).status == "failed"
-        assert mr.execute(select(ReportVersion)).scalars().all() == []
+        assert mr.get(RunRecord, run_id).status == "success"
+        assert len(mr.execute(select(ReportVersion)).scalars().all()) == 1

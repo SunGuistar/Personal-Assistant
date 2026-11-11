@@ -27,6 +27,53 @@ REAL_DB_MTIMES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def isolated_morning_external_dependencies(request, monkeypatch):
+    """晨报默认零外网/付费调用；生成测试使用独立内存向量库。
+
+    stage3 是既有本地 Qdrant 集成测试，限定 tmp_mr_* 集合，自行管理生命周期。
+    其余晨报用例的未 Mock HTTP 一律失败，防止临时 SQLite 误连正式向量库。
+    """
+    if not request.path.name.startswith("test_morning"):
+        yield
+        return
+    import respx
+    from qdrant_client import QdrantClient
+    from app.morning_report.services import report_service
+    from app.morning_report.services.qdrant_store import QdrantStore
+
+    clients = []
+
+    def memory_store(*args, **kwargs):
+        store = QdrantStore.__new__(QdrantStore)
+        store.client = QdrantClient(":memory:")
+        store.dense_dims = 8
+        clients.append(store.client)
+        return store
+
+    class FakeEmbedding:
+        dims = 8
+        model_name = "fake-morning-isolated"
+
+        def embed_dense(self, texts):
+            return [[1.0] + [0.0] * 7 for _ in texts]
+
+        def embed_sparse(self, texts):
+            return [([1], [1.0]) for _ in texts]
+
+    monkeypatch.setattr(report_service, "QdrantStore", memory_store)
+    monkeypatch.setattr(report_service, "DefaultEmbeddingProvider", FakeEmbedding)
+    try:
+        if request.path.name == "test_morning_stage3_rag.py":
+            yield
+        else:
+            with respx.mock(assert_all_called=False, assert_all_mocked=True):
+                yield
+    finally:
+        for client in clients:
+            client.close()
+
+
 def _run_alembic_upgrade(db_url: str) -> None:
     os.environ["PH_DATABASE_URL"] = db_url
     alembic_cfg = Config(str(ROOT_DIR / "alembic.ini"))

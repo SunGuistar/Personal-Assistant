@@ -20,7 +20,7 @@ def _version_out(v: ReportVersion, ev: Evaluation | None) -> dict:
         "is_primary": v.is_primary, "status": v.status, "title": v.title,
         "sections": v.sections, "content_md": v.content_md,
         "window_start": v.window_start, "window_end": v.window_end,
-        "snapshot_id": v.snapshot_id, "fact_check": v.fact_check,
+        "snapshot_id": v.snapshot_id,
         "generation_mode": v.generation_mode, "created_at": v.created_at,
         "evaluation": None if ev is None else {
             "status": ev.status, "scores": ev.scores, "composite": ev.composite,

@@ -85,7 +85,8 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
 
     # 1) 采集（缺则补采）
     collect = _latest_collect(mr, run.run_date)
-    if collect is None or collect.status not in ("success", "degraded"):
+    if (collect is None or collect.status not in ("success", "degraded") or
+            deps_override is None and not news_pipeline.collection_is_current(mr, collect.id)):
         log_run(mr, run_id, "generate", "本期无可用采集，先执行采集", level="warning")
         collect = news_pipeline.create_collect_run(mr, run.run_date)
         news_pipeline.run_collect(mr, collect.id)
@@ -93,13 +94,25 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         c_rows = mr.execute(select(NewsItem).where(NewsItem.run_id == collect.id)).scalars().all()
         tracker.stage_completed("collect",
                                 summary=f"补采完成，{len(c_rows)} 条",
-                                data={"saved": len(c_rows)})
+                                data={"saved": len(c_rows), "collect_run_id": collect.id,
+                                      "by_category": news_pipeline.saved_category_counts(mr, collect.id)})
     else:
         c_rows_n = mr.execute(select(func.count()).select_from(NewsItem).where(
             NewsItem.run_id == collect.id)).scalar() or 0
         tracker.stage_completed("collect",
                                 summary=f"复用本期采集（{c_rows_n} 条）",
-                                status="skipped", reason="使用已完成的采集结果")
+                                status="skipped", reason="使用已完成的采集结果",
+                                data={"saved": c_rows_n, "collect_run_id": collect.id,
+                                      "by_category": news_pipeline.saved_category_counts(mr, collect.id)})
+
+    collect_detail = news_pipeline.collection_summary(mr, collect.id)
+    if collect_detail:
+        tracker.stage_progress("collect", data={key: collect_detail[key] for key in (
+            "per_source", "raw_by_category", "windowed_by_category", "duplicates_merged",
+            "coverage_notes", "collection_strategy") if key in collect_detail})
+    if collect.status == "failed":
+        tracker.stage_failed("collect", collect.error or "采集失败")
+        raise RuntimeError(collect.error or "采集失败")
 
     check_cancel(cancel_token)
     # 2) AI 索引同步 + 必要索引检查（阻塞规则）
@@ -138,8 +151,14 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         "source_name": r.source_name, "source_url": r.source_url,
         "published_at": r.published_at, "content_hash": r.content_hash,
         "event_group_id": r.event_group_id,
+        "selection_kind": (r.raw_ref or {}).get("selection_kind"),
+        "rank": (r.raw_ref or {}).get("rank"),
+        "rank_date": (r.raw_ref or {}).get("rank_date"),
     } for r in news_rows]
-    news = _trim_for_llm(news)
+    clues = [n for n in news if not n.get("published_at")]
+    news = _trim_for_llm([n for n in news if news_pipeline._in_window(
+        n.get("published_at"), collect.window_start, collect.window_end)])
+    coverage_notes = collect_detail.get("coverage_notes") or ([collect.error] if collect.error else [])
     memory_rows = mr.execute(select(Memory)).scalars().all()
     memory = [{"id": m.id, "kind": m.kind, "content": m.content, "enabled": m.enabled,
                "updated_at": m.updated_at} for m in memory_rows]
@@ -179,7 +198,8 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     initial = {
         "run_id": run_id, "snapshot_id": snapshot_id, "report_date": run.run_date,
         "window_start": collect.window_start, "window_end": collect.window_end,
-        "news": news, "clues": [], "memory": memory,
+        "news": news, "clues": clues, "memory": memory,
+        "coverage_notes": coverage_notes,
         "personal": personal_ctx,
     }
     if getattr(deps, "progress", None) is None:
@@ -196,23 +216,13 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         log_run(mr, run_id, "generate", run.error, level="error")
         raise
 
+    tracker.stage_progress("collect", data={"selected_by_category": {
+        category: len(final.get("news_selection", {}).get(category, []))
+        for category in ("domestic", "international", "ai")}})
     # 5) 结果落库状态
-    if not final.get("fact_check", {}).get("ok"):
-        tracker.stage_failed("fact_check", "; ".join(final["fact_check"].get("issues", []))[:300])
-        run.status = "failed"
-        run.error = "事实校验未通过：" + "; ".join(final["fact_check"].get("issues", []))[:300]
-        run.snapshot_id = snapshot_id
-        run.finished_at = _now()
-        mr.commit()
-        log_run(mr, run_id, "publish", run.error, level="error")
-        return {"status": "blocked", "fact_check": final["fact_check"]}
     degraded = [final["tech_result"].get("status") == "failed" and "技术研究缺失",
                 final["goal_result"].get("status") == "failed" and "目标分析缺失",
                 final["advice_result"].get("status") == "failed" and "建议分析失败"]
-    fc = final["fact_check"]
-    tracker.stage_completed("fact_check",
-                            summary="通过" if fc.get("ok") else "未通过",
-                            data={"issues_count": len(fc.get("issues", []))})
     ev = final.get("evaluation") or {}
     tracker.stage_completed("quality_eval",
                             status="success" if ev.get("status") == "ok" else "skipped",
@@ -225,7 +235,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     mr.commit()
     log_run(mr, run_id, "publish", "晨报已发布", detail=final.get("publish"))
 
-    # 历史晨报索引更新（V0.6 流程末步）；失败记 dirty 并降级，不阻塞本期已校验内容
+    # 历史晨报索引更新（V0.6 流程末步）；失败记 dirty 并降级，不阻塞本期已生成内容
     pub = final.get("publish") or {}
     if pub.get("version_id") and store is not None and provider is not None:
         try:
@@ -244,7 +254,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
                             summary=f"版本 v{(final.get('publish') or {}).get('version_no')} 已发布",
                             data=final.get("publish"))
     return {"status": run.status, "publish": final.get("publish"),
-            "fact_check": final["fact_check"], "evaluation": final.get("evaluation")}
+            "evaluation": final.get("evaluation")}
 
 
 def _load_personal(hub_session_factory, window_start: str, window_end: str) -> dict:

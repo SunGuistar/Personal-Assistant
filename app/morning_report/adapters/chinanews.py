@@ -1,8 +1,6 @@
-"""中新网按日归档接入（国际栏目 + 涉外时政栏目，V0.6 §4.1）。
+"""中新网精选补充：仅从首页、时政/国际频道提取有界候选并补采详情。
 
-- 归档页 scroll-news/YYYY/MMDD/news.shtml，分钟级时间戳；跨两个自然日抓取后本地过滤窗口。
-- 分类：国际/东盟栏目 → international；时政栏目且标题命中涉外关键词 → international；其余 domestic。
-- HTML 解析非正式 API 契约：结构变化需告警（pipeline 记录解析条数异常）。
+每类最多保存 5 条，详情请求上限每类 15 条；旧归档解析不再用于生产采集。
 """
 
 from __future__ import annotations
@@ -79,4 +77,107 @@ def fetch_window(prev_date: str, curr_date: str) -> list[NewsCandidate]:
         y, mo, d = day.split("-")
         url = f"https://www.chinanews.com.cn/scroll-news/{y}/{mo}{d}/news.shtml"
         out.extend(parse_archive(fetch_text(url), f"{y}/{mo}/{d}"))
+    return out
+
+
+# 新采集入口只访问精选页；旧归档解析保留供历史兼容，不再进入生产采集。
+FEATURED_PAGES = ("https://www.chinanews.com/", "https://www.chinanews.com.cn/china/",
+                  "https://www.chinanews.com.cn/world/")
+
+
+def parse_featured(html: str, page_url: str) -> list[NewsCandidate]:
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin, urlparse
+
+    class Links(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.href = None
+            self.text = []
+            self.out = []
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "a":
+                self.href = attrs.get("href")
+                self.text = []
+        def handle_data(self, text):
+            if self.href:
+                self.text.append(text)
+        def handle_endtag(self, tag):
+            if tag == "a" and self.href:
+                self.out.append((urljoin(page_url, self.href), "".join(self.text).strip()))
+                self.href = None
+    parser = Links()
+    parser.feed(html)
+    seen = set()
+    out = []
+    for url, title in parser.out:
+        parsed = urlparse(url)
+        match = re.fullmatch(r"/(gn|gj|cj|sh)/20\d{2}/\d{2}-\d{2}/\d+\.shtml", parsed.path)
+        if not match or not title or parsed.hostname not in ("www.chinanews.com.cn", "www.chinanews.com"):
+            continue
+        url = "https://www.chinanews.com.cn" + parsed.path
+        if url in seen:
+            continue
+        seen.add(url)
+        category = "international" if match[1] == "gj" else classify("时政" if match[1] == "gn" else "", title)
+        out.append(NewsCandidate(category=category, title=title, summary="",
+            source_name="中国新闻网", source_url=url, published_at=None, adapter="chinanews",
+            raw={"selection_kind": "featured", "featured_page": page_url}))
+    return out
+
+
+def fetch_featured(window_start: str, window_end: str, cancel_check=None) -> list[NewsCandidate]:
+    from .article import fetch_article
+    from .http_common import FetchError
+
+    start, end = datetime.fromisoformat(window_start), datetime.fromisoformat(window_end)
+    pools = {"domestic": [], "international": []}
+    seen = set()
+    failures = []
+    successful_pages = 0
+    for page in FEATURED_PAGES:
+        if cancel_check:
+            cancel_check()
+        try:
+            entries = parse_featured(fetch_text(page), page)
+            if not entries:
+                raise FetchError(page, "精选页面没有可解析条目")
+            successful_pages += 1
+        except FetchError:
+            failures.append(page)
+            continue
+        for entry in entries:
+            # URL 仅用于提前跳过明显无关日期，不能当作发布时间。
+            day_match = re.search(r"/(20\d{2})/(\d{2}-\d{2})/", entry.source_url)
+            day = f"{day_match[1]}-{day_match[2]}"
+            if not start.date().isoformat() <= day <= end.date().isoformat():
+                continue
+            if entry.source_url not in seen and len(pools[entry.category]) < 15:
+                seen.add(entry.source_url)
+                pools[entry.category].append(entry)
+    if not successful_pages:
+        raise FetchError(FEATURED_PAGES[0], "中新网精选入口全部不可用")
+    out = []
+    for category, pool in pools.items():
+        saved = 0
+        for entry in pool:
+            if cancel_check:
+                cancel_check()
+            if saved >= 5:
+                break
+            try:
+                detail = fetch_article(entry.source_url)
+                entry.published_at = detail["published_at"]
+                entry.summary = detail["summary"]
+                entry.raw["time_source"] = "article_page" if entry.published_at else "unknown"
+            except FetchError:
+                entry.raw["detail_status"] = "failed"
+            if entry.published_at and not start <= datetime.fromisoformat(entry.published_at) < end:
+                continue
+            if not entry.published_at:
+                entry.raw["time_confidence"] = "unknown"
+            entry.raw["featured_page_failures"] = len(failures)
+            out.append(entry)
+            saved += 1
     return out

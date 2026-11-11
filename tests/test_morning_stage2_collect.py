@@ -68,10 +68,15 @@ def _mock_sources(rspx, aihot_status=200, cn_status=200, rm_status=200):
         return httpx.Response(200, json=AIHOT_PAGE1)
 
     rspx.get("https://aihot.news/api/v1/items").side_effect = _aihot
-    (rspx.get("https://www.chinanews.com.cn/scroll-news/2026/1109/news.shtml").respond(
-        cn_status, text=ARCHIVE_1109 if cn_status == 200 else "err"))
-    (rspx.get("https://www.chinanews.com.cn/scroll-news/2026/1110/news.shtml").respond(
-        cn_status, text=ARCHIVE_1110 if cn_status == 200 else "err"))
+    for page in chinanews.FEATURED_PAGES:
+        rspx.get(page).respond(cn_status, text=ARCHIVE_1109 + ARCHIVE_1110 if cn_status == 200 else "err")
+    for entry in chinanews.parse_archive(ARCHIVE_1109, "2026/11/09") + chinanews.parse_archive(ARCHIVE_1110, "2026/11/10"):
+        rspx.get(entry.source_url).respond(200, text=f'<time datetime="{entry.published_at}"></time><p>{entry.title * 5}</p>')
+    for cat, title in (("news_china_suda", "国内主要政策发布"), ("news_world_suda", "国际外交谈判取得突破")):
+        rspx.get("https://top.news.sina.com.cn/ws/GetTopDataList.php", params__contains={"top_cat": cat}).respond(
+            200, json={"data": [{"title": title, "url": "https://example.com/" + cat,
+                "media": "测试媒体", "time": "Mon, 09 Nov 2026 12:00:00 +0800",
+                "top_time": "20261110", "top_num": "1,000"}]})
     (rspx.get("https://remoshuang.com/daily/2026-11-09.md").respond(
         rm_status, text=REMOSHUANG_MD if rm_status == 200 else "err"))
     (rspx.get("https://remoshuang.com/daily/2026-11-10.md").respond(
@@ -108,21 +113,28 @@ def test_pipeline_full_flow(fclient):
             summary = news_pipeline.run_collect(mr, run.id)
 
     assert summary["per_source"]["aihot"] == 3  # 两页合并
-    assert summary["per_source"]["chinanews"] == 7
+    assert summary["per_source"]["chinanews"] == 5
+    assert summary["per_source"]["sina_domestic"] == 1
+    assert summary["per_source"]["sina_international"] == 1
     assert summary["per_source"]["remoshuang"] == 4
-    # 窗口 [11-09 08:00, 11-10 08:00)：太原07:30/综述09:30/aihot旧闻 出窗 → 中新5 + aihot2
-    assert summary["in_window"] == 7
+    # 中新精选在适配器过滤时间后补充 5 条；热榜 2 条、AIHOT 2 条在窗口内
+    assert summary["in_window"] == 9
     assert summary["clue_only"] == 4
-    assert summary["out_of_window_dropped"] == 3
+    assert summary["out_of_window_dropped"] == 1
     assert summary["source_failures"] == {}
     assert summary["event_groups"] >= 1
 
     with fclient.app.state.mr_session_factory() as mr:
         run = mr.get(RunRecord, run.id)
-        assert run.status == "success"
+        assert run.status == "degraded"  # 线索/覆盖不足被明确披露
         rows = mr.execute(select(NewsItem)).scalars().all()
         cats = {r.category for r in rows}
         assert cats == {"domestic", "international", "ai"}
+        assert summary["by_category"] == {
+            category: sum(r.category == category for r in rows)
+            for category in ("domestic", "international", "ai")
+        }
+        assert sum(summary["by_category"].values()) == summary["saved_unique"]
         # 涉外时政入国际
         assert any(r.category == "international" and "黄仁勋" in r.title for r in rows)
         # 线索保留但无发布时间

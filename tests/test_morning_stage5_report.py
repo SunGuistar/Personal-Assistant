@@ -42,6 +42,7 @@ def test_report_api_primary_and_version(fclient):
     primary = fclient.get("/api/morning/report", params={"report_date": "2026-11-10"})
     assert primary.status_code == 200
     body = primary.json()
+    assert "fact_check" not in body
     assert body["is_primary"] is True and body["version_no"] == 1
     assert "内容A" in body["content_md"]
 
@@ -86,6 +87,7 @@ def test_clear_cache_semantics(fclient):
         rid = run.id
         from app.morning_report.services import news_pipeline
         collect = news_pipeline.create_collect_run(mr, "2026-11-10")
+        collect.status = "success"
         from app.morning_report.models import NewsItem
         for n in NEWS:
             mr.add(NewsItem(run_id=collect.id, category=n["category"], title=n["title"],
@@ -131,6 +133,7 @@ def test_personal_snapshot_and_usage(fclient):
         rid = run.id
         from app.morning_report.services import news_pipeline
         collect = news_pipeline.create_collect_run(mr, "2026-11-10")
+        collect.status = "success"
         from app.morning_report.models import NewsItem
         for n in NEWS:
             mr.add(NewsItem(run_id=collect.id, category=n["category"], title=n["title"],
