@@ -48,6 +48,9 @@ class MRSettings(BaseSettings):
     # 阶段缓存有效期（小时，V0.5 §5.2：最长 12h）
     stage_cache_ttl_hours: int = 12
 
+    # 阶段"较长时间未更新"提醒阈值（秒，仅提示不判失败）
+    progress_stall_seconds: int = 150
+
     collections: MRCollections = MRCollections()
 
 

@@ -83,6 +83,10 @@ def _init_morning_report(app: FastAPI, settings: Settings, hub_session_factory) 
             if stale:
                 s.commit()
                 logger.info("晨报陈旧任务清理: %d 个标记为 failed", len(stale))
+        from .morning_report.services import progress as _mr_progress
+        n = _mr_progress.interrupt_stale_stages(s)
+        if n:
+            logger.info("晨报中断阶段清理: %d 个标记为 interrupted", n)
 
 
 class SPAStaticFiles(StaticFiles):

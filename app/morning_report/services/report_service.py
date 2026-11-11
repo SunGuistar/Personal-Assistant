@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from ..adapters.embedding import DefaultEmbeddingProvider
 from ..config import MRSettings
 from ..models import Memory, NewsItem, RunRecord
-from ..services import index_sync, news_pipeline, stage_cache
+from ..services import index_sync, news_pipeline, progress as progress_mod, stage_cache
 from ..services.llm_router import (ModelNotAllowedError, dev_client, formal_client,
                                    record_usage)
 from ..services.qdrant_store import QdrantStore
@@ -69,6 +69,9 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     run.status = "running"
     run.started_at = _now()
     mr.commit()
+    tracker = progress_mod.ProgressTracker(
+        mr_session_factory if mr_session_factory is not None else mr, run_id)
+    tracker.stage_started("collect")
     if clear_cache:
         log_run(mr, run_id, "generate", f"开始生成（mode={mode}），清理上一轮阶段缓存")
         cleared = stage_cache.clear_all(mr)
@@ -83,6 +86,16 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         collect = news_pipeline.create_collect_run(mr, run.run_date)
         news_pipeline.run_collect(mr, collect.id)
         collect = mr.get(RunRecord, collect.id)
+        c_rows = mr.execute(select(NewsItem).where(NewsItem.run_id == collect.id)).scalars().all()
+        tracker.stage_completed("collect",
+                                summary=f"补采完成，{len(c_rows)} 条",
+                                data={"saved": len(c_rows)})
+    else:
+        c_rows_n = mr.execute(select(func.count()).select_from(NewsItem).where(
+            NewsItem.run_id == collect.id)).scalar() or 0
+        tracker.stage_completed("collect",
+                                summary=f"复用本期采集（{c_rows_n} 条）",
+                                status="skipped", reason="使用已完成的采集结果")
 
     # 2) AI 索引同步 + 必要索引检查（阻塞规则）
     store = store or QdrantStore(settings.qdrant_url, dense_dims=settings.embedding_dims,
@@ -92,13 +105,18 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         # 首日无历史晨报：先确保两个 Collection 存在（空历史不阻塞首期生成）
         store.ensure_collection(settings.collections.tech_news)
         store.ensure_collection(settings.collections.reports)
+        tracker.stage_started("index")
         sync = index_sync.sync_tech_news(mr, store, provider, collect.id,
                                          settings.collections.tech_news)
         log_run(mr, run_id, "index", "AI 索引同步完成", detail=sync)
+        tracker.stage_completed("index",
+                                summary=f"AI 索引 {sync.get('indexed', 0)} 条，一致性 {sync.get('consistency')}",
+                                data=sync)
         _recover_dirty_report_index(mr, store, provider, settings)
         problems = index_sync.check_required_indexes(
             mr, store, [settings.collections.tech_news, settings.collections.reports])
         if problems:
+            tracker.stage_failed("index", f"必要索引不可用: {problems}")
             run.status = "failed"
             run.error = f"必要索引不可用，按规则阻塞: {problems}"
             run.finished_at = _now()
@@ -155,6 +173,8 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         "news": news, "clues": [], "memory": memory,
         "personal": personal_ctx,
     }
+    if getattr(deps, "progress", None) is None:
+        deps.progress = tracker  # 节点级阶段跟踪
     try:
         final = asyncio.run(_execute(deps, initial, run_id))
     except ModelNotAllowedError as exc:
@@ -167,6 +187,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
 
     # 5) 结果落库状态
     if not final.get("fact_check", {}).get("ok"):
+        tracker.stage_failed("fact_check", "; ".join(final["fact_check"].get("issues", []))[:300])
         run.status = "failed"
         run.error = "事实校验未通过：" + "; ".join(final["fact_check"].get("issues", []))[:300]
         run.snapshot_id = snapshot_id
@@ -177,6 +198,16 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     degraded = [final["tech_result"].get("status") == "failed" and "技术研究缺失",
                 final["goal_result"].get("status") == "failed" and "目标分析缺失",
                 final["advice_result"].get("status") == "failed" and "建议分析失败"]
+    fc = final["fact_check"]
+    tracker.stage_completed("fact_check",
+                            summary="通过" if fc.get("ok") else "未通过",
+                            data={"issues_count": len(fc.get("issues", []))})
+    ev = final.get("evaluation") or {}
+    tracker.stage_completed("quality_eval",
+                            status="success" if ev.get("status") == "ok" else "skipped",
+                            summary=f"综合分 {ev.get('composite')}" if ev.get("composite") else "评价失败（不阻塞）",
+                            reason="" if ev.get("status") == "ok" else "评价模型不可用，按规则标记未评价")
+    tracker.stage_started("publish")
     run.status = "degraded" if any(degraded) else "success"
     run.snapshot_id = snapshot_id
     run.finished_at = _now()
@@ -198,6 +229,9 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
                 run.status = "degraded"
                 mr.commit()
             log_run(mr, run_id, "index", "历史晨报索引更新失败（已标记 dirty）", level="warning")
+    tracker.stage_completed("publish",
+                            summary=f"版本 v{(final.get('publish') or {}).get('version_no')} 已发布",
+                            data=final.get("publish"))
     return {"status": run.status, "publish": final.get("publish"),
             "fact_check": final["fact_check"], "evaluation": final.get("evaluation")}
 

@@ -255,3 +255,14 @@ V1（个人助手基础版）已全部完成并归档，见 `Docs/archive/DEVELO
 - **关键决定**：事实校验=规则层（孤儿链接/窗口外引用，确定性）+LLM 层（事实一致性），避免模型日期比较错误；主编输入必须带材料内 URL（此前模型编造链接被真实拦截两次——系统按设计工作）；manual 复用缓存导致 run5 用量调用少，属预期
 - **回归**：后端 244 passed；前端 50 passed；build 通过
 - **上线观察项**（不阻塞交付）：DeepSeek auto 路径首跑（明早 08:00 低谷）、连续多日覆盖、中新网结构监控告警、Subagent 接 RAG 工具、Docker Desktop 自启
+
+### 进度面板改造完成记录（2026-11-11 PASS）
+
+- **定位转变**：实时日志模块 → 晨报生成进度面板（默认简洁展示完整流程/当前进度/关键信息，点击阶段出悬浮详情）
+- **数据层**：追加迁移 v2 `run_stages`（12 阶段定义映射真实 LangGraph 工作流；status=pending/running/success/warning/failed/skipped/interrupted；last_event_at 活跃心跳）；技术日志仍在 run_logs，历史数据兼容
+- **后端**：`services/progress.py` 线程安全跟踪器（会话工厂短会话，跨 Subagent 线程）；API `/progress`（快照+服务器时钟+卡住阈值）、`/progress/active`（活动任务判定）、`/progress/stream`（seq 单调增量推送，终态先持久化后 done）；启动清理 run+stages interrupted；structured_data 脱敏（掩 sk-*、剔 prompt/messages）
+- **前端**：ProgressPanel 重写（容器 h-2/5 不变）：状态徽章/开始时间/运行时长/阶段计数/当前阶段；完整 12 阶段列表（完成✓/进行中高亮/等待灰/警告黄/失败红/降级跳过/中断标注）；并行 Subagent 独立行+“并行执行”组标识；底部最近动态 3 条；点击阶段→面板内悬浮详情窗（阶段目的/起止/耗时/尝试次数/结果/原因 + 可折叠技术详情 + 复制按钮）；卡住提醒（running 阶段超阈值未更新→黄条提示，不判失败）
+- **互斥**：两个生成按钮活动任务期间同时禁用（前端 5s 轮询 /progress/active + 提交后立即切换 run_id）；后端 409 兜底（DB 判重，多标签页绕不过）
+- **测试**：后端新增 9 个全过（生命周期/快照/脱敏/活动判定/SSE 快照+done+增量去重/409 互斥/interrupted 清理/run_generate 全阶段流转）；前端新增 4 个全过（阶段列表/并行标识/高亮/悬浮详情/按钮禁用与恢复）；全量回归后端 253、前端 54、tsc+build 通过
+- **面板尺寸验证**：section 保持 `h-2/5` 与原右栏结构，无新增常驻技术日志区（证据：组件类名未变 + 前端测试通过）
+- **已知缺口（不属本次范围）**：Subagent 仍 tools=[]（RAG 工具未挂载，已在验收报告记录）；自动重试 3 次未实现；`npx vitest` 与 npm test 环境不一致时 jsdom 曾丢失（重装恢复），建议用 npm test

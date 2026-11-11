@@ -193,3 +193,30 @@ class PersonalEventSnapshot(MRBase):
     summary = Column(Text, nullable=False)
     payload = Column(JSON)
     created_at = Column(String(32), default=_ts)
+
+
+class RunStage(MRBase):
+    """阶段进度状态（驱动前端进度面板；技术日志仍在 run_logs）。
+
+    status: pending/running/success/warning/failed/skipped/interrupted
+    skipped = 降级跳过（附 reason）；interrupted = 进程重启遗留，待确认。
+    """
+
+    __tablename__ = "run_stages"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, index=True, nullable=False)
+    stage = Column(String(32), nullable=False, index=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    parent_stage = Column(String(32))  # 并行组标识（如 parallel_research）
+    title = Column(String(64), nullable=False)
+    status = Column(String(16), nullable=False, default="pending")
+    summary = Column(Text)  # 一行关键信息（给主面板）
+    reason = Column(Text)  # 失败/降级/中断原因
+    started_at = Column(String(32))
+    finished_at = Column(String(32))
+    elapsed_ms = Column(Integer)
+    attempts = Column(Integer, default=0)
+    last_event_at = Column(String(32), index=True)  # 活跃心跳（卡住监测）
+    data = Column(JSON)  # 结构化结果（数量、评分等，已脱敏）
+    created_at = Column(String(32), default=_ts)

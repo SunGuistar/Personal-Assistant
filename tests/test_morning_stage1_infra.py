@@ -17,12 +17,12 @@ CORE_TABLES = {
 
 def test_mr_migrations_create_all_tables(fclient):
     engine = fclient.app.state.mr_engine
-    assert mr_db.current_version(engine) == 1
+    assert mr_db.current_version(engine) == len(mr_db.MIGRATIONS)  # v1 核心表 + v2 run_stages
     tables = set(inspect(engine).get_table_names())
-    assert CORE_TABLES <= tables
+    assert CORE_TABLES <= tables and "run_stages" in tables
     # 幂等：再跑一次不报错、不产生新版本
     assert mr_db.run_migrations(engine) == []
-    assert mr_db.current_version(engine) == 1
+    assert mr_db.current_version(engine) == len(mr_db.MIGRATIONS)
 
 
 def test_mr_db_isolated_from_hub(fclient):

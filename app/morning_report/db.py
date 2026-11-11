@@ -44,8 +44,19 @@ def _v1_init(engine) -> None:
     MRBase.metadata.create_all(engine)
 
 
+def _v2_run_stages(engine) -> None:
+    from . import models  # noqa: F401  RunStage 注册到 metadata
+
+    from sqlalchemy import inspect
+
+    run_stages = MRBase.metadata.tables.get("run_stages")
+    if run_stages is not None and not inspect(engine).has_table("run_stages"):
+        run_stages.create(engine)
+
+
 MIGRATIONS: list[tuple[int, str, object]] = [
     (1, "init_core_tables", _v1_init),
+    (2, "run_stages", _v2_run_stages),
 ]
 
 

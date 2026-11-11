@@ -177,3 +177,58 @@ export async function assistantChat(
   }
   return final;
 }
+
+// ---------- 进度面板 ----------
+
+export type StageStatus =
+  | "pending" | "running" | "success" | "warning"
+  | "failed" | "skipped" | "interrupted";
+
+export interface StageInfo {
+  stage: string;
+  title: string;
+  group: string | null;
+  status: StageStatus;
+  summary: string;
+  reason: string;
+  started_at: string | null;
+  finished_at: string | null;
+  elapsed_ms: number | null;
+  attempts: number;
+  last_event_at: string | null;
+  data: Record<string, unknown> | null;
+}
+
+export interface RecentEvent {
+  id: number;
+  at: string;
+  stage: string;
+  level: string;
+  message: string;
+}
+
+export interface ProgressSnapshot {
+  run: {
+    id: number;
+    run_date: string;
+    kind: string;
+    status: string;
+    error: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+  } | null;
+  stages: StageInfo[];
+  recent: RecentEvent[];
+  done_count: number;
+  total_count: number;
+  server_now: string;
+  stall_seconds: number;
+  seq: number;
+  active?: boolean;
+}
+
+export const fetchProgress = (runId: number) =>
+  api<ProgressSnapshot>(`/morning/progress?run_id=${runId}`);
+
+export const fetchActiveProgress = (reportDate?: string) =>
+  api<ProgressSnapshot>(`/morning/progress/active${reportDate ? `?report_date=${reportDate}` : ""}`);

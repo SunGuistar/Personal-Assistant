@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Send, Star, Trash2 } from "lucide-react";
+import {
+  AlertTriangle, CheckCircle2, Circle, Clock, Loader2, MinusCircle, RefreshCw,
+  Send, Star, Trash2, XCircle,
+} from "lucide-react";
 
 import {
-  HistoryItem, MemoryItem, Report, assistantChat, useCreateMemory, useDeleteMemory,
-  useMorningHistory, useMorningMemories, useMorningReport, useMorningStatus,
-  usePatchMemory, useRegenerate,
+  fetchActiveProgress, fetchProgress, HistoryItem, MemoryItem, ProgressSnapshot,
+  Report, StageInfo, assistantChat, useCreateMemory, useDeleteMemory,
+  useMorningHistory, useMorningMemories, useMorningReport, usePatchMemory, useRegenerate,
 } from "../api/morning";
 import { SafeMarkdown } from "../components/SafeMarkdown";
 import { Button } from "../components/ui/button";
@@ -14,13 +17,26 @@ import { cn } from "../lib/utils";
 type Tab = "report" | "evaluation" | "history";
 
 export function MorningReportPage() {
-  const status = useMorningStatus();
   const [tab, setTab] = useState<Tab>("report");
   const [historyView, setHistoryView] = useState<{ date: string; versionNo: number } | null>(null);
   const report = useMorningReport();
 
   const data: Report | undefined = report.data;
-  const runId = status.data?.today_run?.id ?? null;
+  // 活动任务：初始化与兜底轮询 /progress/active（5s）；重新生成提交后立即切换
+  const [active, setActive] = useState<ProgressSnapshot | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      fetchActiveProgress().then((s) => !cancelled && setActive(s)).catch(() => undefined);
+    load();
+    const timer = window.setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+  const runId = active?.run?.id ?? null;
+  const taskActive = active?.active ?? false;
 
   return (
     <div className="flex h-full min-h-0">
@@ -33,10 +49,16 @@ export function MorningReportPage() {
               {data
                 ? `${data.report_date} · 版本 v${data.version_no}${data.is_primary ? "（主报告）" : ""}`
                 : "今天还没有主报告"}
-              {status.data?.today_run?.status === "running" ? " · 生成中…" : ""}
+              {taskActive ? " · 生成中…" : ""}
             </p>
           </div>
-          <RegenerateMenu />
+          <RegenerateMenu
+            running={taskActive}
+            onSubmitted={(id) => {
+              setActive(null);
+              fetchProgress(id).then(setActive).catch(() => undefined); // 立即切换到新任务
+            }}
+          />
         </header>
 
         <nav className="flex gap-1 border-b border-neutral-200 px-6 pt-2 dark:border-neutral-800">
@@ -83,13 +105,16 @@ export function MorningReportPage() {
       {/* 右栏：晨报助手 + 实时日志 */}
       <aside className="hidden w-80 shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 lg:flex">
         <AssistantPanel />
-        <LogPanel runId={runId} />
+        <ProgressPanel runId={runId} onStatus={(a) => setActive((prev) => (prev ? { ...prev, active: a } : prev))} />
       </aside>
     </div>
   );
 }
 
-function RegenerateMenu() {
+function RegenerateMenu({ running, onSubmitted }: {
+  running: boolean; // 后端活动任务存在即禁用（多标签页经 5s 轮询同步）
+  onSubmitted: (runId: number) => void;
+}) {
   const regenerate = useRegenerate();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -98,7 +123,8 @@ function RegenerateMenu() {
     setBusy(true);
     setMessage(null);
     try {
-      await regenerate.mutateAsync({ mode });
+      const res = await regenerate.mutateAsync({ mode });
+      onSubmitted(res.run_id); // 立即切换，不等 /status 轮询
       setMessage(mode === "full" ? "已提交完整重算，生成中…" : "已提交重新生成，生成中…");
       setTimeout(() => qc.invalidateQueries({ queryKey: ["morning"] }), 8000);
     } catch (e) {
@@ -108,12 +134,13 @@ function RegenerateMenu() {
       setBusy(false);
     }
   };
+  const disabled = busy || running;
   return (
     <div className="flex items-center gap-2">
-      <Button size="sm" disabled={busy} onClick={() => run("reuse")}>
+      <Button size="sm" disabled={disabled} onClick={() => run("reuse")}>
         <RefreshCw className={cn("mr-1 h-4 w-4", busy && "animate-spin")} /> 重新生成
       </Button>
-      <Button size="sm" variant="outline" disabled={busy} onClick={() => run("full")}>
+      <Button size="sm" variant="outline" disabled={disabled} onClick={() => run("full")}>
         完整重算
       </Button>
       {message && (
@@ -334,51 +361,92 @@ function AssistantPanel() {
   );
 }
 
-interface LogRow {
-  id: number;
-  at: string;
-  stage: string;
-  level: string;
-  message: string;
-  detail?: Record<string, unknown> | null;
+// 阶段展示辅助
+const STAGE_PURPOSE: Record<string, string> = {
+  collect: "从 AIHOT、中新网归档、热摸爽获取本期窗口内的三类资讯候选",
+  index: "AI 资讯写入 Qdrant 向量索引并做必要索引一致性检查（不通过则阻塞）",
+  snapshot: "冻结本期新闻与个人上下文快照，保证生成基于确定的数据版本",
+  info_analysis: "从候选中选出值得进入晨报的国内/国际/AI 条目（公共价值优先）",
+  personal_analysis: "只依据有时间证据的个人记录总结昨日进展",
+  tech_research: "分析本期 AI 资讯的技术价值、局限与历史脉络（Subagent）",
+  goal_analysis: "对照昨日活动、长期计划与 Memory 识别目标进展（Subagent）",
+  advice: "综合前两阶段结论与历史建议，形成 0–3 条行动建议（后置）",
+  editor: "把材料整合为五部分中文晨报正文",
+  fact_check: "校验事实与引用（发布门槛：严重问题阻止发布）",
+  quality_eval: "独立模型对最终正文做五维评分（失败不阻塞发布）",
+  publish: "保存报告版本、质量评价并更新历史晨报索引",
+};
+
+const STATUS_META: Record<string, { label: string; className: string }> = {
+  success: { label: "已完成", className: "bg-emerald-100 text-emerald-700" },
+  running: { label: "进行中", className: "bg-sky-100 text-sky-700" },
+  pending: { label: "等待执行", className: "bg-neutral-100 text-neutral-500" },
+  warning: { label: "警告", className: "bg-amber-100 text-amber-700" },
+  failed: { label: "失败", className: "bg-red-100 text-red-700" },
+  skipped: { label: "降级/跳过", className: "bg-amber-100 text-amber-700" },
+  interrupted: { label: "中断·待确认", className: "bg-neutral-200 text-neutral-600" },
+};
+
+function fmtClock(iso: string | null | undefined): string {
+  return iso ? iso.slice(11, 19) : "--:--:--";
 }
 
-function LogPanel({ runId }: { runId: number | null }) {
-  const [rows, setRows] = useState<LogRow[]>([]);
+function fmtDuration(ms: number | null | undefined): string {
+  if (!ms && ms !== 0) return "-";
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
+}
+
+function StageIcon({ status }: { status: string }) {
+  const cls = "h-3.5 w-3.5 shrink-0";
+  switch (status) {
+    case "success": return <CheckCircle2 className={cn(cls, "text-emerald-600")} />;
+    case "running": return <Loader2 className={cn(cls, "animate-spin text-sky-600")} />;
+    case "warning": case "skipped": return <AlertTriangle className={cn(cls, "text-amber-600")} />;
+    case "failed": return <XCircle className={cn(cls, "text-red-600")} />;
+    case "interrupted": return <MinusCircle className={cn(cls, "text-neutral-500")} />;
+    default: return <Circle className={cn(cls, "text-neutral-300")} />;
+  }
+}
+
+/** 晨报生成进度面板：完整阶段列表 + 整体进度 + 关键动态；点击阶段开悬浮详情。 */
+function ProgressPanel({ runId, onStatus }: {
+  runId: number | null;
+  onStatus: (active: boolean) => void;
+}) {
+  const [snap, setSnap] = useState<ProgressSnapshot | null>(null);
   const [live, setLive] = useState(false);
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openStage, setOpenStage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
-    setRows([]);
+    const t = window.setInterval(() => setTick((n) => n + 1), 1000); // 秒级刷新耗时
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    setSnap(null);
+    setOpenStage(null);
     if (!runId) return;
     let cancelled = false;
-    let after = 0;
+    let lastSeq = 0;
     let es: EventSource | null = null;
     let retryTimer: number | undefined;
 
-    // 先拉全量历史日志，再以最后一条为断点接实时流
-    fetch(`/api/morning/runs/${runId}/logs`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((all: LogRow[]) => {
-        if (cancelled) return;
-        setRows(all);
-        after = all.length ? all[all.length - 1].id : 0;
-        connect();
-      })
-      .catch(() => connect());
-
-    const connect = () => {
-      if (cancelled || typeof EventSource === "undefined") return; // 测试环境（jsdom）无 EventSource
-      es = new EventSource(`/api/morning/logs/stream?run_id=${runId}&after_id=${after}`);
+    const connect = (afterSeq: number) => {
+      if (cancelled || typeof EventSource === "undefined") return; // jsdom 无 EventSource
+      es = new EventSource(`/api/morning/progress/stream?run_id=${runId}&after_seq=${afterSeq}`);
       es.onmessage = (e) => {
         try {
           const d = JSON.parse(e.data);
-          if (d.id) {
-            after = d.id;
-            setRows((r) => [...r, d]);
+          if (d.stages && d.seq > lastSeq) {
+            lastSeq = d.seq;
+            if (!cancelled) setSnap(d);
           }
           if (d.done) {
             setLive(false);
+            if (!cancelled) onStatus(false);
             es?.close();
           }
         } catch { /* 忽略坏帧 */ }
@@ -386,53 +454,203 @@ function LogPanel({ runId }: { runId: number | null }) {
       es.onopen = () => setLive(true);
       es.onerror = () => {
         es?.close();
-        if (!cancelled) retryTimer = window.setTimeout(connect, 3000);
+        setLive(false);
+        if (!cancelled) retryTimer = window.setTimeout(() => connect(lastSeq), 3000);
       };
     };
+
+    fetchProgress(runId)
+      .then((s) => {
+        if (cancelled) return;
+        lastSeq = s.seq;
+        setSnap(s);
+        onStatus(s.active ?? false);
+        connect(s.seq);
+      })
+      .catch(() => connect(0));
     return () => {
       cancelled = true;
       window.clearTimeout(retryTimer);
       es?.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
 
+  // 服务器时钟偏移（用于卡住判断与耗时，避免客户端时钟不准）
+  const serverOffset = snap
+    ? new Date(snap.server_now).getTime() - Date.now()
+    : 0;
+  const nowServer = () => Date.now() + serverOffset;
+
+  const run = snap?.run ?? null;
+  const currentStage = snap?.stages.find((s) => s.status === "running") ?? null;
+  const elapsedRun = run?.started_at
+    ? Math.max(0, nowServer() - new Date(run.started_at).getTime())
+    : null;
+
+  const stalledStage = currentStage && currentStage.last_event_at
+    ? nowServer() - new Date(currentStage.last_event_at).getTime() > snap!.stall_seconds * 1000
+    : false;
+
   return (
-    <section className="flex h-2/5 min-h-0 flex-col">
+    <section className="relative flex h-2/5 min-h-0 flex-col">
       <header className="flex items-center justify-between px-4 py-2">
-        <h2 className="text-sm font-medium">实时执行日志</h2>
-        {live && <span className="text-xs text-emerald-600">● 连接中</span>}
+        <h2 className="text-sm font-medium">生成进度</h2>
+        {live && <span className="text-xs text-emerald-600">● 已连接</span>}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 font-mono text-xs">
-        {rows.length === 0 && <p className="text-neutral-400">暂无日志。</p>}
-        {rows.map((r) => (
-          <div key={r.id}>
-            <button
-              className="flex w-full gap-2 py-0.5 text-left"
-              onClick={() => setOpenId(openId === r.id ? null : r.id)}
-              title={openId === r.id ? "收起详情" : "展开详情"}
-            >
-              <span className="text-neutral-400">{r.at.slice(11, 19)}</span>
-              <span
-                className={cn(
-                  "rounded px-1",
-                  r.level === "error" ? "bg-red-100 text-red-700"
-                  : r.level === "warning" ? "bg-amber-100 text-amber-700"
-                  : "bg-neutral-100 text-neutral-600",
-                )}
-              >
-                {r.stage}
-              </span>
-              <span className="flex-1 truncate text-neutral-700">{r.message}</span>
-            </button>
-            {openId === r.id && (
-              <pre className="mb-1 ml-16 whitespace-pre-wrap break-all rounded bg-neutral-50 p-2 text-[11px] leading-4 text-neutral-500">
-                {r.detail ? JSON.stringify(r.detail, null, 2) : "（无技术详情）"}
-              </pre>
-            )}
+
+      {run && snap && (
+        <div className="space-y-1 px-4 pb-1 text-xs text-neutral-600">
+          <div className="flex items-center gap-2">
+            <span className={cn("rounded px-1.5 py-0.5", STATUS_META[run.status]?.className ?? "bg-neutral-100")}>
+              {STATUS_META[run.status]?.label ?? run.status}
+            </span>
+            <span>开始 {fmtClock(run.started_at)}</span>
+            <span className="inline-flex items-center gap-0.5">
+              <Clock className="h-3 w-3" />
+              {run.status === "success" || run.status === "failed" || run.status === "degraded"
+                ? fmtDuration(run.finished_at && run.started_at
+                    ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
+                    : null)
+                : fmtDuration(elapsedRun)}
+            </span>
+            <span className="ml-auto">
+              阶段 {snap.done_count}/{snap.total_count}
+            </span>
           </div>
-        ))}
+          {currentStage && (
+            <p className="truncate">
+              当前：<span className="font-medium text-sky-700">{currentStage.title}</span>
+              {stalledStage && (
+                <span className="ml-2 rounded bg-amber-100 px-1 text-amber-700">
+                  较长时间未更新（{fmtDuration(nowServer() - new Date(currentStage.last_event_at!).getTime())}）
+                </span>
+              )}
+            </p>
+          )}
+          {!currentStage && run.error && (
+            <p className="truncate text-red-600">{run.error}</p>
+          )}
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-1">
+        {snap?.stages.map((s) => {
+          const showGroupHead = s.group && s.stage === "tech_research";
+          return (
+            <div key={s.stage}>
+              {showGroupHead && (
+                <p className="mt-1 text-[10px] uppercase tracking-wide text-neutral-400">并行执行</p>
+              )}
+              <button
+                className={cn(
+                  "flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-xs hover:bg-neutral-100",
+                  s.status === "running" && "bg-sky-50",
+                )}
+                onClick={() => setOpenStage(openStage === s.stage ? null : s.stage)}
+              >
+                <StageIcon status={s.status} />
+                <span
+                  className={cn(
+                    "shrink-0",
+                    s.status === "pending" ? "text-neutral-400" : "text-neutral-700",
+                    s.status === "running" && "font-medium text-sky-700",
+                  )}
+                >
+                  {s.title}
+                </span>
+                <span className="truncate text-neutral-400">
+                  {s.summary || s.reason || ""}
+                </span>
+              </button>
+            </div>
+          );
+        })}
+        {!snap && <p className="py-2 text-xs text-neutral-400">今天还没有生成任务。</p>}
       </div>
+
+      {snap && snap.recent.length > 0 && (
+        <div className="border-t border-neutral-100 px-4 py-1">
+          <p className="py-0.5 text-[10px] uppercase tracking-wide text-neutral-400">最近动态</p>
+          {snap.recent.slice(-3).map((r) => (
+            <p key={r.id} className="truncate text-[11px] text-neutral-500">
+              <span className="text-neutral-400">{r.at.slice(11, 19)}</span>{" "}
+              {r.level === "error" ? "✗ " : r.level === "warning" ? "⚠ " : ""}{r.message}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {openStage && snap && (
+        <StagePopover
+          stage={snap.stages.find((s) => s.stage === openStage)!}
+          onClose={() => setOpenStage(null)}
+          onCopied={() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          }}
+          copied={copied}
+        />
+      )}
     </section>
+  );
+}
+
+/** 阶段悬浮详情窗（面板内部浮层，不改变页面布局）。 */
+function StagePopover({ stage, onClose, onCopied, copied }: {
+  stage: StageInfo;
+  onClose: () => void;
+  onCopied: () => void;
+  copied: boolean;
+}) {
+  const tech = stage.data ?? {};
+  const copy = () => {
+    navigator.clipboard?.writeText(JSON.stringify(
+      { stage: stage.stage, status: stage.status, summary: stage.summary, reason: stage.reason, data: stage.data },
+      null, 2,
+    )).then(onCopied).catch(() => undefined);
+  };
+  return (
+    <div className="absolute inset-x-2 bottom-2 top-10 z-10 flex flex-col rounded-md border border-neutral-200 bg-white shadow-lg">
+      <header className="flex items-center justify-between border-b border-neutral-100 px-3 py-2">
+        <div>
+          <h3 className="text-sm font-medium">{stage.title}</h3>
+          <p className={cn("mt-0.5 inline-block rounded px-1 text-[11px]",
+            STATUS_META[stage.status]?.className)}>
+            {STATUS_META[stage.status]?.label}
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="outline" onClick={copy}>
+            {copied ? "已复制" : "复制"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={onClose} aria-label="关闭详情">✕</Button>
+        </div>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-xs leading-5">
+        <p className="text-neutral-500">{STAGE_PURPOSE[stage.stage] ?? ""}</p>
+        <dl className="mt-2 space-y-1">
+          <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">开始</dt><dd>{fmtClock(stage.started_at)}</dd></div>
+          <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">结束</dt><dd>{fmtClock(stage.finished_at)}</dd></div>
+          <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">耗时</dt><dd>{fmtDuration(stage.elapsed_ms)}</dd></div>
+          <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">尝试次数</dt><dd>{stage.attempts || "-"}</dd></div>
+          {stage.summary && (
+            <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">结果</dt><dd>{stage.summary}</dd></div>
+          )}
+          {stage.reason && (
+            <div className="flex gap-2"><dt className="w-16 shrink-0 text-neutral-400">说明</dt><dd className="text-amber-700">{stage.reason}</dd></div>
+          )}
+        </dl>
+        {Object.keys(tech).length > 0 && (
+          <details className="mt-2 rounded border border-neutral-100 p-2">
+            <summary className="cursor-pointer text-neutral-500">技术详情（已脱敏）</summary>
+            <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] text-neutral-500">
+              {JSON.stringify(tech, null, 2)}
+            </pre>
+          </details>
+        )}
+      </div>
+    </div>
   );
 }
 

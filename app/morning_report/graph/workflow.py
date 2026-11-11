@@ -48,6 +48,7 @@ class WorkflowDeps:
         self.run_id = run_id
         self.prompt_version = prompt_version
         self.recorder = None  # callable(node, result, model, base_url)，生产注入落 TokenUsage
+        self.progress = None  # ProgressTracker（可选）；节点据此上报阶段状态
 
     def record(self, node: str, result) -> None:
         if self.recorder is not None:
@@ -99,6 +100,7 @@ def _json_of(content: str) -> dict:
 # ---------- 节点 ----------
 
 def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
+    deps.progress and deps.progress.stage_started("info_analysis")
     fp = stage_cache.fingerprint(
         "news", [n["content_hash"] for n in state["news"]],
         "memory", [m["updated_at"] for m in state["memory"]],
@@ -107,6 +109,9 @@ def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
     with deps.mr_session_factory() as mr:
         cached = stage_cache.get_cached(mr, "info_analysis", fp)
         if cached is not None:
+            deps.progress and deps.progress.stage_completed(
+                "info_analysis", summary="命中阶段缓存",
+                status="skipped", reason="输入未变化，复用缓存")
             return {"news_selection": cached}
         memory_txt = "；".join(m["content"] for m in state["memory"] if m.get("enabled"))
         result = deps.llm.chat([{"role": "user", "content": prompts.INFO_ANALYSIS.format(
@@ -115,10 +120,15 @@ def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
         selection = _json_of(result.content)
         stage_cache.put_cache(mr, "info_analysis", fp, selection, model=deps.llm.model,
                               prompt_version=deps.prompt_version)
+    deps.progress and deps.progress.stage_completed(
+        "info_analysis",
+        summary=f"选中 国内{len(selection.get('domestic', []))}/国际{len(selection.get('international', []))}/AI{len(selection.get('ai', []))} 条",
+        data={"selected": {k: len(v) for k, v in selection.items()}})
     return {"news_selection": selection}
 
 
 def node_personal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
+    deps.progress and deps.progress.stage_started("personal_analysis")
     p = state["personal"]
     fp = stage_cache.fingerprint(
         "personal", p, "memory", [m["updated_at"] for m in state["memory"]],
@@ -127,6 +137,9 @@ def node_personal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
     with deps.mr_session_factory() as mr:
         cached = stage_cache.get_cached(mr, "personal_analysis", fp)
         if cached is not None:
+            deps.progress and deps.progress.stage_completed(
+                "personal_analysis", summary="命中阶段缓存",
+                status="skipped", reason="输入未变化，复用缓存")
             return {"personal_summary": cached["summary"]}
         result = deps.llm.chat([{"role": "user", "content": prompts.PERSONAL_ANALYSIS.format(
             window=f"{state['window_start']} ~ {state['window_end']}",
@@ -138,17 +151,26 @@ def node_personal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
         summary = result.content.strip()
         stage_cache.put_cache(mr, "personal_analysis", fp, {"summary": summary},
                               model=deps.llm.model, prompt_version=deps.prompt_version)
+    deps.progress and deps.progress.stage_completed("personal_analysis",
+                                                    summary=f"{len(summary)} 字总结")
     return {"personal_summary": summary}
 
 
 def node_tech_research(state: MRState, deps: WorkflowDeps) -> dict:
     if not state["news_selection"].get("ai"):
+        deps.progress and deps.progress.stage_completed(
+            "tech_research", summary="本期无 AI 候选，跳过", status="skipped",
+            reason="资讯分析未选出 AI 条目")
         return {"tech_result": {"status": "ok", "content": "本期无值得深究的 AI 进展。"}}
+    deps.progress and deps.progress.stage_started("tech_research")
     fp = stage_cache.fingerprint(
         "tech", state["news_selection"]["ai"], deps.prompt_version, deps.llm.model)
     with deps.mr_session_factory() as mr:
         cached = stage_cache.get_cached(mr, "tech_research", fp)
         if cached is not None:
+            deps.progress and deps.progress.stage_completed(
+                "tech_research", summary="命中阶段缓存", status="skipped",
+                reason="输入未变化，复用缓存")
             return {"tech_result": cached}
         try:
             content = deps.subagents.run("tech_research", prompts.TECH_RESEARCH.format(
@@ -157,18 +179,29 @@ def node_tech_research(state: MRState, deps: WorkflowDeps) -> dict:
         except Exception as exc:
             logger.warning("技术研究失败，按规则降级: %s", f"{type(exc).__name__}: {exc}"[:150])
             res = {"status": "failed", "content": "", "error": f"{type(exc).__name__}"}
+            deps.progress and deps.progress.stage_completed(
+                "tech_research", summary="执行失败，结论缺失", status="skipped",
+                reason=f"{type(exc).__name__}: 按规则降级，建议不引用该结论")
+        else:
+            deps.progress and deps.progress.stage_completed(
+                "tech_research", summary=f"分析完成（{len(content)} 字）",
+                data={"result_chars": len(content)})
         stage_cache.put_cache(mr, "tech_research", fp, res, model=deps.llm.model,
                               prompt_version=deps.prompt_version)
     return {"tech_result": res}
 
 
 def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
+    deps.progress and deps.progress.stage_started("goal_analysis")
     fp = stage_cache.fingerprint(
         "goal", state["personal"], "memory", [m["updated_at"] for m in state["memory"]],
         deps.prompt_version, deps.llm.model)
     with deps.mr_session_factory() as mr:
         cached = stage_cache.get_cached(mr, "goal_analysis", fp)
         if cached is not None:
+            deps.progress and deps.progress.stage_completed(
+                "goal_analysis", summary="命中阶段缓存", status="skipped",
+                reason="输入未变化，复用缓存")
             return {"goal_result": cached}
         try:
             content = deps.subagents.run("goal_analysis", prompts.GOAL_ANALYSIS.format(
@@ -180,12 +213,20 @@ def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
         except Exception as exc:
             logger.warning("目标分析失败，按规则降级: %s", f"{type(exc).__name__}: {exc}"[:150])
             res = {"status": "failed", "content": "", "error": f"{type(exc).__name__}"}
+            deps.progress and deps.progress.stage_completed(
+                "goal_analysis", summary="执行失败，结论缺失", status="skipped",
+                reason=f"{type(exc).__name__}: 按规则降级")
+        else:
+            deps.progress and deps.progress.stage_completed(
+                "goal_analysis", summary=f"分析完成（{len(content)} 字）",
+                data={"result_chars": len(content)})
         stage_cache.put_cache(mr, "goal_analysis", fp, res, model=deps.llm.model,
                               prompt_version=deps.prompt_version)
     return {"goal_result": res}
 
 
 def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
+    deps.progress and deps.progress.stage_started("advice")
     ctx = {
         "news": state["news_selection"],
         "personal": state.get("personal_summary", ""),
@@ -193,6 +234,7 @@ def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
         "goal": state["goal_result"],
     }
     if state["tech_result"].get("status") == "failed" and state["goal_result"].get("status") == "failed":
+        deps.progress and deps.progress.stage_failed("advice", "上游技术研究与目标分析均失败，无法形成建议")
         return {"advice_result": {"status": "failed", "advices": [], "note": "建议分析失败"}}
     result = deps.llm.chat([{"role": "user", "content": prompts.ADVICE.format(
         context=json.dumps(ctx, ensure_ascii=False))}], json_mode=True)
@@ -201,8 +243,12 @@ def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
         data = _json_of(result.content)
         advices = [{"content": a.get("content", ""), "basis": a.get("basis", "")}
                    for a in data.get("advices", [])][:3]
+        deps.progress and deps.progress.stage_completed(
+            "advice", summary=f"{len(advices)} 条建议",
+            data={"advice_count": len(advices)})
         return {"advice_result": {"status": "ok", "advices": advices, "note": data.get("note", "")}}
     except ValueError:
+        deps.progress and deps.progress.stage_failed("advice", "建议输出解析失败")
         return {"advice_result": {"status": "failed", "advices": [], "note": "建议输出解析失败"}}
 
 
@@ -225,6 +271,7 @@ def _selected_with_urls(state: MRState, cat: str) -> list[dict]:
 
 
 def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
+    deps.progress and deps.progress.stage_started("editor")
     sel = state["news_selection"]
     result = deps.llm.chat([{"role": "user", "content": prompts.EDITOR.format(
         generated_at=datetime.now(CST).isoformat(timespec="seconds"),
@@ -237,6 +284,7 @@ def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
         advice=json.dumps(state["advice_result"], ensure_ascii=False),
     )}])
     deps.record("editor", result)
+    deps.progress and deps.progress.stage_completed("editor", summary=f"正文 {len(result.content)} 字")
     return {"draft": result.content.strip()}
 
 

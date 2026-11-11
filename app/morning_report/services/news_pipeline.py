@@ -19,6 +19,7 @@ from ..adapters import NewsCandidate
 from ..adapters import aihot, chinanews, remoshuang
 from ..adapters.http_common import FetchError
 from ..models import EventGroup, NewsItem, RunLog, RunRecord
+from . import progress as progress_mod
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,8 @@ def run_collect(mr: Session, run_id: int) -> dict:
     run.status = "running"
     run.started_at = _now()
     mr.commit()
+    tracker = progress_mod.ProgressTracker(mr, run_id)
+    tracker.stage_started("collect", f"窗口 {run.window_start[:16]} ~ {run.window_end[:16]}")
     log_run(mr, run_id, "collect", f"开始采集，窗口 {run.window_start} ~ {run.window_end}")
 
     sources = {
@@ -119,6 +122,10 @@ def run_collect(mr: Session, run_id: int) -> dict:
         except Exception as exc:  # 解析等未预期错误同样降级记录
             failures[name] = f"{type(exc).__name__}: {exc}"
             log_run(mr, run_id, "collect", f"{name} 处理异常：{failures[name]}", level="warning")
+    tracker.stage_progress("collect",
+                           summary=f"已获取 {len(candidates)} 条候选",
+                           data={"per_source": {name: sum(1 for c in candidates if c.adapter == name)
+                                                for name in sources}})
     # 窗口过滤（无时间线索保留但标记）
     windowed = [c for c in candidates if _in_window(c.published_at, run.window_start, run.window_end)]
     clues = [c for c in candidates if c.published_at is None]
@@ -162,7 +169,11 @@ def run_collect(mr: Session, run_id: int) -> dict:
         "source_failures": failures,
     }
     log_run(mr, run_id, "collect", "采集完成", detail=summary)
-
+    tracker.stage_completed("collect",
+                            summary=f"窗口内 {len(windowed)} 条，保存 {len(items)} 条",
+                            data={"in_window": len(windowed), "saved": len(items),
+                                  "duplicates_merged": dup, "event_groups": summary["event_groups"],
+                                  "source_failures": failures})
     run.finished_at = _now()
     if len(failures) == len(sources):
         run.status = "failed"

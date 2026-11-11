@@ -8,6 +8,7 @@ from .assistant import router as assistant_router
 from .deps import get_mr_session, get_mr_settings, get_hub_session
 from .logs import router as logs_router
 from .memory import router as memory_router
+from .progress import router as progress_router
 from .report import router as report_router
 from .runs import router as runs_router
 from .status import router as status_router
@@ -19,5 +20,6 @@ morning_router.include_router(runs_router)
 morning_router.include_router(report_router)
 morning_router.include_router(assistant_router)
 morning_router.include_router(logs_router)
+morning_router.include_router(progress_router)
 
 __all__ = ["morning_router", "get_mr_session", "get_mr_settings", "get_hub_session"]

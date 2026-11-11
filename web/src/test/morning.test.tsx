@@ -51,6 +51,18 @@ function makeFetchMock() {
           created_at: "2026-11-10T08:05:00+08:00", has_evaluation: true },
       ] }), { status: 200 });
     }
+    if (url.includes("/api/morning/progress/active")) {
+      return new Response(JSON.stringify({
+        run: null, stages: [], recent: [], done_count: 0, total_count: 12,
+        server_now: new Date().toISOString(), stall_seconds: 150, seq: 0, active: false,
+      }), { status: 200 });
+    }
+    if (url.includes("/api/morning/progress")) {
+      return new Response(JSON.stringify({
+        run: null, stages: [], recent: [], done_count: 0, total_count: 12,
+        server_now: new Date().toISOString(), stall_seconds: 150, seq: 0, active: false,
+      }), { status: 200 });
+    }
     if (url.includes("/api/morning/memory")) {
       return new Response(JSON.stringify([
         { id: 1, kind: "interest", content: "关注 AI Agent", enabled: true, confirmed: true,
@@ -132,5 +144,95 @@ describe("MorningReportPage", () => {
       );
       expect(patchCall).toBeTruthy();
     });
+  });
+});
+
+// ---------- 进度面板（生成进度） ----------
+
+const STAGES = [
+  { stage: "collect", title: "资讯采集", group: null, status: "success", summary: "窗口内 490 条",
+    reason: "", started_at: "2026-11-11T12:00:00+08:00", finished_at: "2026-11-11T12:00:20+08:00",
+    elapsed_ms: 20000, attempts: 1, last_event_at: "2026-11-11T12:00:20+08:00",
+    data: { in_window: 490 } },
+  { stage: "tech_research", title: "技术研究 Subagent", group: "parallel_analysis", status: "running",
+    summary: "", reason: "", started_at: "2026-11-11T12:01:00+08:00", finished_at: null,
+    elapsed_ms: null, attempts: 1, last_event_at: new Date().toISOString(), data: null },
+  { stage: "goal_analysis", title: "目标分析 Subagent", group: "parallel_analysis", status: "running",
+    summary: "", reason: "", started_at: "2026-11-11T12:01:00+08:00", finished_at: null,
+    elapsed_ms: null, attempts: 1, last_event_at: new Date().toISOString(), data: null },
+  { stage: "advice", title: "建议 Subagent", group: null, status: "pending", summary: "", reason: "",
+    started_at: null, finished_at: null, elapsed_ms: null, attempts: 0,
+    last_event_at: null, data: null },
+];
+
+function makeProgressFetchMock(overrides: { active?: boolean; status?: string } = {}) {
+  const base = makeFetchMock();
+  const snap = {
+    run: { id: 9, run_date: "2026-11-11", kind: "generate",
+           status: overrides.status ?? "running", error: null,
+           started_at: "2026-11-11T12:00:00+08:00", finished_at: null },
+    stages: STAGES,
+    recent: [{ id: 1, at: "2026-11-11T12:00:20+08:00", stage: "collect", level: "info",
+               message: "采集完成" }],
+    done_count: 1, total_count: 12,
+    server_now: new Date().toISOString(), stall_seconds: 150, seq: 5,
+    active: overrides.active ?? true,
+  };
+  const fn = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/morning/progress")) {
+      return new Response(JSON.stringify(snap), { status: 200 });
+    }
+    return base(input as RequestInfo, _init);
+  });
+  return fn;
+}
+
+describe("生成进度面板", () => {
+  it("展示完整阶段列表：已完成/进行中/未开始与并行标识", async () => {
+    vi.stubGlobal("fetch", makeProgressFetchMock());
+    renderPage();
+    await waitFor(() => expect(screen.getByText("资讯采集")).toBeInTheDocument());
+    expect(screen.getAllByText("技术研究 Subagent").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("目标分析 Subagent").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("建议 Subagent")).toBeInTheDocument();
+    expect(screen.getByText("并行执行")).toBeInTheDocument(); // 并行组标识
+    expect(screen.getByText("阶段 1/12")).toBeInTheDocument(); // 整体进度
+    expect(screen.getByText("当前：")).toBeInTheDocument(); // 当前阶段行
+    // 当前阶段高亮（技术研究 running）：阶段列表行带高亮底色
+    const highlighted = screen.getAllByText("技术研究 Subagent")
+      .some((el) => el.closest("button")?.className.includes("bg-sky-50"));
+    expect(highlighted).toBe(true);
+  });
+
+  it("点击阶段打开悬浮详情，含执行详情与技术详情折叠", async () => {
+    vi.stubGlobal("fetch", makeProgressFetchMock());
+    renderPage();
+    fireEvent.click(await screen.findByText("资讯采集"));
+    await waitFor(() => expect(screen.getByText("尝试次数")).toBeInTheDocument());
+    expect(screen.getByText(/从 AIHOT、中新网归档/)).toBeInTheDocument(); // 阶段目的
+    expect(screen.getByText("技术详情（已脱敏）")).toBeInTheDocument(); // 折叠区标题
+    fireEvent.click(screen.getByLabelText("关闭详情"));
+    await waitFor(() => expect(screen.queryByText("尝试次数")).not.toBeInTheDocument());
+  });
+
+  it("任务运行期间两个生成按钮同时禁用", async () => {
+    vi.stubGlobal("fetch", makeProgressFetchMock({ active: true }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("生成进度")).toBeInTheDocument());
+    const reuse = screen.getByText("重新生成").closest("button")!;
+    const full = screen.getByText("完整重算").closest("button")!;
+    expect(reuse).toBeDisabled();
+    expect(full).toBeDisabled();
+  });
+
+  it("任务终态后按钮恢复可点击", async () => {
+    vi.stubGlobal("fetch", makeProgressFetchMock({ active: false, status: "success" }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("生成进度")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByText("重新生成").closest("button")).not.toBeDisabled();
+    });
+    expect(screen.getByText("完整重算").closest("button")).not.toBeDisabled();
   });
 });
