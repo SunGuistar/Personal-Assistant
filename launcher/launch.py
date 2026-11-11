@@ -1,6 +1,6 @@
 """个人助手 Windows 启动器（ARCH §3.5）。
 
-流程：健康检查（默认 http://127.0.0.1:8620/api/health）→ 已运行则直接开浏览器；
+流程：健康检查（默认 http://127.0.0.1:8621/api/health）→ 已运行则直接开浏览器；
 未运行则拉起 uvicorn → 轮询就绪（默认 30s 超时）→ 打开默认浏览器首页。
 
 解释器解析顺序（统一使用 Conda `agent` 环境，不依赖项目 .venv）：
@@ -27,8 +27,8 @@ import webbrowser
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-HEALTH_URL = "http://127.0.0.1:8620/api/health"
-HOME_URL = "http://127.0.0.1:8620/"
+HEALTH_URL = "http://127.0.0.1:8621/api/health"
+HOME_URL = "http://127.0.0.1:8621/"
 READY_TIMEOUT_SECONDS = 30.0
 POLL_INTERVAL = 0.5
 AGENT_ENV_NAME = "agent"
@@ -78,7 +78,7 @@ def resolve_python_cmd() -> list[str]:
 
     uvicorn_args = [
         "-m", "uvicorn", "--factory", "app.main:create_app",
-        "--host", "127.0.0.1", "--port", "8620",
+        "--host", "127.0.0.1", "--port", "8621",
     ]
 
     override = os.environ.get("PH_HUB_PYTHON", "").strip()
@@ -109,7 +109,7 @@ def resolve_python_cmd() -> list[str]:
             f"请确认该环境存在，或经 PH_HUB_PYTHON 指定解释器。详情: "
             f"{(check.stderr or check.stdout).strip()[:300]}"
         )
-    uvicorn_args = "-m uvicorn --factory app.main:create_app --host 127.0.0.1 --port 8620"
+    uvicorn_args = "-m uvicorn --factory app.main:create_app --host 127.0.0.1 --port 8621"
     return f"{inner} {uvicorn_args}"  # shell=True 形态（见 start_service）
 
 

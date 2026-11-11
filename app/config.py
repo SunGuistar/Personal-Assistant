@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PH_", env_file=str(ROOT_DIR / ".env"), extra="ignore")
 
     hub_host: str = "127.0.0.1"
-    hub_port: int = 8620
+    hub_port: int = 8621  # V2 工作区默认 8621（main 工作区占用 8620；可用 PH_HUB_PORT 覆盖）
 
     data_dir: Path = ROOT_DIR / "data"
     static_dir: Path = ROOT_DIR / "web" / "dist"
