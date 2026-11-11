@@ -9,6 +9,3 @@
 body {
   @apply bg-neutral-50 text-neutral-800 antialiased;
 }
-
-/* 深色模式（晨报页切换 html.dark） */
-.dark body { @apply bg-neutral-950 text-neutral-100; }

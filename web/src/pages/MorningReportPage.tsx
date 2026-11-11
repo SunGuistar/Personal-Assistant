@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Moon, RefreshCw, Send, Star, Sun, Trash2 } from "lucide-react";
+import { RefreshCw, Send, Star, Trash2 } from "lucide-react";
 
 import {
   HistoryItem, MemoryItem, Report, assistantChat, useCreateMemory, useDeleteMemory,
@@ -13,19 +13,7 @@ import { cn } from "../lib/utils";
 
 type Tab = "report" | "evaluation" | "history";
 
-const DARK_KEY = "hub.theme.dark";
-
-function useDarkMode() {
-  const [dark, setDark] = useState(() => localStorage.getItem(DARK_KEY) === "1");
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem(DARK_KEY, dark ? "1" : "0");
-  }, [dark]);
-  return { dark, toggle: () => setDark((v) => !v) };
-}
-
 export function MorningReportPage() {
-  const { dark, toggle } = useDarkMode();
   const status = useMorningStatus();
   const [tab, setTab] = useState<Tab>("report");
   const [selected, setSelected] = useState<{ date: string; versionNo: number } | null>(null);
@@ -48,12 +36,7 @@ export function MorningReportPage() {
               {status.data?.today_run?.status === "running" ? " · 生成中…" : ""}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={toggle} aria-label="切换深色模式">
-              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <RegenerateMenu />
-          </div>
+          <RegenerateMenu />
         </header>
 
         <nav className="flex gap-1 border-b border-neutral-200 px-6 pt-2 dark:border-neutral-800">
