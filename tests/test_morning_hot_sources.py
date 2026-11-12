@@ -95,7 +95,7 @@ def test_rank_failure_has_no_fallback_and_keeps_history(fclient, monkeypatch):
         current = news_pipeline.create_collect_run(mr, "2026-11-11")
         summary = news_pipeline.run_collect(mr, current.id)
         assert set(summary["source_failures"]) == {"chinanews_domestic", "chinanews_international"}
-        assert mr.get(RunRecord, current.id).status == "failed"
+        assert mr.get(RunRecord, current.id).status == "degraded"
         assert summary["saved_unique"] == 0  # 不通过精选/其他来源回填
         assert news_pipeline.collection_is_current(mr, current.id)
         assert not news_pipeline.collection_is_current(mr, old.id)
@@ -130,7 +130,7 @@ def test_rank_change_invalidates_analysis_cache(fclient):
     second["news"] = [{**item, "rank": 2} for item in second["news"]]
     asyncio.run(_run_graph(fclient, _deps(fclient, llm=llm, run_id=2), second))
     assert sum("选出值得进入晨报" in call for call in llm.calls) == 0
-    assert len(llm.calls) == 4  # 每次重新组装并发布，仅主编和评价调用普通模型
+    assert len(llm.calls) == 0  # 主编程序组装，不调用普通模型
 
 
 def test_morning_isolation_blocks_unmocked_http_and_uses_memory_store():
@@ -200,6 +200,8 @@ def test_generation_snapshot_keeps_news_regardless_of_time(fclient, monkeypatch,
         for cat in ("domestic", "international"):
             mr.add(NewsItem(run_id=collect.id, category=cat, title=cat, source_url=cat,
                            published_at=stamp, content_hash=cat))
+        mr.add(NewsItem(run_id=collect.id, category="ai", title="AI complete", source_url="https://example.com/ai",
+                        content_hash="ai-complete", raw_ref={"daily_member": True, "daily_date": "2026-11-11"}))
         run = RunRecord(run_date="2026-11-11", kind="generate", status="pending")
         mr.add(run); mr.commit()
         with pytest.raises(SnapshotCaptured):

@@ -37,16 +37,16 @@ def test_json_contract_rejects_non_objects_and_non_json(value):
 
 
 @pytest.mark.parametrize("payload", [{}, {"content_md": None}, {"content_md": []}, {"content_md": "  "}])
-def test_editor_rejects_missing_or_invalid_markdown(payload):
+def test_editor_never_asks_model_for_markdown(payload):
     state = _initial()
     state.update(goal_result={}, advice_result={}, news_selection={})
     def chat(messages, *, json_mode):
         assert json_mode is True
-        assert "JSON" in messages[0]["content"]
-        return ChatResult(content=json.dumps(payload))
+        pytest.fail("主编不得调用模型")
     deps = SimpleNamespace(cancel_token=None, progress=None, llm=SimpleNamespace(chat=chat), record=lambda *a: None)
-    with pytest.raises(ValueError, match="content_md"):
-        node_editor(state, deps)
+    result = node_editor(state, deps)
+    assert "## 三、我的昨日" in result["draft"]
+    assert "## 四、今日建议" in result["draft"]
 
 
 @pytest.mark.parametrize("stage", ["goal_analysis", "advice"])

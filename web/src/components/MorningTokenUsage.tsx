@@ -19,24 +19,24 @@ export function MorningTokenUsage({ runId, active, stages }: {
   for (const item of items) if (!names.has(item.node)) names.set(item.node, item.node);
   const input = sumTokens(items, "input_tokens");
   const output = sumTokens(items, "output_tokens");
-  const total = input === null && output === null ? null : (input ?? 0) + (output ?? 0);
-  const cacheHits = sumTokens(items, "cache_hit_tokens");
-  const cacheMisses = sumTokens(items, "cache_miss_tokens");
+  const total = items.length === 0 ? 0 : input === null && output === null ? null : (input ?? 0) + (output ?? 0);
+  const cacheHits = items.length === 0 ? 0 : sumTokens(items, "cache_hit_tokens");
+  const cacheMisses = items.length === 0 ? 0 : sumTokens(items, "cache_miss_tokens");
   const hitPartial = cacheHits !== null && items.some((item) => item.cache_hit_tokens == null);
   const missPartial = cacheMisses !== null && items.some((item) => item.cache_miss_tokens == null);
   const partial = items.some((item) => item.input_tokens === null || item.output_tokens === null);
   return (
     <section aria-label="本轮 Token 用量" className="mt-3 border-t border-neutral-200 pt-3 text-xs dark:border-neutral-800">
       <h3 className="mb-2 font-medium">本轮 Token 用量</h3>
-      {usage.isPending ? <p className="text-neutral-400">加载用量…</p> : usage.isError ?
+      {usage.isError ?
         <p className="text-amber-700">用量获取失败</p> : <>
           <table className="w-full table-fixed text-right tabular-nums">
             <thead className="text-neutral-400"><tr><th className="w-[40%] text-left font-normal">步骤</th>
               <th className="font-normal">输入</th><th className="font-normal">输出</th><th className="font-normal">合计</th></tr></thead>
             <tbody>{Array.from(names, ([node, title]) => {
               const rows = items.filter((item) => item.node === node);
-              const inTokens = sumTokens(rows, "input_tokens");
-              const outTokens = sumTokens(rows, "output_tokens");
+              const inTokens = rows.length === 0 && active ? 0 : sumTokens(rows, "input_tokens");
+              const outTokens = rows.length === 0 && active ? 0 : sumTokens(rows, "output_tokens");
               const all = inTokens === null && outTokens === null ? null : (inTokens ?? 0) + (outTokens ?? 0);
               return <tr key={node}><th scope="row" className="truncate py-1 text-left font-normal" title={title}>{title}</th>
                 <td>{fmt(inTokens)}</td><td>{fmt(outTokens)}</td><td>{fmt(all)}</td></tr>;

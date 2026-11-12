@@ -18,7 +18,7 @@ it("个人条目标题加粗放大，建议跨说明连续编号，非标题颜�
   说明安排的依据。
 ## 五、信息说明
 来源`} />);
-  expect(screen.getByRole("heading", { name: "已完成：整理项目方案" })).toHaveClass("font-bold", "text-[20px]");
+  expect(screen.getByRole("heading", { name: "已完成：整理项目方案" })).toHaveClass("font-bold", "text-[18px]");
   expect(screen.getByRole("heading", { name: "推进方案" })).toHaveClass("text-[20px]");
   for (const title of ["一、开篇速览", "二、重要资讯", "三、我的昨日", "四、今日建议"]) {
     expect(screen.getByRole("heading", { name: title })).toHaveClass("text-[24px]");

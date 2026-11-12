@@ -30,7 +30,7 @@ def test_stage_lifecycle(fclient):
         t = ProgressTracker(mr, rid)
         t.stage_started("editor", "正在撰写")
         row = mr.execute(select(RunStage).where(RunStage.run_id == rid, RunStage.stage == "editor")).scalars().one()
-        assert row.status == "running" and row.title == "主编整合" and row.attempts == 1
+        assert row.status == "running" and row.title == "正文组装" and row.attempts == 1
         # 重复 started：attempts+1，时间保留
         t.stage_started("editor")
         mr.expire_all()
@@ -54,10 +54,10 @@ def test_snapshot_covers_all_stages_and_groups(fclient):
         t.stage_completed("collect", summary="复用采集", status="skipped", reason="x")
         t.stage_started("editor")
         snap = progress_mod.snapshot(mr, rid, stall_seconds=99)
-    assert snap["total_count"] == 9  # 完整阶段列表，含未开始
+    assert snap["total_count"] == 8  # 完整阶段列表，含未开始
     statuses = {s["stage"]: s["status"] for s in snap["stages"]}
     assert statuses["collect"] == "skipped" and statuses["editor"] == "running"
-    assert statuses["quality_eval"] == "pending"
+    assert "quality_eval" not in statuses
     assert "fact_check" not in statuses
     groups = {s["stage"]: s["group"] for s in snap["stages"]}
     assert groups["goal_analysis"] is None
@@ -81,7 +81,7 @@ def test_legacy_fact_check_stage_is_preserved_but_hidden(fclient):
                         sort_order=9, status="success"))
         mr.commit()
         snap = progress_mod.snapshot(mr, rid)
-        assert snap["total_count"] == 9
+        assert snap["total_count"] == 8
         assert all(stage["stage"] != "fact_check" for stage in snap["stages"])
         assert mr.execute(select(RunStage).where(
             RunStage.run_id == rid, RunStage.stage == "fact_check")).scalar_one().status == "success"
@@ -93,9 +93,9 @@ def test_seq_changes_on_stage_update_without_new_rows(fclient):
     rid = _run(fclient)
     with fclient.app.state.mr_session_factory() as mr:
         tracker = ProgressTracker(mr, rid)
-        tracker.stage_started("quality_eval")
+        tracker.stage_started("editor")
         before = _seq_of(mr, rid)
-        tracker.stage_failed("quality_eval", "评价失败")
+        tracker.stage_failed("editor", "主编失败")
         assert _seq_of(mr, rid) > before
 
 
@@ -104,7 +104,7 @@ def test_terminal_stream_sends_full_snapshot_even_at_current_seq(fclient):
 
     rid = _run(fclient, status="failed")
     with fclient.app.state.mr_session_factory() as mr:
-        ProgressTracker(mr, rid).stage_failed("quality_eval", "评价失败")
+        ProgressTracker(mr, rid).stage_failed("editor", "主编失败")
         seq = _seq_of(mr, rid)
     with fclient.stream("GET", f"/api/morning/progress/stream?run_id={rid}&after_seq={seq}") as resp:
         frames = [json.loads(m) for m in re.findall(r"data: (.+)", resp.read().decode())]
@@ -122,7 +122,7 @@ def test_running_stream_observes_terminal_without_new_log_or_stage(fclient, monk
     monkeypatch.setattr(api.time, "sleep", lambda _: None)
     with fclient.app.state.mr_session_factory() as mr:
         cached_run = mr.get(RunRecord, rid)
-        ProgressTracker(mr, rid).stage_started("quality_eval")
+        ProgressTracker(mr, rid).stage_started("editor")
         stream = api.progress_stream(rid, after_seq=0, mr=mr)
         assert json.loads(next(stream)["data"])["run"]["status"] == "running"
         with fclient.app.state.mr_session_factory() as writer:
@@ -142,12 +142,12 @@ def test_running_stream_observes_terminal_without_new_log_or_stage(fclient, monk
 def test_progress_api_snapshot_and_active(fclient):
     rid = _run(fclient)
     with fclient.app.state.mr_session_factory() as mr:
-        ProgressTracker(mr, rid).stage_started("quality_eval")
+        ProgressTracker(mr, rid).stage_started("editor")
     res = fclient.get("/api/morning/progress", params={"run_id": rid})
     assert res.status_code == 200
     body = res.json()
     assert body["run"]["id"] == rid and body["seq"] > 0
-    assert len(body["stages"]) == 9
+    assert len(body["stages"]) == 8
     act = fclient.get("/api/morning/progress/active", params={"report_date": "2026-11-11"}).json()
     assert act["active"] is True and act["run"]["id"] == rid
     # 终态后 active=False
@@ -266,7 +266,7 @@ def test_run_generate_writes_stage_flow(fclient):
     assert statuses["advice"] == "success"
     assert statuses["editor"] == "success"
     assert "fact_check" not in statuses
-    assert statuses["quality_eval"] == "success"
+    assert "quality_eval" not in statuses
     assert statuses["publish"] == "success"
     assert snap["run"]["status"] == "success"
     collect_stage = next(s for s in snap["stages"] if s["stage"] == "collect")

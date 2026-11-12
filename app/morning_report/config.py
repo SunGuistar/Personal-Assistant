@@ -30,17 +30,16 @@ class MRSettings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_api_key: str = ""
 
-    # 每天 08:00（Asia/Shanghai）常态采集+生成
+    # 每天 08:30（Asia/Shanghai）常态采集+生成；内容窗口仍为 08:00—08:00
     schedule_enabled: bool = True
     schedule_hour: int = 8
-    schedule_minute: int = 0
+    schedule_minute: int = 30
 
     # 模型路由（V0.6 §6.1 / V0.6.1 §6.1）
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-flash"
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen3.7-plus"
-    quality_eval_model: str = "qwen3.7-plus"
 
     # Embedding（DashScope text-embedding-v4，1024 维；T13 实测）
     embedding_model: str = "text-embedding-v4"

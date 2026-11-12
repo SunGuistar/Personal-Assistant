@@ -31,8 +31,7 @@ def test_overview_has_first_news_and_all_tips_with_source_summaries():
                                   ("行业观点", "观点摘要", "技巧与观点")]:
         assert title in overview and summary in overview and f"【{kind}】" in overview
     assert "不进速览" not in overview and "本期关注" not in overview
-    assert captured[0] == {"role": "system", "content": prompts.EDITOR_SYSTEM}
-    assert "分点" in prompts.EDITOR_SYSTEM and "下一步" in prompts.EDITOR_SYSTEM
+    assert captured == []  # 程序组装不调用主编模型
     assert "## 三、我的昨日" in draft and "## 四、今日建议" in draft
 
 

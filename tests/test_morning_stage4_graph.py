@@ -149,7 +149,7 @@ def test_full_workflow_publish(fclient):
     deps = _deps(fclient)
     final = asyncio.run(_run_graph(fclient, deps, _initial()))
     assert "fact_check" not in final
-    assert final["evaluation"]["composite"] == 87  # 七维等权四舍五入
+    assert "evaluation" not in final
     assert final["publish"]["is_primary"] is True and final["publish"]["version_no"] == 1
 
     with fclient.app.state.mr_session_factory() as mr:
@@ -158,8 +158,7 @@ def test_full_workflow_publish(fclient):
         # AI 小节由系统按当期日报组装注入：标题与链接与落库日报一致，不经模型复述
         assert "- [LangGraph 0.6 发布](https://example.com/a1)" in ver.content_md
         assert "{{AI_NEWS_LIST}}" not in ver.content_md
-        ev = mr.execute(select(Evaluation).where(Evaluation.version_id == ver.id)).scalars().one()
-        assert ev.rule_version == "decision_score_v2" and ev.composite == 87
+        assert mr.execute(select(Evaluation).where(Evaluation.version_id == ver.id)).first() is None
         # 两个核心 Agent 均执行，技术研究不再调用
     deps.subagents.events  # goal/advice 事件存在
     starts = [t for e, t in deps.subagents.events if e.endswith(":start")]
@@ -199,14 +198,14 @@ def test_publish_without_fact_check_for_unknown_or_old_time(fclient, published_a
         assert version.fact_check is None  # 历史列保留，新版本不写入
 
 
-def test_eval_failure_does_not_block(fclient):
+def test_removed_evaluation_is_never_called(fclient):
     deps = _deps(fclient, llm=FakeLLM(fail_eval=True))
     final = asyncio.run(_run_graph(fclient, deps, _initial()))
     assert final["publish"]["version_no"] == 1
-    assert final["evaluation"]["status"] == "failed"
+    assert "evaluation" not in final
+    assert not any("七个维度各打" in prompt for prompt in deps.llm.calls)
     with fclient.app.state.mr_session_factory() as mr:
-        ev = mr.execute(select(Evaluation)).scalars().one()
-        assert ev.status == "failed" and ev.composite is None  # 未评价≠0 分
+        assert mr.execute(select(Evaluation)).first() is None
 
 
 def test_subagent_failure_degrades(fclient):
@@ -237,7 +236,7 @@ def test_deterministic_preparation_needs_no_model_or_stage_cache(fclient):
     info_calls_1 = sum(1 for c in llm.calls[:n_after_first] if "选出值得进入晨报" in c)
     info_calls_2 = sum(1 for c in llm.calls[n_after_first:] if "选出值得进入晨报" in c)
     assert info_calls_1 == 0 and info_calls_2 == 0
-    assert len(llm.calls) == 4  # 每轮仅主编、评价；资讯整理无需模型
+    assert len(llm.calls) == 0  # 主编及资讯整理均为程序步骤
     assert [e for e, _ in deps2.subagents.events] == ["goal_analysis:start", "goal_analysis:end", "advice:start", "advice:end"]
     with fclient.app.state.mr_session_factory() as mr:
         assert mr.execute(select(StageCache)).scalars().all() == []  # 不缓存伪造的模型资讯分析
@@ -254,7 +253,7 @@ async def _run_graph(fclient, deps, initial):
             initial, config={"configurable": {"thread_id": f"mr-run-{initial['run_id']}"}})
 
 
-def test_checkpoint_resume_after_subagent_failure(fclient):
+def test_checkpoint_resume_after_editor_failure(fclient, monkeypatch):
     """目标分析首次失败 → 修复后 invoke(None) 恢复，图到达终态。"""
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -262,26 +261,16 @@ def test_checkpoint_resume_after_subagent_failure(fclient):
     # 在主编节点注入失败（无 try/except，异常传播出图）
     llm = FakeLLM()
 
-    class FlakyEditor:
-        def __init__(self, inner):
-            self._inner = inner
-            self.failed_once = False
-
-        @property
-        def model(self):
-            return self._inner.model
-
-        @property
-        def base_url(self):
-            return self._inner.base_url
-
-        def chat(self, messages, **kw):
-            if "五部分结构" in messages[-1]["content"] and not self.failed_once:
-                self.failed_once = True
-                raise RuntimeError("主编节点首次失败（注入）")
-            return self._inner.chat(messages, **kw)
-
-    deps = _deps(fclient, llm=FlakyEditor(llm))
+    from app.morning_report.graph import workflow as workflow_mod
+    original_editor = workflow_mod.node_editor
+    attempts = []
+    def flaky_editor(state, deps):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("程序组装首次失败（注入）")
+        return original_editor(state, deps)
+    monkeypatch.setattr(workflow_mod, "node_editor", flaky_editor)
+    deps = _deps(fclient, llm=llm)
     g = build_workflow(deps).compile()
 
     async def scenario():

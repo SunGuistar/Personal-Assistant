@@ -62,12 +62,12 @@ it("AI 标题后显示不同颜色的主题标签，无分类的旧条目不加�
   expect(screen.getByRole("link", { name: "旧条目" })).toHaveAttribute("href", "https://example.com/old");
 });
 
-it("开篇速览直接展示摘要和四类标签，正文摘要仍默认折叠", () => {
+it("开篇速览与正文摘要均默认折叠并保留分类标签", () => {
   render(<MorningReportBody text={"## 一、开篇速览\n- [国内首条](https://example.com/d)【国内新闻】\n  速览国内摘要\n- [观点](https://example.com/v)【技巧与观点】\n  速览观点摘要\n## 二、重要资讯\n### 国内\n- [国内首条](https://example.com/d)\n  正文国内摘要"} />);
   expect(screen.getByText("国内新闻")).toBeInTheDocument();
   expect(screen.getByText("技巧与观点")).toBeInTheDocument();
-  expect(screen.getByText("速览国内摘要").closest("details")).toBeNull();
-  expect(screen.getByText("速览观点摘要").closest("details")).toBeNull();
+  expect(screen.getByText("速览国内摘要").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByText("速览观点摘要").closest("details")).not.toHaveAttribute("open");
   expect(screen.getByText("正文国内摘要").closest("details")).not.toHaveAttribute("open");
 });
 
@@ -86,4 +86,9 @@ it("速览与正文共享星标，点击可标记、取消并保留标题链接"
   fireEvent.click(marked[1]);
   expect(onChange).toHaveBeenLastCalledWith(7, false);
   expect(screen.getAllByRole("link", { name: "同一新闻" })[0]).toHaveAttribute("href", "https://example.com/news");
+});
+
+it("资讯缺失时在对应小节直接显示具体错误原因", () => {
+  render(<MorningReportBody text={"## 二、重要资讯\n### AI\n资讯暂缺：AIHOT获取失败：日报日期不符，实际为昨日"} />);
+  expect(screen.getByText("资讯暂缺：AIHOT获取失败：日报日期不符，实际为昨日")).toHaveClass("text-amber-700");
 });

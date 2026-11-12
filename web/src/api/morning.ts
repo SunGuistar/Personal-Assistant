@@ -2,14 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
 
-export interface Evaluation {
-  status: string;
-  scores: Record<string, number | null> | null;
-  composite: number | null;
-  comment: string;
-  rule_version: string;
-}
-
 export interface Report {
   id: number;
   report_date: string;
@@ -24,7 +16,6 @@ export interface Report {
   snapshot_id: string;
   generation_mode: string;
   created_at: string;
-  evaluation: Evaluation | null;
 }
 
 export interface HistoryItem {
@@ -34,7 +25,6 @@ export interface HistoryItem {
   is_primary: boolean;
   status: string;
   created_at: string;
-  has_evaluation: boolean;
 }
 
 export interface StatusOut {
@@ -75,11 +65,21 @@ export const useMorningHistory = () =>
 export function useRegenerate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { mode: "reuse" | "full"; report_date?: string }) =>
+    mutationFn: (args: { report_date?: string }) =>
       api<{ run_id: number }>("/morning/regenerate", { method: "POST", json: args }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["morning"] });
     },
+  });
+}
+
+export function useReassemble() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (version_id: number) => api<{ run_id: number }>("/morning/reassemble", {
+      method: "POST", json: { version_id },
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["morning"] }); },
   });
 }
 

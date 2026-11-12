@@ -19,13 +19,7 @@ const REPORT = {
   snapshot_id: "snap-x",
   generation_mode: "auto",
   created_at: "2026-11-10T08:05:00+08:00",
-  evaluation: {
-    status: "ok",
-    scores: { 资讯呈现: 88, "内容逻辑与一致性": 86, "AI 技术分析": 90, "个人总结与建议": 84, 阅读体验: 87 },
-    composite: 87,
-    comment: "整体质量良好。",
-    rule_version: "quality_score_v1",
-  },
+
 };
 
 function makeFetchMock() {
@@ -58,13 +52,13 @@ function makeFetchMock() {
     }
     if (url.includes("/api/morning/progress/active")) {
       return new Response(JSON.stringify({
-        run: null, stages: [], recent: [], done_count: 0, total_count: 9,
+        run: null, stages: [], recent: [], done_count: 0, total_count: 8,
         server_now: new Date().toISOString(), stall_seconds: 150, seq: 0, active: false,
       }), { status: 200 });
     }
     if (url.includes("/api/morning/progress")) {
       return new Response(JSON.stringify({
-        run: null, stages: [], recent: [], done_count: 0, total_count: 9,
+        run: null, stages: [], recent: [], done_count: 0, total_count: 8,
         server_now: new Date().toISOString(), stall_seconds: 150, seq: 0, active: false,
       }), { status: 200 });
     }
@@ -96,12 +90,12 @@ describe("MorningReportPage", () => {
     expect(screen.getAllByText("今日晨报").length).toBeGreaterThan(0);
   });
 
-  it("质量评价页显示程序计算的综合分与五维条", async () => {
+  it("移除质量评价页，保留正文和历史入口", async () => {
     renderPage();
-    fireEvent.click(await screen.findByText("质量评价"));
-    await waitFor(() => expect(screen.getAllByText("87").length).toBeGreaterThanOrEqual(2)); // 综合分+阅读体验分
-    expect(screen.getByText(/quality_score_v1/)).toBeInTheDocument();
-    expect(screen.getByText("AI 技术分析")).toBeInTheDocument();
+    await screen.findByText("晨报正文");
+    expect(screen.queryByText("质量评价")).not.toBeInTheDocument();
+    expect(screen.getByText("历史晨报")).toBeInTheDocument();
+    expect(screen.queryByText(/综合分/)).not.toBeInTheDocument();
   });
 
   it("历史晨报在弹窗中独立展示，可关闭、可下载", async () => {
@@ -137,8 +131,29 @@ describe("MorningReportPage", () => {
     // 提交成功后两个按钮立即禁用（onSubmitted 置 active，不依赖 5s 轮询）
     await waitFor(() => {
       expect(screen.getByText("重新生成").closest("button")).toBeDisabled();
-      expect(screen.getByText("完整重算").closest("button")).toBeDisabled();
+      expect(screen.getByText("重新组装").closest("button")).toBeDisabled();
     });
+  });
+
+  it("重新组装发送当前版本ID，与重新生成互斥且移除完整重算", async () => {
+    const base = makeFetchMock();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/morning/reassemble")) return new Response(JSON.stringify({ run_id: 43 }), { status: 202 });
+      return base(input as RequestInfo, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await screen.findByText("今天值得关注的事。");
+    expect(screen.queryByText("完整重算")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("重新组装"));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(call => String(call[0]).includes("/api/morning/reassemble"));
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body))).toEqual({ version_id: 1 });
+      expect(screen.getByText("重新生成").closest("button")).toBeDisabled();
+      expect(screen.getByText("重新组装").closest("button")).toBeDisabled();
+    });
+    expect(fetchMock.mock.calls.some(call => String(call[0]).includes("/api/morning/regenerate"))).toBe(false);
   });
 
   it("保留生成进度，移除晨报助手与 Memory 管理且不请求其接口", async () => {
@@ -183,7 +198,7 @@ function makeProgressFetchMock(overrides: { active?: boolean; status?: string } 
     stages: STAGES,
     recent: [{ id: 1, at: "2026-11-11T12:00:20+08:00", stage: "collect", level: "info",
                message: "采集完成" }],
-    done_count: 1, total_count: 9,
+    done_count: 1, total_count: 8,
     server_now: new Date().toISOString(), stall_seconds: 150, seq: 5,
     active: overrides.active ?? true,
   };
@@ -217,7 +232,7 @@ describe("生成进度面板", () => {
       await act(async () => {
         connections[0].onmessage!({ data: JSON.stringify({
           run: { id: 9, status: "failed", error: "主编生成失败", started_at: null, finished_at: null },
-          stages: [], recent: [], done_count: 0, total_count: 9, seq: 5,
+          stages: [], recent: [], done_count: 0, total_count: 8, seq: 5,
           active: false, server_now: new Date().toISOString(), stall_seconds: 150,
         }) });
         connections[0].onmessage!({ data: JSON.stringify({ done: true, status: "failed", seq: 5 }) });
@@ -253,7 +268,7 @@ describe("生成进度面板", () => {
         return new Response(JSON.stringify({
           run: { id: 9, status: failed ? "failed" : "running", error: failed ? "主编生成失败" : null,
             started_at: new Date().toISOString(), finished_at: failed ? new Date().toISOString() : null },
-          stages: [], recent: [], done_count: 0, total_count: 9, seq: 5,
+          stages: [], recent: [], done_count: 0, total_count: 8, seq: 5,
           active: !failed, server_now: new Date().toISOString(), stall_seconds: 150,
         }));
       }
@@ -279,12 +294,12 @@ describe("生成进度面板", () => {
   it("展示新阶段列表：已完成/进行中/未开始且没有技术研究与并行标识", async () => {
     vi.stubGlobal("fetch", makeProgressFetchMock());
     renderPage();
-    await waitFor(() => expect(screen.getByText("资讯采集")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /资讯采集/ })).toBeInTheDocument());
     expect(screen.queryByText("技术研究 Subagent")).not.toBeInTheDocument();
     expect(screen.getAllByText("目标分析 Subagent").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("建议 Subagent")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /建议 Subagent/ })).toBeInTheDocument();
     expect(screen.queryByText("并行执行")).not.toBeInTheDocument(); // 目标分析与建议顺序执行
-    expect(screen.getByText("阶段 1/9")).toBeInTheDocument(); // 整体进度
+    expect(screen.getByText("阶段 1/8")).toBeInTheDocument(); // 整体进度
     expect(screen.getByText("当前：")).toBeInTheDocument(); // 当前阶段行
     // 当前阶段高亮（目标分析 running）：阶段列表行带高亮底色
     const highlighted = screen.getAllByText("目标分析 Subagent")
@@ -295,7 +310,7 @@ describe("生成进度面板", () => {
   it("点击阶段打开悬浮详情，含执行详情与技术详情折叠", async () => {
     vi.stubGlobal("fetch", makeProgressFetchMock());
     renderPage();
-    fireEvent.click(await screen.findByText("资讯采集"));
+    fireEvent.click(await screen.findByRole("button", { name: /资讯采集/ }));
     await waitFor(() => expect(screen.getByText("尝试次数")).toBeInTheDocument());
     expect(screen.getByText("国内 320 条")).toBeInTheDocument();
     expect(screen.getByText("国际 140 条")).toBeInTheDocument();
@@ -313,7 +328,7 @@ describe("生成进度面板", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("生成进度")).toBeInTheDocument());
     const reuse = screen.getByText("重新生成").closest("button")!;
-    const full = screen.getByText("完整重算").closest("button")!;
+    const full = screen.getByText("重新组装").closest("button")!;
     expect(reuse).toBeDisabled();
     expect(full).toBeDisabled();
   });
@@ -325,7 +340,7 @@ describe("生成进度面板", () => {
     await waitFor(() => {
       expect(screen.getByText("重新生成").closest("button")).not.toBeDisabled();
     });
-    expect(screen.getByText("完整重算").closest("button")).not.toBeDisabled();
+    expect(screen.getByText("重新组装").closest("button")).not.toBeDisabled();
   });
 });
 
@@ -342,7 +357,7 @@ describe("停止生成", () => {
         return new Response(JSON.stringify({
           run: { id: 9, run_date: "2026-11-11", kind: "generate", status: "running",
                  error: null, started_at: "2026-11-11T12:00:00+08:00", finished_at: null },
-          stages: STAGES, recent: [], done_count: 1, total_count: 9,
+          stages: STAGES, recent: [], done_count: 1, total_count: 8,
           server_now: new Date().toISOString(), stall_seconds: 150, seq: 5, active: true,
         }), { status: 200 });
       }
@@ -386,4 +401,19 @@ describe("停止生成", () => {
     expect(stopCalls).toBe(0); // 取消确认：不发请求（按钮本也禁用，双保险）
     confirmSpy.mockRestore();
   });
+});
+
+it("资讯缺失的采集步骤显示黄色感叹号", async () => {
+  const base = makeProgressFetchMock();
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await base(input, init);
+    if (!String(input).includes("/progress")) return response;
+    const snap = await response.json();
+    snap.stages = snap.stages.map((stage: typeof STAGES[number]) => stage.stage === "collect"
+      ? { ...stage, status: "warning", summary: "AIHOT获取失败：日报日期不符" } : stage);
+    return new Response(JSON.stringify(snap), { status: 200 });
+  }));
+  renderPage();
+  const stage = (await screen.findByRole("button", { name: /资讯采集/ })).closest("button")!;
+  expect(stage.querySelector("svg")).toHaveClass("text-amber-600");
 });

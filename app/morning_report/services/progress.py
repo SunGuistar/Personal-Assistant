@@ -31,8 +31,7 @@ STAGE_DEFS: list[dict] = [
     {"stage": "personal_analysis", "title": "个人数据准备", "group": None},
     {"stage": "goal_analysis", "title": "目标分析 Subagent", "group": None},
     {"stage": "advice", "title": "建议 Subagent", "group": None},
-    {"stage": "editor", "title": "主编整合", "group": None},
-    {"stage": "quality_eval", "title": "质量评价", "group": None},
+    {"stage": "editor", "title": "正文组装", "group": None},
     {"stage": "publish", "title": "发布归档", "group": None},
 ]
 STAGE_ORDER = {d["stage"]: i for i, d in enumerate(STAGE_DEFS)}
@@ -235,7 +234,7 @@ def snapshot(mr: Session, run_id: int, stall_seconds: int = 150) -> dict:
             select(RunLog).where(RunLog.run_id == run_id).order_by(RunLog.id.desc()).limit(5)
         ).scalars().all()
     ][::-1]
-    done = sum(1 for s in stages if s["status"] in ("success", "skipped"))
+    done = sum(1 for s in stages if s["status"] in ("success", "skipped", "warning"))
     return {
         "run": {
             "id": run.id, "run_date": run.run_date, "kind": run.kind, "status": run.status,

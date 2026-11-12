@@ -1,8 +1,8 @@
-"""生成编排（每天 08:00 流程 / 手动重新生成共用）。
+"""生成编排（每天 08:30 流程 / 手动重新生成共用）。
 
 步骤（V0.6 §五）：清阶段缓存 → 采集(缺则补)
 → 准备本轮数据 → LangGraph 工作流 → 结果落库。
-正式自动用 DeepSeek（时段外阻塞）；手动重新生成可用 DashScope（mode 决定）。
+两个分析 Subagent 使用配置的 DashScope 模型；主编仅程序组装，不创建模型客户端。
 """
 
 from __future__ import annotations
@@ -23,8 +23,7 @@ from ..config import MRSettings
 from ..models import NewsItem, RunRecord
 from ..services import news_pipeline, progress as progress_mod, stage_cache
 from ..services.cancel import GenerationCancelled, check_cancel
-from ..services.llm_router import (ModelNotAllowedError, dev_client, formal_client,
-                                   record_usage)
+from ..services.llm_router import ModelNotAllowedError
 from ..services.qdrant_store import QdrantStore
 from ..graph.subagents import LangChainSubagentRunner
 from ..graph.workflow import WorkflowDeps, build_workflow
@@ -63,7 +62,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     """执行一期生成。deps_override 仅供测试注入（此时 LLM 无真实调用）。
     cancel_token：协作式取消令牌（Runner 注册）；检查点处抛 GenerationCancelled。
 
-    缓存清理：auto（每天 08:00 新一轮）默认清理；manual 默认复用；clear_cache 显式覆盖
+    缓存清理：auto（每天 08:30 新一轮）默认清理；manual 默认复用；clear_cache 显式覆盖
     （manual+full 重算时由 API 传 True）。
     """
 
@@ -87,8 +86,9 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     # 1) 采集（缺则补采）
     collect = _latest_collect(mr, run.run_date)
     if (collect is None or collect.status not in ("success", "degraded") or
+            news_pipeline.collection_needs_refresh(mr, collect.id) or
             deps_override is None and not news_pipeline.collection_is_current(mr, collect.id)):
-        log_run(mr, run_id, "generate", "本期无可用采集，先执行采集", level="warning")
+        log_run(mr, run_id, "generate", "本期采集不存在、资讯缺失或策略已更新，执行采集", level="warning")
         collect = news_pipeline.create_collect_run(mr, run.run_date)
         try:
             news_pipeline.run_collect(mr, collect.id, cancel_token=cancel_token)
@@ -120,11 +120,12 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         tracker.stage_progress("collect", data={key: collect_detail[key] for key in (
             "per_source", "raw_by_category", "windowed_by_category", "duplicates_merged",
             "coverage_notes", "collection_strategy") if key in collect_detail})
-    if collect.status == "failed":
-        tracker.stage_failed("collect", collect.error or "采集失败")
-        raise RuntimeError(collect.error or "采集失败")
+    news_errors = news_pipeline.category_errors(collect_detail, news_pipeline.saved_category_counts(mr, collect.id))
+    if news_errors:
+        tracker.stage_completed("collect", status="warning", summary="部分资讯缺失，继续生成",
+            reason="；".join(news_errors.values()), data={"category_errors": news_errors,
+            "source_failures": collect_detail.get("source_failures", {})})
 
-    check_cancel(cancel_token)
     check_cancel(cancel_token)
     # 3) 准备本轮数据（固定输入，保留现有证据保存逻辑）
     tracker.stage_started("snapshot")
@@ -152,6 +153,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     clues = []  # 国内/国际榜单条目不再按发布时间或时间缺失降为线索
     news = _trim_for_llm(news)
     coverage_notes = list(collect_detail.get("coverage_notes") or ([collect.error] if collect.error else []))
+    coverage_notes.extend(reason for reason in news_errors.values() if reason not in coverage_notes)
     snapshot_id = "snap-" + hashlib.sha1(json.dumps(
         [collect.id, len(news), len(ai_daily)],
         ensure_ascii=False).encode()).hexdigest()[:16]
@@ -193,33 +195,24 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     else:
         if mr_session_factory is None:
             raise RuntimeError("生产路径必须注入 mr_session_factory")
-        if mode == "auto":
-            llm = formal_client(settings)  # 时段外抛 ModelNotAllowedError（不静默切模型）
-            client_note = "formal"
-        else:
-            llm = dev_client(settings)
-            client_note = "dev"
         def _recorder(node, result, model, base_url):
             from ..services.llm_router import record_usage as _ru
             with mr_session_factory() as s:
                 _ru(s, run_id, node, _ClientShim(model, base_url), result,
-                    allowed="off_peak" if mode == "auto" else "dev")
+                    allowed="dev")
         subagents = LangChainSubagentRunner(settings)
-        deps = WorkflowDeps(llm=llm, subagents=subagents,
+        deps = WorkflowDeps(llm=None, subagents=subagents,
                             mr_session_factory=mr_session_factory, run_id=run_id)
-        from ..services.llm_router import ChatClient
-        deps.quality_llm = ChatClient(settings.dashscope_base_url, "DASHSCOPE_API_KEY",
-                                      settings.quality_eval_model, thinking=False)
         deps.recorder = _recorder
         subagents.recorder = _recorder
         subagents.configure_context(personal_ctx, tracker, cancel_token)
-        log_run(mr, run_id, "generate", f"模型路由: {client_note} ({deps.llm.model})")
+        log_run(mr, run_id, "generate", f"分析 Subagent 模型: {settings.dashscope_model}；主编程序组装，不调用模型")
 
     initial = {
         "run_id": run_id, "snapshot_id": snapshot_id, "report_date": run.run_date, "generation_mode": mode,
         "window_start": collect.window_start, "window_end": collect.window_end,
         "news": news, "clues": clues, "ai_daily": ai_daily,
-        "coverage_notes": coverage_notes,
+        "coverage_notes": coverage_notes, "news_errors": news_errors,
         "personal": personal_ctx,
     }
     if getattr(deps, "progress", None) is None:
@@ -252,8 +245,7 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
     tracker.stage_completed("publish",
                             summary=f"版本 v{(final.get('publish') or {}).get('version_no')} 已发布",
                             data=final.get("publish"))
-    return {"status": run.status, "publish": final.get("publish"),
-            "evaluation": final.get("evaluation")}
+    return {"status": run.status, "publish": final.get("publish")}
 
 
 def _load_personal(hub_session_factory, window_start: str, window_end: str) -> dict:
@@ -280,7 +272,8 @@ async def _execute(deps: WorkflowDeps, initial: dict, run_id: int) -> dict:
     # Checkpoint：独立 sqlite 文件（避免与 SQLAlchemy 连接争用）
     async with AsyncSqliteSaver.from_conn_string(f"{db_path}.checkpoint") as saver:
         g = build_workflow(deps).compile(checkpointer=saver)
-        final = await g.ainvoke(initial, config={"configurable": {"thread_id": f"mr-run-{run_id}"}})
+        final = await g.ainvoke(initial, config={"configurable": {"thread_id": f"mr-run-{run_id}"},
+            "metadata": {"mr_run_id": run_id}})
     return final
 
 

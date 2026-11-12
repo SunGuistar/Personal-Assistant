@@ -14,7 +14,7 @@ def test_generation_never_uses_history_or_news_indexes(fclient, monkeypatch, fai
     with sf() as mr:
         collect = news_pipeline.create_collect_run(mr, "2026-11-10")
         collect.status = "success"
-        for item in NEWS[:2]:
+        for item in NEWS:
             mr.add(NewsItem(run_id=collect.id, category=item["category"], title=item["title"],
                 summary=item["summary"], source_url=item["source_url"], content_hash=item["content_hash"]))
         run = RunRecord(run_date="2026-11-10", kind="generate", status="pending")
@@ -34,8 +34,8 @@ def test_generation_never_uses_history_or_news_indexes(fclient, monkeypatch, fai
             super().__init__(); agents.append(self)
         def configure_context(self, *a): pass
     monkeypatch.setattr(report_service, "LangChainSubagentRunner", Agents)
-    monkeypatch.setattr(report_service, "dev_client", lambda *a: FakeLLM())
-    monkeypatch.setattr(llm_router, "ChatClient", lambda *a, **kw: FakeLLM())
+    monkeypatch.setattr(llm_router, "dev_client", forbidden)
+    monkeypatch.setattr(llm_router, "ChatClient", forbidden)
     with sf() as mr:
         result = report_service.run_generate(mr, rid, settings, mode="manual", mr_session_factory=sf,
             personal_ctx_override={"daily_done": [], "source_meta": {"status": "ok"}})

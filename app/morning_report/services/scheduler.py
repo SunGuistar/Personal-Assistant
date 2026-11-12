@@ -1,4 +1,4 @@
-"""APScheduler 调度：每天北京时间 08:00 一期（采集+生成），错过启动时间则立即补跑一期。
+"""APScheduler 调度：每天北京时间 08:30 一期（采集+生成），错过启动时间则立即补跑一期。
 
 - 仅进程内调度（不引入常驻守护进程，AGENTS §3 铁律 4）；
 - 实际执行仍走 MorningRunner（run_records 状态机），调度器只负责触发；
@@ -35,7 +35,7 @@ def create_scheduler(settings, runner, mr_session_factory, hub_session_factory):
                     RunRecord.status.in_(["success", "degraded", "running", "pending"]))
                 .limit(1)).first()
             if exists:
-                logger.info("今日 08:00 任务已存在，跳过（防重复触发）")
+                logger.info("今日 08:30 任务已存在，跳过（防重复触发）")
                 return
             run = RunRecord(run_date=today, kind="generate", status="pending")
             mr.add(run)
@@ -43,7 +43,7 @@ def create_scheduler(settings, runner, mr_session_factory, hub_session_factory):
             run_id = run.id
         ok = runner.submit("generate", run_id, _generate_fn(settings, hub_session_factory, mr_session_factory))
         if not ok:
-            logger.warning("08:00 生成任务提交冲突（已有运行中）")
+            logger.warning("08:30 生成任务提交冲突（已有运行中）")
 
     def _generate_fn(settings, hub_sf, mr_sf):
         def fn(mr, run_id):
@@ -58,7 +58,7 @@ def create_scheduler(settings, runner, mr_session_factory, hub_session_factory):
     scheduler.add_job(
         daily_job,
         CronTrigger(hour=settings.schedule_hour, minute=settings.schedule_minute, timezone=CST),
-        id="morning_daily_0800",
+        id=f"morning_daily_{settings.schedule_hour:02d}{settings.schedule_minute:02d}",
         max_instances=1,
         coalesce=True,
     )

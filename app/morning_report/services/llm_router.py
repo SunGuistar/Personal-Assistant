@@ -1,9 +1,9 @@
-"""模型路由：DeepSeek（正式，时段校验）/ DashScope（开发与质量评价），Token 落库。
+"""模型路由：DeepSeek（正式，时段校验）/ DashScope（开发/手动主编），Token 落库。
 
 规则（V0.6 §6.1 / V0.6.1 §6.1）：
 - 正式自动晨报用 DeepSeek `deepseek-flash`；调用前检查允许时段（低谷），
   不在允许时段 → ModelNotAllowedError，**禁止静默切换模型**。
-- 开发/手动重新生成与质量评价用 DashScope `qwen3.7-plus`（OpenAI 兼容端点）。
+- 开发/手动重新生成用 DashScope `qwen3.7-plus`（OpenAI 兼容端点）。
 - Thinking 按节点显式配置（deepseek-flash 默认开，显式关闭可降延迟/费用）。
 - 所有请求强制 JSON mode；供应商返回不支持 json_object 的 400 报错时抛出
   JsonModeUnsupportedError，禁止静默关闭 JSON mode 或回退纯文本。
@@ -18,7 +18,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 
-from openai import BadRequestError, OpenAI
+from openai import BadRequestError
+from langchain_openai import ChatOpenAI
 
 from ..models import TokenUsage
 
@@ -82,14 +83,15 @@ class ChatResult:
 
 
 class ChatClient:
-    """OpenAI 兼容端点封装（DeepSeek / DashScope 同构）。"""
+    """主编普通 ChatOpenAI 节点适配；沿用 ChatResult 契约与 LangGraph 回调上下文。"""
 
     def __init__(self, base_url: str, api_key_env: str, model: str,
                  thinking: bool = False, timeout: float = 120.0):
         key = os.environ.get(api_key_env, "").strip()
         if not key:
             raise ModelNotAllowedError(f"{api_key_env} 未配置")
-        self._client = OpenAI(base_url=base_url, api_key=key, timeout=timeout)
+        self._client = ChatOpenAI(model=model, base_url=base_url, api_key=key,
+            temperature=0, timeout=timeout, max_retries=2, use_responses_api=False)
         self.model = model
         self.thinking = thinking
         self.base_url = base_url
@@ -98,19 +100,22 @@ class ChatClient:
              tools: list[dict] | None = None, thinking: bool | None = None) -> ChatResult:
         if json_mode is not True:
             raise ValueError("晨报 LLM 调用必须启用 JSON mode")
-        kwargs: dict = {"model": self.model, "messages": messages, "temperature": 0,
-                        "response_format": {"type": "json_object"}}
+        extra_body: dict = {"response_format": {"type": "json_object"}}
         use_thinking = self.thinking if thinking is None else thinking
         if "deepseek" in self.base_url:
-            # V4.1 Flash：thinking 默认开，显式关闭传 chat_template_kwargs
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": bool(use_thinking)}}
+            extra_body["chat_template_kwargs"] = {"thinking": bool(use_thinking)}
         if "dashscope" in self.base_url:
-            kwargs["extra_body"] = {"enable_thinking": bool(use_thinking)}
+            extra_body["enable_thinking"] = bool(use_thinking)
+        kwargs: dict = {"extra_body": extra_body}
         if tools:
             kwargs["tools"] = tools
         t0 = time.perf_counter()
         try:
-            resp = self._client.chat.completions.create(**kwargs)
+            # invoke 自动继承 LangGraph 的 callbacks；asyncio.to_thread 保留其上下文。
+            # 只新增模型子运行，不创建 Agent，也不在追踪回调中重复写 TokenUsage。
+            msg = self._client.invoke(messages,
+                config={"run_name": "editor_model", "tags": ["morning-report", "editor"],
+                        "metadata": {"mr_node": "editor"}}, **kwargs)
         except BadRequestError as exc:
             converted = json_mode_error_from(exc, self.model)
             if converted is not None:
@@ -118,19 +123,23 @@ class ChatClient:
                 raise converted from exc
             raise
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        msg = resp.choices[0].message
-        usage = resp.usage
+        if not isinstance(msg.content, str):
+            raise ValueError("主编模型必须返回字符串 JSON 内容")
+        usage = msg.usage_metadata or {}
+        raw_usage = msg.response_metadata.get("token_usage") or {}
+        input_tokens = usage.get("input_tokens", raw_usage.get("prompt_tokens", 0)) or 0
+        output_tokens = usage.get("output_tokens", raw_usage.get("completion_tokens", 0)) or 0
+        cache_hits = raw_usage.get("prompt_cache_hit_tokens")
+        if cache_hits is None:
+            cache_hits = (usage.get("input_token_details") or {}).get("cache_read")
+        cache_misses = raw_usage.get("prompt_cache_miss_tokens")
+        if cache_misses is None and cache_hits is not None:
+            cache_misses = max(0, input_tokens - cache_hits)
         return ChatResult(
-            content=msg.content or "",
-            input_tokens=usage.prompt_tokens if usage else 0,
-            output_tokens=usage.completion_tokens if usage else 0,
-            cache_hit_tokens=getattr(usage, "prompt_cache_hit_tokens", None),
-            cache_miss_tokens=getattr(usage, "prompt_cache_miss_tokens", None),
-            tool_calls=[
-                {"name": tc.function.name, "arguments": tc.function.arguments}
-                for tc in (msg.tool_calls or [])
-            ],
-            elapsed_ms=elapsed_ms,
+            content=msg.content, input_tokens=input_tokens, output_tokens=output_tokens,
+            cache_hit_tokens=cache_hits, cache_miss_tokens=cache_misses,
+            tool_calls=[{"name": tc["name"], "arguments": json.dumps(tc.get("args", {}), ensure_ascii=False)}
+                        for tc in msg.tool_calls], elapsed_ms=elapsed_ms,
         )
 
 

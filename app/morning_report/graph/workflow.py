@@ -1,7 +1,7 @@
 """LangGraph 晨报工作流（V0.6 §五 / V0.6.1 §3.2）。
 
 结构：新闻整理 → 个人上下文 → GoalAnalysis → ActionSuggest → 主编
-      → 质量评价(可缺失) → 发布(幂等主报告)。
+      → 发布(幂等主报告)。
 LLM 与 Subagent 经 WorkflowDeps 注入：生产用真实现，测试用假实现（图结构始终真实）。
 """
 
@@ -43,7 +43,7 @@ class SubagentRunner(Protocol):
 
 
 class WorkflowDeps:
-    def __init__(self, llm: LlmChat, subagents: SubagentRunner, mr_session_factory,
+    def __init__(self, llm: LlmChat | None, subagents: SubagentRunner, mr_session_factory,
                  run_id: int, prompt_version: str = prompts.PROMPT_VERSION):
         self.llm = llm
         self.subagents = subagents
@@ -53,7 +53,6 @@ class WorkflowDeps:
         self.recorder = None  # callable(node, result, model, base_url)，生产注入落 TokenUsage
         self.progress = None  # ProgressTracker（可选）；节点据此上报阶段状态
         self.cancel_token = None  # CancelToken（可选）；节点入口安全检查点
-        self.quality_llm = None  # 生产评价独立使用配置的 DashScope 模型；测试默认复用假模型。
 
     def record(self, node: str, result, client=None) -> None:
         if self.recorder is not None:
@@ -75,6 +74,7 @@ class MRState(TypedDict, total=False):
     news: list[dict]            # 本期采集的官方榜单新闻（不含 AI；AI 走 ai_daily 确定性组装）
     clues: list[dict]           # 无可靠时间线索
     ai_daily: list[dict]        # 当期 AIHOT 日报完整条目（去重后、按 display_order；不参与模型筛选）
+    news_errors: dict[str, str]
     coverage_notes: list[str]
     personal: dict              # hub 只读上下文
     news_selection: dict        # 资讯分析输出（缓存）
@@ -82,7 +82,6 @@ class MRState(TypedDict, total=False):
     goal_result: dict
     advice_result: dict         # {status: ok/failed/no_advice, advices}
     draft: str                  # 主编正文 Markdown
-    evaluation: dict            # {status, scores, composite, comment}
     publish: dict               # {version_id, version_no, is_primary}
     degraded: list[str]
     status: str                 # running/success/failed/blocked
@@ -209,7 +208,8 @@ def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
         selected[category] = [{"id": n["id"], "title": n["title"]} for n in rows]
     selected = _limit_selection(selected, state["news"])
     selected["ai"] = list(state.get("ai_daily", []))
-    deps.progress and deps.progress.stage_completed("info_analysis", summary="新闻按来源顺序整理，无模型筛选",
+    deps.progress and deps.progress.stage_completed("info_analysis", status="warning" if state.get("news_errors") else "success",
+        reason="；".join(state.get("news_errors", {}).values()), summary="新闻按来源顺序整理，无模型筛选",
         data={"selected": {k: len(v) for k, v in selected.items()}})
     return {"news_selection": selected}
 
@@ -276,7 +276,16 @@ def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
             data["current_state"] = {"content": "系统未取得相关个人记录，无法判断实际进展；不代表没有发生或没有进展", "kind": "unknown", "evidence_ids": []}
             gaps.append("个人数据缺失")
         data["data_gaps"] = list(dict.fromkeys(gaps))
+        from ..services.report_assembly import validate_yesterday
+        yesterday_error = None
+        if "yesterday_report" in data:
+            data["yesterday_report"] = validate_yesterday(data["yesterday_report"], records)
+        else:
+            yesterday_error = "目标分析未返回我的昨日内容"
+
         result = {"status": "ok", "analysis": data, "content": json.dumps(data, ensure_ascii=False)}
+        if yesterday_error:
+            result["yesterday_error"] = yesterday_error
     except Exception as exc:
         from ..services.cancel import GenerationCancelled
         if isinstance(exc, GenerationCancelled):
@@ -365,6 +374,9 @@ def _source_news_block(state, category):
         if len(summary) > 240:
             summary = summary[:240] + "…（来源摘录）"
         lines.append(f"- **[{title}]({link})**\n  {summary}\n  发布时间：{source.get('published_at') or '未知'} · 来源：中国新闻网")
+    error = state.get("news_errors", {}).get(category)
+    if error:
+        lines.insert(0, "资讯暂缺：" + error)
     return "\n\n".join(lines) or "（本期没有可用的官方热点新闻，不补造）"
 
 
@@ -428,87 +440,30 @@ def inject_overview(draft: str, block: str) -> str:
 def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("editor")
-    result = deps.llm.chat([{"role": "system", "content": prompts.EDITOR_SYSTEM},
-                            {"role": "user", "content": prompts.EDITOR.format(
-        generated_at=datetime.now(CST).isoformat(timespec="seconds"),
-        domestic="{{DOMESTIC_NEWS_LIST}}",
-        international="{{INTERNATIONAL_NEWS_LIST}}",
-        ai_placeholder=AI_LIST_PLACEHOLDER,
-        overview_placeholder="{{OVERVIEW_LIST}}",
-        personal=json.dumps(_decision_context(state)["personal"], ensure_ascii=False),
-        goal=state["goal_result"].get("content", "") or "（目标分析缺失）",
-        advice=json.dumps(state["advice_result"], ensure_ascii=False),
-        coverage="；".join(state.get("coverage_notes", [])) or "无额外覆盖缺口",
-    )}], json_mode=True)
-    deps.record("editor", result)
-    editor_data = _json_of(result.content)
-    draft = editor_data.get("content_md")
-    if not isinstance(draft, str) or not draft.strip():
-        raise ValueError("主编 JSON 必须包含非空字符串 content_md")
-    draft = draft.strip()
-    for category, label in (("domestic", "国内"), ("international", "国际")):
-        draft = _inject_source_news(draft, category, label, _source_news_block(state, category))
-    # AI 小节完整列表由系统按当期日报组装注入，先于质量评价/发布落库
-    draft, injected = inject_ai_list(draft, assemble_ai_list(state.get("ai_daily", [])))
-    draft = inject_overview(draft, assemble_overview(state))
-    deps.progress and deps.progress.stage_completed(
-        "editor", summary=f"正文 {len(draft)} 字",
-        data={"ai_list_items": len(state.get("ai_daily", [])), "ai_list_injected": injected})
-    notes = list(state.get("coverage_notes", []))
-    if not injected:
-        notes.append("模型未保留 AI 列表占位符，系统已自动补齐完整 AI 标题列表")
+    from ..services.report_assembly import personal_sections
+    goal = state.get("goal_result", {})
+    if state.get("yesterday_content"):
+        goal = {"status": "ok", "analysis": {"yesterday_report": state["yesterday_content"]}}
+    yesterday, advice = personal_sections(state.get("personal", {}), goal, state.get("advice_result", {}))
+    ai_block = assemble_ai_list(state.get("ai_daily", []))
+    if state.get("news_errors", {}).get("ai"):
+        ai_block = "资讯暂缺：" + state["news_errors"]["ai"] + ("\n\n" + ai_block if state.get("ai_daily") else "")
+    generated_at = datetime.now(CST).isoformat(timespec="seconds")
+    information = "内容窗口：" + str(state.get("window_start", "")) + " ~ " + str(state.get("window_end", "")) + "。\n\n来源：中新网官方热点排行、AIHOT 当期日报与本轮个人记录。\n\n生成时间：" + generated_at
+    notes = list(dict.fromkeys(state.get("coverage_notes", [])))
     if notes:
-        draft += "\n\n> 采集说明：" + "；".join(notes)
+        information += "\n\n采集说明：" + "；".join(notes)
+    draft = "\n\n".join([
+        "# 今日晨报：" + str(state.get("report_date", "")),
+        "## 一、开篇速览", assemble_overview(state),
+        "## 二、重要资讯", "### 国内", _source_news_block(state, "domestic"),
+        "### 国际", _source_news_block(state, "international"), "### AI", ai_block,
+        "## 三、我的昨日", yesterday, "## 四、今日建议", advice, "## 五、信息说明", information,
+    ])
+    deps.progress and deps.progress.stage_completed(
+        "editor", summary=f"程序组装正文 {len(draft)} 字，不调用模型",
+        data={"ai_list_items": len(state.get("ai_daily", [])), "llm_calls": 0})
     return {"draft": draft}
-
-
-def node_quality_eval(state: MRState, deps: WorkflowDeps) -> dict:
-    from decimal import Decimal, ROUND_HALF_UP
-    from math import isfinite
-    from ..services.decision_tools import evidence_records
-    check_cancel(deps.cancel_token)
-    deps.progress and deps.progress.stage_started("quality_eval")
-    try:
-        client = deps.quality_llm or deps.llm
-        result = client.chat([{"role": "user", "content": prompts.QUALITY_EVAL.format(
-            content=state["draft"], evidence=json.dumps(_decision_context(state) | {
-                "advice": state.get("advice_result"), "news": state.get("news", []),
-                "ai_daily": state.get("ai_daily", []), "retrieved_evidence": getattr(deps.subagents, "evidence", {})}, ensure_ascii=False))}], json_mode=True)
-        deps.record("quality_eval", result, client)
-        data = _json_of(result.content)
-        scores = data.get("scores") or {}
-        if set(scores) != set(prompts.EVALUATION_DIMENSIONS):
-            raise ValueError("seven named dimensions required")
-        valid = {}
-        for key, value in scores.items():
-            if value is None:
-                valid[key] = None
-            elif isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value) and 0 <= value <= 100:
-                valid[key] = int(value)
-            else:
-                raise ValueError("invalid score")
-        missing_personal = not evidence_records(state.get("personal", {}))
-        if missing_personal:
-            for key in ("个人分析", "目标关联", "行动价值"):
-                valid[key] = None
-        scored = [v for v in valid.values() if v is not None]
-        composite = int((Decimal(sum(scored)) / Decimal(len(scored))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) if scored else None
-        comment = data.get("comment", "")
-        if missing_personal:
-            comment += "\n个人数据缺失：个人分析、目标关联、行动价值无法验证，不予高分；综合分仅统计可评价维度。"
-        comment += "\n缺陷：" + "；".join(str(v) for v in data.get("defects", []))
-        comment += "\n修复建议：" + "；".join(str(v) for v in data.get("repairs", []))
-        deps.progress and deps.progress.stage_completed("quality_eval", summary=f"综合分 {composite}" if composite is not None else "无可评价维度")
-        return {"evaluation": {"status": "ok", "scores": valid, "composite": composite,
-                               "comment": comment, "rule_version": "decision_score_v2"}}
-    except Exception as exc:
-        from ..services.cancel import GenerationCancelled
-        if isinstance(exc, GenerationCancelled):
-            raise
-        logger.warning("质量评价失败（不阻塞发布）: %s", type(exc).__name__)
-        deps.progress and deps.progress.stage_completed("quality_eval", status="skipped", summary="评价失败（不阻塞发布）", reason=type(exc).__name__)
-        return {"evaluation": {"status": "failed", "scores": None, "composite": None,
-                               "comment": "评价失败，未阻塞发布", "rule_version": "decision_score_v2"}}
 
 
 def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
@@ -517,7 +472,9 @@ def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
     from sqlalchemy import func as sqla_func
     from sqlalchemy import select as sqla_select
 
-    from ..models import Evaluation, ReportVersion
+    from ..models import ReportVersion
+    from ..services.report_news_content import build_news_content
+    from ..services.report_assembly import build_yesterday
 
     with deps.mr_session_factory() as mr:
         existing = mr.execute(
@@ -536,6 +493,12 @@ def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
             status="published", title=f"今日晨报 {state['report_date']}",
             sections={
                 "news_selection": state["news_selection"],
+                "news_content": build_news_content(state["news_selection"],
+                    state.get("news", []) + state.get("ai_daily", []), state.get("news_errors", {})),
+                "yesterday_content": state.get("yesterday_content") or build_yesterday(state.get("personal", {}), state.get("goal_result", {})),
+                "assembly_input": {key: state.get(key, [] if key in ("news", "ai_daily", "coverage_notes") else {})
+                    for key in ("news", "ai_daily", "coverage_notes", "news_errors")},
+                "assembly_personal": {"daily_done": state.get("personal", {}).get("daily_done", [])},
                 "personal_summary": state.get("personal_summary", ""),
                 "goal": state["goal_result"],
                 "advice": state["advice_result"],
@@ -547,13 +510,6 @@ def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
         )
         mr.add(ver)
         mr.flush()
-        ev = state.get("evaluation") or {}
-        mr.add(Evaluation(
-            version_id=ver.id, status=ev.get("status", "failed"),
-            scores=ev.get("scores"), composite=ev.get("composite"),
-            comment=ev.get("comment", ""), model=getattr(deps.quality_llm or deps.llm, "model", ""),
-            rule_version=ev.get("rule_version", "decision_score_v2"),
-        ))
         mr.commit()
         return {"publish": {"version_id": ver.id, "version_no": ver.version_no,
                             "is_primary": ver.is_primary}}
@@ -568,7 +524,6 @@ def build_workflow(deps: WorkflowDeps):
     g.add_node("goal_analysis", _async(node_goal_analysis, deps))
     g.add_node("advice", _async(node_advice, deps))
     g.add_node("editor", _async(node_editor, deps))
-    g.add_node("quality_eval", _async(node_quality_eval, deps))
     g.add_node("publish", _async(node_publish, deps))
 
     g.set_entry_point("info_analysis")
@@ -576,8 +531,7 @@ def build_workflow(deps: WorkflowDeps):
     g.add_edge("personal_analysis", "goal_analysis")
     g.add_edge("goal_analysis", "advice")
     g.add_edge("advice", "editor")
-    g.add_edge("editor", "quality_eval")
-    g.add_edge("quality_eval", "publish")
+    g.add_edge("editor", "publish")
     g.add_edge("publish", END)
     return g
 

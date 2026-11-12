@@ -11,7 +11,7 @@ def test_morning_uses_qwen37_for_manual_and_quality(monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
     settings = MRSettings()
     assert settings.dashscope_model == "qwen3.7-plus"
-    assert settings.quality_eval_model == "qwen3.7-plus"
+    assert not hasattr(settings, "quality_eval_model")
     assert dev_client(settings).model == "qwen3.7-plus"
 
 

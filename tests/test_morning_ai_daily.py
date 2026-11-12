@@ -256,9 +256,9 @@ def test_generate_full_daily_list_and_eval_sees_final_draft(fclient):
     info_prompts = [p for p in llm.full_prompts if "选出值得进入晨报的条目" in p]
     assert info_prompts == []  # 三类资讯均不再交给模型筛选
     eval_prompts = [p for p in llm.full_prompts if "七个维度各打" in p]
-    assert eval_prompts and f"AI 日报条目 {n - 1}" in eval_prompts[0]
+    assert eval_prompts == []  # 质量评价已移除
     editor_prompts = [p for p in llm.full_prompts if "五部分结构" in p]
-    assert editor_prompts and "{{DOMESTIC_NEWS_LIST}}" in editor_prompts[0]
+    assert editor_prompts == []  # 主编不再调用模型
     assert "国内重大政策" in draft and "国际外交突破" in draft
     assert "https://example.com/dom" in draft and "https://example.com/intl" in draft
 
@@ -278,7 +278,7 @@ def test_generate_placeholder_missing_fallback(fclient):
     assert "- [AI 日报条目 1](https://example.com/ai/2)" in draft
     assert "模型虚构的条目" not in draft  # 模型虚构内容被整节替换
     assert draft.count("### AI") == 1  # 不产生重复小节
-    assert "已自动补齐" in draft
+    assert "已自动补齐" not in draft  # 不再依赖模型占位符
 
 
 def test_regenerate_reuses_daily_snapshot(fclient, monkeypatch):

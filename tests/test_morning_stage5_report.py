@@ -52,8 +52,9 @@ def test_report_api_latest_and_explicit_version(fclient):
 
     specific = fclient.get("/api/morning/report", params={"report_date": "2026-11-10", "version_no": 2})
     assert specific.json()["id"] == v2_id
-    assert specific.json()["evaluation"]["composite"] == 80
-    assert specific.json()["evaluation"]["rule_version"] == "quality_score_v1"
+    assert "evaluation" not in specific.json()
+    with fclient.app.state.mr_session_factory() as mr:
+        assert mr.execute(select(Evaluation)).scalar_one().composite == 80
 
     missing = fclient.get("/api/morning/report", params={"report_date": "2026-11-09"})
     assert missing.status_code == 404
@@ -63,9 +64,11 @@ def test_history_lists_versions(fclient):
     _seed_two_versions(fclient)
     res = fclient.get("/api/morning/history")
     items = res.json()["items"]
-    assert len(items) == 2
+    assert len(items) == 1
     assert items[0]["version_no"] == 2  # 最新在前
-    assert any(i["has_evaluation"] for i in items)
+    assert all("has_evaluation" not in item for item in items)
+    with fclient.app.state.mr_session_factory() as mr:
+        assert len(mr.execute(select(ReportVersion)).scalars().all()) == 2
 
 
 def test_regenerate_conflict_guard(fclient):
@@ -182,9 +185,9 @@ def test_personal_snapshot_and_usage(fclient):
     res = fclient.get("/api/morning/usage", params={"run_id": rid})
     assert res.status_code == 200
     body = res.json()
-    # 当前新闻/个人准备为确定性步骤，假 Subagent 不产生模型用量；只记录主编与评价。
-    assert {item["node"] for item in body["items"]} == {"editor", "quality_eval"}
-    assert body["totals"]["calls"] == len(body["items"]) == 2
-    assert body["totals"]["input_tokens"] == 20
+    # 当前新闻/个人准备为确定性步骤，假 Subagent 不产生模型用量；本例假 Subagent 不产生用量，主编也不调用模型。
+    assert {item["node"] for item in body["items"]} == set()
+    assert body["totals"]["calls"] == len(body["items"]) == 0
+    assert body["totals"]["input_tokens"] == 0
     usage_all = fclient.get("/api/morning/usage")
     assert usage_all.json()["totals"]["calls"] >= body["totals"]["calls"]

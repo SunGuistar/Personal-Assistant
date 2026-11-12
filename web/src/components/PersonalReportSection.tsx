@@ -33,7 +33,7 @@ export function PersonalReportSection({ text, kind }: { text: string; kind: "yes
   }
   const bodyClass = "text-[#c7c7c7] [&_p]:text-[18px] [&_li]:text-[18px] [&_p]:leading-8 [&_li]:leading-8 [&_a]:text-[#c7c7c7]";
   const items = entries.map((entry, index) => <li key={index} className="my-4 pl-1 marker:text-[20px] marker:font-bold">
-    <h3 className="text-[20px] font-bold leading-8">{entry.title}</h3>
+    <h3 className={`${kind === "yesterday" ? "text-[18px]" : "text-[20px]"} font-bold leading-8`}>{entry.title}</h3>
     {entry.body.some((line) => line.trim()) && <SafeMarkdown text={entry.body.join("\n")} className={`${bodyClass} mt-1`} />}
   </li>);
   return <div data-personal-section={kind}>

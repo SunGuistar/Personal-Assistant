@@ -1,4 +1,4 @@
-"""报告查询、质量评价、重新生成与用量统计。"""
+"""报告查询、重新生成与用量统计。"""
 
 from __future__ import annotations
 
@@ -8,24 +8,23 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...exceptions import NotFoundError
-from ..models import Evaluation, ReportVersion, RunRecord, TokenUsage
+from ..models import ReportVersion, RunRecord, TokenUsage
 from .deps import get_mr_session
 
 router = APIRouter()
 
 
-def _version_out(v: ReportVersion, ev: Evaluation | None) -> dict:
+def _version_out(v: ReportVersion, mr: Session) -> dict:
+    from ..services.report_news_content import display_sections
+    from ..services.report_assembly import display_yesterday
     return {
         "id": v.id, "report_date": v.report_date, "version_no": v.version_no,
         "is_primary": v.is_primary, "status": v.status, "title": v.title,
-        "sections": v.sections, "content_md": v.content_md,
+        "sections": display_yesterday(mr, v, display_sections(mr, v)), "content_md": v.content_md,
         "window_start": v.window_start, "window_end": v.window_end,
         "snapshot_id": v.snapshot_id,
         "generation_mode": v.generation_mode, "created_at": v.created_at,
-        "evaluation": None if ev is None else {
-            "status": ev.status, "scores": ev.scores, "composite": ev.composite,
-            "comment": ev.comment, "rule_version": ev.rule_version,
-        },
+
     }
 
 
@@ -41,31 +40,26 @@ def get_report(
         q = q.where(ReportVersion.report_date == report_date)
     if version_no is not None:
         q = q.where(ReportVersion.version_no == version_no)
-    v = mr.execute(q.order_by(ReportVersion.id.desc()).limit(1)).scalars().first()
+    v = mr.execute(q.order_by(ReportVersion.report_date.desc(), ReportVersion.id.desc()).limit(1)).scalars().first()
     if v is None:
         raise NotFoundError("报告不存在")
-    ev = mr.execute(
-        select(Evaluation).where(Evaluation.version_id == v.id).order_by(Evaluation.id.desc())
-    ).scalars().first()
-    return _version_out(v, ev)
+    return _version_out(v, mr)
 
 
 @router.get("/history")
 def history(mr: Session = Depends(get_mr_session)) -> dict:
-    rows = mr.execute(
-        select(ReportVersion).order_by(ReportVersion.report_date.desc(), ReportVersion.version_no.desc())
-    ).scalars().all()
+    from ..services.report_actions import latest_per_day
+    rows = latest_per_day(mr)
     return {"items": [{
         "id": v.id, "report_date": v.report_date, "version_no": v.version_no,
         "is_primary": v.is_primary, "status": v.status, "created_at": v.created_at,
-        "has_evaluation": mr.execute(
-            select(Evaluation.id).where(Evaluation.version_id == v.id).limit(1)).first() is not None,
+
     } for v in rows]}
 
 
 class RegenerateIn(BaseModel):
     report_date: str | None = None
-    mode: str = "reuse"  # reuse=复用缓存局部重算；full=完整重算
+    mode: str = "reuse"  # 兼容旧客户端，统一重新生成，不再区分 full
 
 
 @router.post("/regenerate", status_code=202)
@@ -87,7 +81,7 @@ def regenerate(body: RegenerateIn, request: Request, mr: Session = Depends(get_m
             session, run_id, settings, mode="manual",
             hub_session_factory=request.app.state.session_factory,
             mr_session_factory=request.app.state.mr_session_factory,
-            clear_cache=body.mode == "full",
+            clear_cache=False,
             cancel_token=request.app.state.mr_runner.token_for(run_id),
         )
 
@@ -96,7 +90,35 @@ def regenerate(body: RegenerateIn, request: Request, mr: Session = Depends(get_m
         mr.commit()
         from ...exceptions import DomainError
         raise DomainError("已有一期生成在进行中，请勿重复提交", code="task_conflict", status_code=409)
-    return {"run_id": run.id, "mode": body.mode, "status": "pending"}
+    return {"run_id": run.id, "mode": "reuse", "status": "pending"}
+
+
+class ReassembleIn(BaseModel):
+    version_id: int
+
+
+@router.post("/reassemble", status_code=202)
+def reassemble(body: ReassembleIn, request: Request, mr: Session = Depends(get_mr_session)) -> dict:
+    from ..services.report_actions import assembly_state, run_reassemble
+    source = mr.get(ReportVersion, body.version_id)
+    if source is None or source.status != "published":
+        raise NotFoundError("待组装的晨报不存在")
+    assembly_state(mr, source)  # 提交前检查；禁止缺数据时偷偷重新采集或调用模型。
+    run = RunRecord(run_date=source.report_date, kind="generate", status="pending")
+    mr.add(run)
+    mr.commit()
+
+    def fn(session, run_id):
+        return run_reassemble(session, run_id, body.version_id,
+            mr_session_factory=request.app.state.mr_session_factory,
+            cancel_token=request.app.state.mr_runner.token_for(run_id))
+
+    if not request.app.state.mr_runner.submit("generate", run.id, fn):
+        mr.delete(run)
+        mr.commit()
+        from ...exceptions import DomainError
+        raise DomainError("已有晨报任务在进行中", code="task_conflict", status_code=409)
+    return {"run_id": run.id, "status": "pending"}
 
 
 @router.get("/usage")

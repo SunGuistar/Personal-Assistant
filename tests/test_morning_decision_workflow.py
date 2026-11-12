@@ -128,14 +128,11 @@ def test_full_personal_enters_agents_but_news_is_excluded(fclient):
     assert 'goal_analysis' in prompts['advice']
 
 
-def test_missing_personal_cannot_receive_high_personal_scores(fclient):
-    from tests.test_morning_stage4_graph import _initial
-    from app.morning_report.graph.workflow import node_quality_eval
-    initial = _initial(); initial['personal'] = {}; initial['draft'] = '看似合理但没有个人依据'
-    ev = node_quality_eval(initial, _deps(fclient))['evaluation']
-    assert ev['status'] == 'ok' and ev['rule_version'] == 'decision_score_v2'
-    assert all(ev['scores'][k] is None for k in ('个人分析', '目标关联', '行动价值'))
-    assert '无法验证' in ev['comment']
+def test_missing_personal_never_triggers_evaluation(fclient):
+    from app.morning_report.graph.workflow import build_workflow
+    nodes = build_workflow(_deps(fclient)).compile().nodes
+    assert 'quality_eval' not in nodes
+
 
 
 def test_invalid_goal_evidence_and_unanchored_advice_rejected(fclient):
@@ -169,21 +166,18 @@ def test_duplicate_completed_and_invented_estimates_filtered(fclient):
     assert result['advices'][0]['estimated_time'] is None and result['advices'][0]['expected_value'] is None
 
 
-def test_quality_uses_explicit_evaluation_client(fclient):
-    from tests.test_morning_stage4_graph import _initial, FakeLLM
-    from app.morning_report.graph.workflow import node_quality_eval, node_publish
+def test_publish_does_not_write_evaluation_even_for_legacy_state(fclient):
+    from tests.test_morning_stage4_graph import _initial
+    from app.morning_report.graph.workflow import node_publish
     from app.morning_report.models import Evaluation
     from sqlalchemy import select
-    deps = _deps(fclient); deps.quality_llm = FakeLLM()
-    deps.quality_llm.model = 'fake-quality-model'
-    state = _initial(); state['draft'] = '最终发布正文'
-    ev = node_quality_eval(state, deps)['evaluation']
-    assert ev['status'] == 'ok' and len(deps.quality_llm.calls) == 1
-    assert deps.llm.calls == []
-    state.update(evaluation=ev, news_selection={}, goal_result={}, advice_result={})
-    node_publish(state, deps)
+    state = _initial()
+    state.update(draft='正文', evaluation={'status': 'ok', 'composite': 99},
+                 news_selection={}, goal_result={}, advice_result={})
+    node_publish(state, _deps(fclient))
     with fclient.app.state.mr_session_factory() as db:
-        assert db.execute(select(Evaluation)).scalar_one().model == 'fake-quality-model'
+        assert db.execute(select(Evaluation)).first() is None
+
 
 
 def test_missing_personal_path_does_not_create_or_fallback(tmp_path):

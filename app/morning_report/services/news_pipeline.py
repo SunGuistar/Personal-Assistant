@@ -5,7 +5,7 @@
 - AI 资讯以 AIHOT 最新日报为唯一来源：日报成员按"属于当期日报"收录，不受逐条原文发布时间的窗口限制
   （日报归属窗口与原文发布时间分开记录）；日期不符/结构异常/接口失败走来源失败降级，不用旧日报冒充。
 - 中新网两类官方热点排行各只检查前 10 条；相同事件只保留代表，不补其他来源，不删除历史。
-- 单源失败不阻塞整体：记录 run_logs 与覆盖缺口，run 状态 degraded；全部失败才 failed。
+- 单个或全部来源缺失均不阻塞个人部分：记录真实错误与覆盖缺口，run 状态 degraded。
 """
 
 from __future__ import annotations
@@ -41,6 +41,30 @@ def saved_category_counts(mr: Session, collect_run_id: int) -> dict[str, int]:
     ).all()))
     return counts
 
+
+
+
+def collection_needs_refresh(mr: Session, collect_run_id: int) -> bool:
+    """来源失败或任一大类零条才补采；去重后不足十条不算缺失。"""
+    summary = collection_summary(mr, collect_run_id)
+    counts = saved_category_counts(mr, collect_run_id)
+    return bool(summary.get("source_failures")) or any(
+        counts.get(category, 0) == 0
+        for category in ("domestic", "international", "ai"))
+
+def category_errors(summary: dict, counts: dict | None = None) -> dict[str, str]:
+    """按新闻类别保留真实来源错误；无候选也明确说明，不阻止个人部分生成。"""
+    counts = counts if counts is not None else summary.get("by_category", {})
+    failures = summary.get("source_failures") or {}
+    errors = {}
+    for category, source, label in (("domestic", "chinanews_domestic", "中新网国内"),
+                                    ("international", "chinanews_international", "中新网国际"),
+                                    ("ai", "aihot", "AIHOT")):
+        if source in failures:
+            errors[category] = f"{label}获取失败：{failures[source]}"
+        elif counts.get(category) == 0:
+            errors[category] = f"{label}本期没有可用资讯"
+    return errors
 
 def _now() -> str:
     return datetime.now(CST).isoformat()
@@ -262,24 +286,24 @@ def run_collect(mr: Session, run_id: int, cancel_token=None) -> dict:
         "event_groups": len({i.event_group_id for i in items if i.event_group_id}),
         "source_failures": failures,
     }
+    errors = category_errors(summary)
+    summary["category_errors"] = errors
     log_run(mr, run_id, "collect", "采集完成", detail=summary)
     tracker.stage_completed("collect",
+                            status="warning" if errors else "success", reason="；".join(errors.values()),
                             summary=f"榜单及其他有效候选 {len(windowed)} 条，保存 {len(items)} 条",
                             data={"in_window": len(windowed), "saved": len(items),
                                   "by_category": summary["by_category"],
                                   "ai_daily_members": summary["ai_daily_members"],
                                   "duplicates_merged": dup, "event_groups": summary["event_groups"],
-                                  "source_failures": failures, "per_source": per_source,
+                                  "source_failures": failures, "category_errors": errors, "per_source": per_source,
                                   "coverage_notes": notes,
                                   "raw_by_category": summary["raw_by_category"],
                                   "windowed_by_category": summary["windowed_by_category"]})
     run.finished_at = _now()
-    if len(failures) == len(sources) or not items:
-        run.status = "failed"
-        run.error = "全部来源获取失败或没有可保存候选"
-    elif failures or notes:
+    if errors or failures or notes:
         run.status = "degraded"
-        run.error = "; ".join(notes)[:500]
+        run.error = "; ".join(list(errors.values()) + notes)[:500]
     else:
         run.status = "success"
     mr.commit()

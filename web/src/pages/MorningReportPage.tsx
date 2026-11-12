@@ -9,14 +9,14 @@ import {
   fetchActiveProgress, fetchProgress, HistoryItem, ProgressSnapshot,
   stopRun,
   Report, StageInfo,
-  useMorningHistory, useMorningReport, useRegenerate,
+  useMorningHistory, useMorningReport, useRegenerate, useReassemble,
 } from "../api/morning";
 import { MorningTokenUsage } from "../components/MorningTokenUsage";
 import { StarredMorningReport } from "../components/StarredMorningReport";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 
-type Tab = "report" | "evaluation" | "history";
+type Tab = "report" | "history";
 
 export function MorningReportPage() {
   const [tab, setTab] = useState<Tab>("report");
@@ -71,12 +71,13 @@ export function MorningReportPage() {
             </p>
           </div>
           <RegenerateMenu
+            versionId={data?.id}
             running={taskActive}
             runId={runId}
             onSubmitted={(id) => {
               setActive({ run: { id, run_date: "", kind: "generate", status: "pending",
                 error: null, started_at: null, finished_at: null }, active: true,
-                stages: [], recent: [], done_count: 0, total_count: 9,
+                stages: [], recent: [], done_count: 0, total_count: 8,
                 seq: 0, server_now: new Date().toISOString(), stall_seconds: 150 });
               // 立即切换到新任务并置活动态（不等 5s 轮询，按钮即刻互斥）
               fetchProgress(id)
@@ -87,7 +88,7 @@ export function MorningReportPage() {
         </header>
 
         <nav className="flex gap-1 border-b border-neutral-200 px-6 pt-2 dark:border-neutral-800">
-          {([["report", "晨报正文"], ["evaluation", "质量评价"], ["history", "历史晨报"]] as [Tab, string][]).map(
+          {([["report", "晨报正文"], ["history", "历史晨报"]] as [Tab, string][]).map(
             ([key, label]) => (
               <button
                 key={key}
@@ -107,7 +108,6 @@ export function MorningReportPage() {
 
         <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {tab === "report" && <ReportTab data={data} loading={report.isLoading} error={report.error} />}
-          {tab === "evaluation" && <EvaluationTab data={data} />}
           {tab === "history" && (
             <HistoryTab
               current={historyView ?? undefined}
@@ -135,12 +135,14 @@ export function MorningReportPage() {
   );
 }
 
-function RegenerateMenu({ running, runId, onSubmitted }: {
+function RegenerateMenu({ running, runId, versionId, onSubmitted }: {
+  versionId?: number;
   running: boolean; // 后端活动任务存在即禁用生成按钮（多标签页经 5s 轮询同步）
   runId: number | null;
   onSubmitted: (runId: number) => void;
 }) {
   const regenerate = useRegenerate();
+  const reassemble = useReassemble();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -148,11 +150,14 @@ function RegenerateMenu({ running, runId, onSubmitted }: {
   useEffect(() => {
     if (!running) setStopping(false); // 任务离开活动态后复位停止按钮
   }, [running]);
-  const run = async (mode: "reuse" | "full") => {
+  const run = async (mode: "generate" | "reassemble") => {
+    if (mode === "reassemble" && versionId == null) return;
     setBusy(true);
     setErrorMessage(null);
     try {
-      const res = await regenerate.mutateAsync({ mode });
+      const res = mode === "reassemble"
+        ? await reassemble.mutateAsync(versionId!)
+        : await regenerate.mutateAsync({});
       onSubmitted(res.run_id); // 立即切换，不等 /status 轮询
       setTimeout(() => qc.invalidateQueries({ queryKey: ["morning"] }), 8000);
     } catch (e) {
@@ -180,11 +185,11 @@ function RegenerateMenu({ running, runId, onSubmitted }: {
   };
   return (
     <div className="flex items-center gap-2">
-      <Button size="sm" disabled={disabled} onClick={() => run("reuse")}>
+      <Button size="sm" disabled={disabled} onClick={() => run("generate")}>
         <RefreshCw className={cn("mr-1 h-4 w-4", busy && "animate-spin")} /> 重新生成
       </Button>
-      <Button size="sm" variant="outline" disabled={disabled} onClick={() => run("full")}>
-        完整重算
+      <Button size="sm" variant="outline" disabled={disabled || versionId == null} title="复用采集与分析结果，仅重新组装正文，不调用模型" onClick={() => run("reassemble")}>
+        重新组装
       </Button>
       <Button
         size="sm"
@@ -207,7 +212,7 @@ function ReportTab({ data, loading, error }: { data?: Report; loading: boolean; 
     return (
       <div className="text-sm text-neutral-500">
         <p>今天的主报告尚未生成。</p>
-        <p className="mt-1 text-xs">可点击右上角「重新生成」立即生成；每天 08:00 会自动生成。</p>
+        <p className="mt-1 text-xs">可点击右上角「重新生成」立即生成；每天 08:30 会自动生成。</p>
       </div>
     );
   }
@@ -219,39 +224,6 @@ function ReportTab({ data, loading, error }: { data?: Report; loading: boolean; 
         {data.generation_mode === "auto" ? "自动生成" : "手动生成"} · {data.created_at.slice(0, 16)}
       </footer>
     </article>
-  );
-}
-
-function EvaluationTab({ data }: { data?: Report }) {
-  if (!data) return <p className="text-sm text-neutral-500">暂无报告。</p>;
-  const ev = data.evaluation;
-  if (!ev || ev.status === "failed") {
-    return <p className="text-sm text-neutral-500">该版本未评价或评价失败（不影响正文发布）。</p>;
-  }
-  const dims = Object.entries(ev.scores ?? {});
-  return (
-    <div className="mx-auto max-w-2xl">
-      <div className="mb-4 flex items-baseline gap-3">
-        <span className="text-4xl font-bold text-neutral-900 dark:text-neutral-50">{ev.composite}</span>
-        <span className="text-xs text-neutral-400">综合分（{ev.rule_version}，{ev.rule_version === "decision_score_v2" ? "七维评价，仅对可验证维度计算" : "五维等权，程序计算"}）</span>
-      </div>
-      <div className="space-y-3">
-        {dims.map(([name, score]) => (
-          <div key={name}>
-            <div className="mb-1 flex justify-between text-sm">
-              <span className="text-neutral-700 dark:text-neutral-300">{name}</span>
-              <span className="font-medium">{score}</span>
-            </div>
-            <div className="h-2 rounded bg-neutral-200 dark:bg-neutral-700">
-              <div className="h-2 rounded bg-neutral-900 dark:bg-neutral-100" style={{ width: `${score ?? 0}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-neutral-600 dark:text-neutral-300">
-        {ev.comment}
-      </p>
-    </div>
   );
 }
 
@@ -294,9 +266,8 @@ const STAGE_PURPOSE: Record<string, string> = {
   personal_analysis: "准备只读个人数据与数量检查，缺失记录不等于没有进展",
   goal_analysis: "仅根据昨日活动、长期计划及个人记录识别目标进展，不接收新闻（Subagent）",
   advice: "仅根据个人数据与目标分析形成 0–3 条行动建议，不接收新闻（后置）",
-  editor: "把材料整合为五部分中文晨报正文",
-  quality_eval: "结合结构化证据和最终正文做七维评价，无法验证的维度不评分（失败不阻塞发布）",
-  publish: "保存报告版本与质量评价，不更新向量索引",
+  editor: "仅用程序将来源新闻、个人记录和分析结果组装为五部分正文，不调用模型",
+  publish: "保存报告版本，不更新向量索引",
 };
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -482,7 +453,7 @@ function ProgressPanel({ snap, onSnapshot }: {
             </div>
           );
         })}
-        {runId && snap && <MorningTokenUsage runId={runId} active={active} stages={snap.stages} />}
+        {runId && snap && <MorningTokenUsage key={runId} runId={runId} active={active} stages={snap.stages} />}
         {!snap && <p className="py-2 text-xs text-neutral-400">今天还没有生成任务。</p>}
       </div>
 
