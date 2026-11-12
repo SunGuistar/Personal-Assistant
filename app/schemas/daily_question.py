@@ -1,0 +1,18 @@
+"""每日一问输入与输出。"""
+from typing import Annotated
+from pydantic import BaseModel, ConfigDict, StringConstraints
+
+QuestionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+AnswerText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50000)]
+
+
+class DailyQuestionIn(BaseModel):
+    question: QuestionText
+    answer: AnswerText
+
+
+class DailyQuestionOut(DailyQuestionIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    created_at: str
+    updated_at: str

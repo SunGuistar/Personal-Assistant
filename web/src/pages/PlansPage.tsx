@@ -26,6 +26,7 @@ import {
 import { Input, Label, Select, Textarea } from "../components/ui/input";
 import { todayStr } from "../lib/api";
 import { ImportantInfosPanel } from "../components/rail/ImportantInfosPanel";
+import { DailyQuestionsPanel } from "../components/rail/DailyQuestionsPanel";
 import { MemosPanel } from "../components/rail/MemosPanel";
 import { CleanupBanner } from "./CleanupPage";
 import {
@@ -93,6 +94,9 @@ export function PlansPage() {
           </div>
           <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white">
             <MemosPanel />
+          </div>
+          <div className="flex max-h-[40vh] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white">
+            <DailyQuestionsPanel />
           </div>
         </div>
       </div>
