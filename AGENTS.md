@@ -130,12 +130,11 @@ cd web && npm run build              # 正式构建
 - 不单独维护 `TEST_PLAN.md`、`ROADMAP.md`、`CHANGELOG.md`（测试场景由 `tests/` 维护，后续规划并入 DEVELOPMENT_PLAN，开发历史由 Git 记录）。
 - 不为普通 UI 调整、小型重构创建 ADR。涉及重大技术决策（多模块影响、明显方案权衡、修改成本高、未来难从代码理解原因）时，先向用户说明理由与备选方案，再建议是否写入 `Docs/ADR/`。
 
-## 10. 今日晨报 V2.0 模块开发约定（2026-11-10 起）
+## 10. 今日晨报模块约定（V2.0 开发已完成，本节为维护期约束）
 
-- **产品依据优先级**：`Docs/V0.6产品设计.md` > `Docs/V0.6.1额外信息.md` > `Docs/完整执行流程_v1.5.md`（正文实为 V1.4）> 更早文档。旧"每四小时采集"规则已作废，统一为**每天北京时间 08:00 一轮**（窗口 `[前一天08:00, 当天08:00)`）。
+- **需求文档已归档**：晨报 V2.0 需求原文（`Docs/V2/V0.6产品设计.md`、`Docs/V2/V0.6.1额外信息.md` 等）仅作历史参考；**当前业务规则以 `Docs/PRD.md` 为准、技术设计以 `Docs/Architecture.md` 为准**。采集节奏为**每天北京时间 08:00 一轮**（窗口 `[前一天08:00, 当天08:00)`）。
 - **模块位置**：`app/morning_report/`（api 薄层 → services → adapters；LangGraph 工作流在 `graph/`）。前端 `web/src/pages/MorningReportPage.tsx` 等。
 - **数据隔离**：晨报独立 SQLite `data/morning_report.db`（自带轻量迁移器，版本表 `schema_migrations`）；Qdrant 专用 Collection `morning_tech_news` / `morning_reports`；**现有 hub.db、聊天两库、Chroma 一律只读/不动**。
-- **Qdrant 连接**：必须用 `http://127.0.0.1:6333`，**禁止 localhost**（Windows IPv6 每请求卡 ~21s，见 qdrant-dev-precheck）。
-- **模型路由**：正式自动生成为 DeepSeek `deepseek-flash`（调用前做允许时段检查，禁止静默切模型）；开发/手动与质量评价用 DashScope `qwen-flash`（OpenAI 兼容端点）。Thinking 按节点显式配置。
+- **Qdrant 连接**：必须用 `http://127.0.0.1:6333`，**禁止 localhost**（Windows IPv6 每请求卡 ~21s，决策记录见 `Docs/ADR/0001-Qdrant客户端禁用localhost.md`）。
+- **模型路由**：正式自动生成为 DeepSeek `deepseek-flash`（调用前做允许时段检查，禁止静默切模型）；开发/手动生成用 DashScope `qwen-flash`（OpenAI 兼容端点）。Thinking 按节点显式配置。
 - **测试**：LLM 一律 Mock/假模型；外部 HTTP 用 respx；晨报 DB 用隔离临时库；Qdrant 用 `tmp_mr_*` 前缀 Collection 用后清理。真实采集/真实模型验证单独标记 LIVE，与单测隔离。
-- **进度与计划**：阶段状态只认 `Docs/DEVELOPMENT_PLAN.md` 的 V2 专项章节与测试证据，不回填虚构进度。
