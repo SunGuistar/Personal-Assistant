@@ -1,4 +1,3 @@
-export { NewsPage } from "./NewsPage";
 export { PlansPage } from "./PlansPage";
 export { ReadingPage } from "./ReadingPage";
 export { WechatPage } from "./WechatPage";

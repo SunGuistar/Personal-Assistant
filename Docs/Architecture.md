@@ -31,8 +31,8 @@ app/                  FastAPI 后端
 ├── config.py         # pydantic-settings（PH_ 前缀，默认端口 8620）
 ├── db.py             # engine、session、Alembic 环境
 ├── api/              # 路由薄层：校验(in schema) → service → 出 schema
-├── services/         # 纯业务逻辑（plans/tasks/reading/news/news_translation/infos/memo/wechat…）
-├── adapters/         # wechat_source / news_hn / news_rss / news_common
+├── services/         # 纯业务逻辑（plans/tasks/reading/infos/memo/wechat…）
+├── adapters/         # wechat_source
 ├── wechat_agent/     # 微信模块：Agent 工具、总结流水线、RAG、同步数据层（D3 迁入）
 ├── tasks/            # TaskRunner：线程池执行、状态落库、同 kind 409 防重
 └── models/           # SQLAlchemy 模型（与 Alembic 迁移一一对应）
@@ -53,13 +53,9 @@ Docs/                 # 本文档等
 - **启动外部程序（D5）**：仅启动设置中配置并校验的 exe；轮询 API 就绪，超时给明确错误。
 - 重建的 `normalize_snapshot.py` 与历史归一化库对拍一致；聊天相关 SQLite 一律 `mode=ro`。
 
-### 3.2 资讯模块
+### 3.2 资讯模块（已下线）
 
-抓取（hn 官方 Algolia API / rss feedparser，统一超时重试 UA）→ 归一化 → 去重（url 规范化唯一 + 标题哈希）→ 评分（确定性，见 PRD §2.2）→ `news_items` 短期缓存（只增不删）→ `rank_top_items` 纯查询出 TOP 10（首页与资讯页共用）。
-
-- 刷新：TaskRunner 后台任务（kind `news.refresh`，同 kind 409 防重），单源失败记录后继续；首页只读缓存不触发抓取；刷新失败保留旧缓存。
-- 翻译（`news_translation`）：刷新任务成功后 + 启动补发两条路径；仅对 TOP 10 中 `translate_status=''` 的条目批量翻译一次并落库（`title_zh/summary_zh`）；中文原文直接回填；失败标 failed 不重试；成本记 `token_usage`。
-- 收藏/已读字段为历史遗留，业务零读写；新闻不参与清理审核。
+技术资讯模块已于 2026-11 整体移除：抓取/评分/翻译代码、API、前端页面与 `news_sources`/`news_items` 两表（迁移 438bace3d114）均已删除。本节保留占位以维持章节编号稳定。
 
 ### 3.3 计划 / 阅读 / 右栏
 
@@ -102,7 +98,7 @@ Docs/                 # 本文档等
 
 ## 5. 数据存储设计
 
-- **hub.db**（SQLAlchemy + Alembic，迁移即 Schema 权威，模型与迁移一一对应）：业务数据全部在此——计划/任务/书籍/笔记元数据/资讯缓存/会话/任务/审计/token_usage/重要信息/随手备忘等。Schema 变更必须走 Alembic，先在隔离副本验证再应用真实库。
+- **hub.db**（SQLAlchemy + Alembic，迁移即 Schema 权威，模型与迁移一一对应）：业务数据全部在此——计划/任务/书籍/笔记元数据/会话/任务/审计/token_usage/重要信息/随手备忘等。Schema 变更必须走 Alembic，先在隔离副本验证再应用真实库。
 - **聊天两库**（`GetWechatInfo/DataInfo/` 快照库 + 归一化库）：沿用现有 Schema，不走 Alembic、不改表结构；应用侧只读（`mode=ro`）；原始快照层幂等 upsert 由同步流程负责。
 - **Chroma**：沿用现有 `chat_chunks`（chunk_id = sha1(chat_id|msg_ids) 确定性 ID，metadata 含 msg_ids 逗号拼接字符串——where 不支持子串匹配，删除场景需客户端过滤）与 `rag_state`；不新增 collection 则不改名。
 - 时间戳：业务库用 ISO8601 文本（本地时区）；聊天库沿用 epoch，服务层负责转换。
@@ -126,3 +122,7 @@ Docs/                 # 本文档等
 ## 8. 部署形态
 
 单个 Windows 目录 + 桌面快捷方式；源码运行 `uvicorn --factory app.main:create_app` + 已构建 `web/dist`；默认端口 8620。
+
+### 每日一问
+
+计划管理通过 `/api/daily_questions`（GET/POST）及 `/api/daily_questions/{id}`（PUT）访问独立 Service；`daily_questions` 表保存 id、question、answer、created_at、updated_at，Schema 通过 Alembic 新增迁移维护。前端独立 DailyQuestionsPanel 放在随手备忘下方，答案在点击问题后展示。现有备忘及计划接口保持兼容。

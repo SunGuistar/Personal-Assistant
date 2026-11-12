@@ -7,7 +7,7 @@
 - 个人使用的 Windows PC 应用：FastAPI + React，浏览器访问（默认 127.0.0.1:8620），**仅面向 PC，不做移动端适配**（V2.0 需求）。
 - 核心定位：**个人数据驱动的智能工作助手**——整合计划、备忘、重要信息、阅读记录及未来接入的 GitHub 等个人数据，利用 AI 进行信息整理、关联分析、总结和建议（目标与原则见 `Docs/DEVELOPMENT_PLAN.md`）。
 - 运行环境：Conda 环境 `agent`（Python 3.13）；前端 `cd web && npm install && npm run build`。
-- 当前版本含：微信聊天助手（Agent 对话/总结/同步）、技术资讯 TOP 10、计划管理（默认入口；重要信息 SQLite + 随手备忘 SQLite 多条记录已整合进本页面右列，可与每日任务双向转换；旧 `~/.personal-hub/memo.md` 已废弃，启动时幂等迁移、原文件保留不入 Git）。
+- 当前版本含：微信聊天助手（Agent 对话/总结/同步）、计划管理（默认入口；重要信息 SQLite + 随手备忘 SQLite 多条记录已整合进本页面右列，可与每日任务双向转换；旧 `~/.personal-hub/memo.md` 已废弃，启动时幂等迁移、原文件保留不入 Git）。技术资讯模块已于 2026-11 整体下线（代码与 news_sources/news_items 表已删除）。
 - 微信模块已迁入 `app/wechat_agent/`；`GetWechatInfo/` 仅保留聊天数据（DataInfo/ 两库 + VectorStore/）。原 `LangGraph/`、`Tool/` 目录已不存在。
 - 常驻决策（不必再问）：总结统一经 Agent（D2，见 §4）；第一版无备份功能，以数据隔离规范替代（D1）；允许自动启动设置中配置的 WeChatDataAnalysis（D5）。
 
@@ -30,6 +30,7 @@
 6. **总结统一经 Agent（D2）**：所有总结请求必须经 Agent 的 `summarize_chat` 工具触发；禁止 Service 直调 `run_summary` 的旁路。
 7. **禁止自动删除**：任何数据删除必须经清理审核流程人工勾选 + 确认；系统不得存在自动删除入口（清理审核见 Architecture §3.4）。
 8. **未来需求不进当前计划**：未经用户明确批准，不得把 `Docs/DEVELOPMENT_PLAN.md` "未批准的后续规划"中的需求排入当前开发或提前实现。
+9. **所有 LLM 调用必须启用 JSON mode**：必须在实际模型请求中设置 `response_format={"type":"json_object"}`（或供应商等效的原生 JSON 约束），仅在提示词写“输出 JSON”不算满足。Agent 工具调用的每轮模型请求同样适用，最终回答必须是 JSON 对象；工具调用轮保留原生工具协议。提示词须定义字段和类型，消费方须解析并校验，非法输出走显式错误/降级流程，禁止静默退回纯文本。Markdown/自然语言内容使用明确字符串字段（如 `content_md`）承载，解包后再展示或落库。不支持 JSON mode 的模型不得静默回退；测试必须验证实际请求参数及输出解析，真实模型验证单独标记 LIVE。
 
 ## 4. 数据与安全（最高优先级）
 

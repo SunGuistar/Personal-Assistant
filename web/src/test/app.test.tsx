@@ -49,7 +49,6 @@ describe("App 骨架", () => {
     // 无「首页」导航项
     expect(screen.queryByText("首页")).not.toBeInTheDocument();
     expect(screen.getByText("微信助手")).toBeInTheDocument();
-    expect(screen.getByText("技术资讯")).toBeInTheDocument();
     expect(screen.getByText("GitHub")).toBeInTheDocument();
     expect(screen.getByText("阅读管理")).toBeInTheDocument();
     expect(screen.getByText("清理审核")).toBeInTheDocument();
@@ -68,8 +67,8 @@ describe("App 骨架", () => {
 
   it("其他页面不展示重要信息与随手备忘", async () => {
     stubGlobalFetch();
-    renderApp("/news");
-    expect(await screen.findByRole("heading", { name: "技术资讯" })).toBeInTheDocument();
+    renderApp("/settings");
+    expect(await screen.findByRole("heading", { name: "基础设置" })).toBeInTheDocument();
     expect(screen.queryByText("重要信息")).not.toBeInTheDocument();
     expect(screen.queryByText("随手备忘")).not.toBeInTheDocument();
   });

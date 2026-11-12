@@ -9,7 +9,6 @@ from .github import router as github_router
 from .health import router as health_router
 from .infos import infos_router, memos_router
 from .jobs import router as jobs_router
-from .news import router as news_router
 from .plans import router as plans_router
 from .reading import notes_router, router as reading_router
 from .tasks import router as tasks_router
@@ -17,7 +16,6 @@ from .wechat import router as wechat_router
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health_router)
-api_router.include_router(news_router)
 api_router.include_router(plans_router)
 api_router.include_router(tasks_router)
 api_router.include_router(jobs_router)
