@@ -58,7 +58,7 @@ def get_active(report_date: str | None = None, mr: Session = Depends(get_mr_sess
     date = report_date or datetime.now(CST).date().isoformat()
     run = progress_mod.active_run(mr, date)
     if run is None:
-        return {"run": None, "stages": [], "active": False, "server_now": datetime.now(CST).isoformat()}
+        return progress_mod.empty_snapshot(settings.progress_stall_seconds)
     snap = progress_mod.snapshot(mr, run.id, settings.progress_stall_seconds)
     snap["active"] = run.status in progress_mod.ACTIVE_RUN_STATUS
     snap["seq"] = _seq_of(mr, run.id)

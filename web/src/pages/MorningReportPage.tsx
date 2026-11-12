@@ -24,7 +24,7 @@ export function MorningReportPage() {
   const report = useMorningReport();
   const qc = useQueryClient();
 
-  const data: Report | undefined = report.data;
+  const data: Report | undefined = report.data ?? undefined;
   // 活动任务：初始化与兜底轮询 /progress/active（5s）；重新生成提交后立即切换
   const [active, setActive] = useState<ProgressSnapshot | null>(null);
   const acceptSnapshot = useCallback((s: ProgressSnapshot) => {
@@ -208,10 +208,11 @@ function RegenerateMenu({ running, runId, versionId, onSubmitted }: {
 
 function ReportTab({ data, loading, error }: { data?: Report; loading: boolean; error?: unknown }) {
   if (loading) return <p className="text-sm text-neutral-500">加载中…</p>;
-  if (error || !data) {
+  if (error) return <p role="alert" className="text-sm text-red-600">晨报加载失败，请刷新重试。</p>;
+  if (!data) {
     return (
       <div className="text-sm text-neutral-500">
-        <p>今天的主报告尚未生成。</p>
+        <p>尚未生成晨报。</p>
         <p className="mt-1 text-xs">可点击右上角「重新生成」立即生成；每天 08:30 会自动生成。</p>
       </div>
     );
@@ -454,13 +455,13 @@ function ProgressPanel({ snap, onSnapshot }: {
           );
         })}
         {runId && snap && <MorningTokenUsage key={runId} runId={runId} active={active} stages={snap.stages} />}
-        {!snap && <p className="py-2 text-xs text-neutral-400">今天还没有生成任务。</p>}
+        {!snap?.run && <p className="py-2 text-xs text-neutral-400">今天还没有生成任务。</p>}
       </div>
 
-      {snap && snap.recent.length > 0 && (
+      {snap && (snap.recent?.length ?? 0) > 0 && (
         <div className="border-t border-neutral-100 px-4 py-1">
           <p className="py-0.5 text-[10px] uppercase tracking-wide text-neutral-400">最近动态</p>
-          {snap.recent.slice(-3).map((r) => (
+          {(snap.recent ?? []).slice(-3).map((r) => (
             <p key={r.id} className="truncate text-[11px] text-neutral-500">
               <span className="text-neutral-400">{r.at.slice(11, 19)}</span>{" "}
               {r.level === "error" ? "✗ " : r.level === "warning" ? "⚠ " : ""}{r.message}

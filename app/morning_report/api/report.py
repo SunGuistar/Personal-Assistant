@@ -33,8 +33,8 @@ def get_report(
     report_date: str | None = None,
     version_no: int | None = None,
     mr: Session = Depends(get_mr_session),
-) -> dict:
-    """默认显示最新发布的晨报；日期可限定范围，version_no 可查看历史版本。"""
+) -> dict | None:
+    """默认无已发布晨报时返回正常空状态；显式日期/版本不存在仍返回404。"""
     q = select(ReportVersion).where(ReportVersion.status == "published")
     if report_date is not None:
         q = q.where(ReportVersion.report_date == report_date)
@@ -42,6 +42,8 @@ def get_report(
         q = q.where(ReportVersion.version_no == version_no)
     v = mr.execute(q.order_by(ReportVersion.report_date.desc(), ReportVersion.id.desc()).limit(1)).scalars().first()
     if v is None:
+        if report_date is None and version_no is None:
+            return None
         raise NotFoundError("报告不存在")
     return _version_out(v, mr)
 

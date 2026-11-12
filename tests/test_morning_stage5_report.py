@@ -191,3 +191,14 @@ def test_personal_snapshot_and_usage(fclient):
     assert body["totals"]["input_tokens"] == 0
     usage_all = fclient.get("/api/morning/usage")
     assert usage_all.json()["totals"]["calls"] >= body["totals"]["calls"]
+
+
+def test_default_report_empty_is_normal_state(fclient):
+    empty = fclient.get("/api/morning/report")
+    assert empty.status_code == 200 and empty.json() is None
+    with fclient.app.state.mr_session_factory() as mr:
+        mr.add(ReportVersion(report_date="2026-11-12", status="draft", content_md="draft", sections={}))
+        mr.commit()
+    assert fclient.get("/api/morning/report").json() is None
+    assert fclient.get("/api/morning/report", params={"report_date": "2026-11-12"}).status_code == 404
+    assert fclient.get("/api/morning/report", params={"version_no": 999}).status_code == 404

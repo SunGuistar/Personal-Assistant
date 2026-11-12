@@ -53,7 +53,7 @@ export const useMorningReport = (reportDate?: string, versionNo?: number) =>
         reportDate && `report_date=${reportDate}`,
         versionNo && `version_no=${versionNo}`,
       ].filter(Boolean).join("&");
-      return api<Report>(`/morning/report${qs ? `?${qs}` : ""}`);
+      return api<Report | null>(`/morning/report${qs ? `?${qs}` : ""}`);
     },
     retry: false,
     refetchInterval: 20000,

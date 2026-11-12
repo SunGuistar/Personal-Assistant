@@ -272,3 +272,13 @@ def test_run_generate_writes_stage_flow(fclient):
     collect_stage = next(s for s in snap["stages"] if s["stage"] == "collect")
     assert collect_stage["data"]["by_category"] == {"domestic": 1, "international": 1, "ai": 1}
     assert collect_stage["data"]["saved"] == 3
+
+
+def test_empty_active_progress_returns_complete_contract(fclient):
+    response = fclient.get("/api/morning/progress/active")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["run"] is None and data["active"] is False
+    assert data["recent"] == [] and data["stages"] == []
+    assert data["done_count"] == data["total_count"] == data["seq"] == 0
+    assert data["server_now"] and data["stall_seconds"] > 0

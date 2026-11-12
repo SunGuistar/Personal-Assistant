@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import NewsItem, RunRecord
+from ..db import current_version
 from ..config import MRSettings
 from ..schemas import PersonalContextOut, RunOut, StatusOut
 from ..services import hub_readonly
@@ -43,7 +44,7 @@ def get_status(
     )
     return StatusOut(
         db_ok=True,
-        mr_schema_version=1,
+        mr_schema_version=current_version(mr.get_bind()),
         schedule_enabled=settings.schedule_enabled,
         today=today,
         today_run={

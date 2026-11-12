@@ -417,3 +417,38 @@ it("资讯缺失的采集步骤显示黄色感叹号", async () => {
   const stage = (await screen.findByRole("button", { name: /资讯采集/ })).closest("button")!;
   expect(stage.querySelector("svg")).toHaveClass("text-amber-600");
 });
+
+it("默认报告为空时显示首次生成提示，不显示请求失败", async () => {
+  const base = makeFetchMock();
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/morning/report"
+    ? Promise.resolve(new Response("null", { status: 200 })) : base(input, init)));
+  renderPage();
+  expect(await screen.findByText("尚未生成晨报。")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByText("重新生成").closest("button")).not.toBeDisabled();
+});
+
+it("真实报告请求失败时显示加载错误，不能伪装成空库", async () => {
+  const base = makeFetchMock();
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/morning/report"
+    ? Promise.resolve(new Response(JSON.stringify({ detail: { code: "internal", message: "failed" } }), { status: 500 })) : base(input, init)));
+  renderPage();
+  expect(await screen.findByRole("alert")).toHaveTextContent("晨报加载失败");
+  expect(screen.queryByText("尚未生成晨报。")).not.toBeInTheDocument();
+});
+
+it("兼容无任务且未返回recent的旧进度响应，不读取undefined.length", async () => {
+  const base = makeFetchMock();
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/progress/active")) return Promise.resolve(new Response(JSON.stringify({
+      run: null, stages: [], active: false, server_now: new Date().toISOString(),
+    }), { status: 200 }));
+    if (url === "/api/morning/report") return Promise.resolve(new Response("null", { status: 200 }));
+    return base(input, init);
+  }));
+  renderPage();
+  expect(await screen.findByText("尚未生成晨报。")).toBeInTheDocument();
+  expect(await screen.findByText("今天还没有生成任务。")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});

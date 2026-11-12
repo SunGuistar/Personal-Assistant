@@ -11,6 +11,8 @@
 - 微信模块已迁入 `app/wechat_agent/`；`GetWechatInfo/` 仅保留聊天数据（DataInfo/ 两库 + VectorStore/）。原 `LangGraph/`、`Tool/` 目录已不存在。
 - 常驻决策（不必再问）：总结统一经 Agent（D2，见 §4）；第一版无备份功能，以数据隔离规范替代（D1）；允许自动启动设置中配置的 WeChatDataAnalysis（D5）。
 
+- **导航常驻规则**：计划管理始终为默认首页（`/`）且固定为主导航第一项，任何新增模块不得插在其上方。微信助手与清理审核统一归入“微信管理”；导航末尾顺序为 GitHub → 微信管理 → 设置。
+
 ## 2. 代码组织与命名
 
 - 后端分层：`api/`（路由薄层）→ `services/`（业务，不得 import FastAPI 对象）→ `adapters/`（外部系统封装）；长任务走 `tasks/` 状态机。

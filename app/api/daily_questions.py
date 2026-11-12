@@ -21,3 +21,15 @@ def create_question(payload: DailyQuestionIn, session: Session = Depends(get_ses
 @router.put("/{question_id}", response_model=DailyQuestionOut)
 def update_question(question_id: int, payload: DailyQuestionIn, session: Session = Depends(get_session)):
     return service.update_question(session, question_id, **payload.model_dump())
+
+
+from pydantic import BaseModel, StrictBool
+
+
+class ReviewIn(BaseModel):
+    remembered: StrictBool
+
+
+@router.post("/{question_id}/review", response_model=DailyQuestionOut)
+def review_question(question_id: int, payload: ReviewIn, session: Session = Depends(get_session)):
+    return service.review_question(session, question_id, payload.remembered)

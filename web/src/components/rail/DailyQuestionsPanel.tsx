@@ -23,12 +23,13 @@ export function DailyQuestionsPanel() {
   return (
     <section className="flex min-h-0 flex-col" aria-label="每日一问">
       <div className="flex items-center justify-between px-3 py-2">
-        <h2 className="text-xs font-semibold text-neutral-700">每日一问</h2>
+        <h2 className="text-xs font-semibold text-neutral-700">每日一问</h2><a href="/knowledge" className="text-xs text-blue-600">复习知识库</a>
         <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => edit(null)}>
           <Plus className="h-3.5 w-3.5" /> 新增
         </Button>
       </div>
       <div className="min-h-0 overflow-y-auto px-3 pb-3">
+        {!!questions.data?.length && <a href="/knowledge" className="mb-2 block rounded bg-blue-50 p-2 text-xs text-blue-700">今日待学习 / 复习 {questions.data.filter(q => !q.due_at || Date.parse(q.due_at) <= Date.now()).length} 题，开始回忆 →</a>}
         {questions.isLoading ? <p className="py-4 text-center text-xs text-neutral-400">加载中…</p>
           : questions.isError ? <div role="alert" className="text-xs text-red-600">问答加载失败 <button onClick={() => questions.refetch()}>重试</button></div>
           : !questions.data?.length ? <p className="py-4 text-center text-xs text-neutral-400">还没有每日一问</p>

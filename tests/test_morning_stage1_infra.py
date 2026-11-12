@@ -59,6 +59,9 @@ def test_status_endpoint(fclient):
     assert res.status_code == 200
     body = res.json()
     assert body["db_ok"] is True
+    from app.morning_report.db import current_version
+    with fclient.app.state.mr_session_factory() as mr:
+        assert body["mr_schema_version"] == current_version(mr.get_bind())
     assert body["today_run"] is None
     assert body["news_counts"] == {"domestic": 0, "international": 0, "ai": 0}
 

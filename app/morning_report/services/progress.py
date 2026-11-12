@@ -201,12 +201,19 @@ class ProgressTracker:
 
 # ---------- 快照 / 恢复 ----------
 
+
+def empty_snapshot(stall_seconds: int = 150) -> dict:
+    """无生成任务也是正常状态，保持与有任务时一致的响应字段。"""
+    return {"run": None, "stages": [], "recent": [], "active": False,
+            "done_count": 0, "total_count": 0, "seq": 0,
+            "server_now": _now(), "stall_seconds": stall_seconds}
+
 def snapshot(mr: Session, run_id: int, stall_seconds: int = 150) -> dict:
     """完整进度快照：运行状态 + 阶段列表（含未开始）+ 最近动态 + 服务器时间与阈值。"""
 
     run = mr.get(RunRecord, run_id)
     if run is None:
-        return {"run": None, "stages": [], "recent": []}
+        return empty_snapshot(stall_seconds)
     stage_rows = mr.execute(
         select(RunStage).where(RunStage.run_id == run_id).order_by(RunStage.sort_order)
     ).scalars().all()
