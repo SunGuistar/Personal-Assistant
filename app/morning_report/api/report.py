@@ -35,16 +35,12 @@ def get_report(
     version_no: int | None = None,
     mr: Session = Depends(get_mr_session),
 ) -> dict:
-    """默认取当日主报告；传 version_no 取指定版本；均无则 404。"""
-    from datetime import datetime, timedelta, timezone
-
-    today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
-    date = report_date or today
-    q = select(ReportVersion).where(ReportVersion.report_date == date)
+    """默认显示最新发布的晨报；日期可限定范围，version_no 可查看历史版本。"""
+    q = select(ReportVersion).where(ReportVersion.status == "published")
+    if report_date is not None:
+        q = q.where(ReportVersion.report_date == report_date)
     if version_no is not None:
         q = q.where(ReportVersion.version_no == version_no)
-    else:
-        q = q.where(ReportVersion.is_primary.is_(True))
     v = mr.execute(q.order_by(ReportVersion.id.desc()).limit(1)).scalars().first()
     if v is None:
         raise NotFoundError("报告不存在")
@@ -92,6 +88,7 @@ def regenerate(body: RegenerateIn, request: Request, mr: Session = Depends(get_m
             hub_session_factory=request.app.state.session_factory,
             mr_session_factory=request.app.state.mr_session_factory,
             clear_cache=body.mode == "full",
+            cancel_token=request.app.state.mr_runner.token_for(run_id),
         )
 
     if not request.app.state.mr_runner.submit("generate", run.id, fn):

@@ -5,7 +5,7 @@ import pytest
 import respx
 from sqlalchemy import select
 
-from app.morning_report.adapters import NewsCandidate, chinanews, sina_hot
+from app.morning_report.adapters import NewsCandidate, chinanews, sina_hot, remoshuang
 from app.morning_report.adapters.article import parse_article
 from app.morning_report.adapters.http_common import FetchError
 from app.morning_report.graph.workflow import _limit_selection
@@ -78,12 +78,12 @@ def test_final_selection_is_limited_and_deduplicated():
     assert [item["id"] for item in result["domestic"]] == list(range(2, 22, 2))
 
 
-def test_rank_failure_falls_back_to_featured_and_keeps_history(fclient, monkeypatch):
+def test_rank_failure_has_no_fallback_and_keeps_history(fclient, monkeypatch):
     def fail(*args):
         raise FetchError("test://hot", "unavailable")
-    monkeypatch.setattr(sina_hot, "fetch_hot", fail)
-    monkeypatch.setattr(news_pipeline.aihot, "fetch_selected", lambda: [])
-    monkeypatch.setattr(news_pipeline.remoshuang, "fetch_daily", lambda day: [])
+    monkeypatch.setattr(chinanews, "fetch_hot_ranked", lambda *a, **k: fail())
+    monkeypatch.setattr(news_pipeline.aihot, "fetch_daily", lambda report_date: [])
+    monkeypatch.setattr(remoshuang, "fetch_daily", lambda day: [])
     monkeypatch.setattr(chinanews, "fetch_featured", lambda *args, **kwargs: [NewsCandidate(
         category="domestic", title="重要政策公布", summary="可靠的新闻摘要", source_name="中国新闻网",
         source_url="https://www.chinanews.com.cn/gn/2026/11-10/10000000.shtml",
@@ -94,9 +94,9 @@ def test_rank_failure_falls_back_to_featured_and_keeps_history(fclient, monkeypa
         mr.commit()
         current = news_pipeline.create_collect_run(mr, "2026-11-11")
         summary = news_pipeline.run_collect(mr, current.id)
-        assert set(summary["source_failures"]) == {"sina_domestic", "sina_international"}
-        assert mr.get(RunRecord, current.id).status == "degraded"
-        assert summary["saved_unique"] == 1
+        assert set(summary["source_failures"]) == {"chinanews_domestic", "chinanews_international"}
+        assert mr.get(RunRecord, current.id).status == "failed"
+        assert summary["saved_unique"] == 0  # 不通过精选/其他来源回填
         assert news_pipeline.collection_is_current(mr, current.id)
         assert not news_pipeline.collection_is_current(mr, old.id)
         assert mr.execute(select(NewsItem).where(NewsItem.run_id == old.id)).scalar_one().title == "历史新闻"
@@ -129,7 +129,8 @@ def test_rank_change_invalidates_analysis_cache(fclient):
     second = _initial(run_id=2)
     second["news"] = [{**item, "rank": 2} for item in second["news"]]
     asyncio.run(_run_graph(fclient, _deps(fclient, llm=llm, run_id=2), second))
-    assert sum("选出值得进入晨报" in call for call in llm.calls) == 2
+    assert sum("选出值得进入晨报" in call for call in llm.calls) == 0
+    assert len(llm.calls) == 4  # 每次重新组装并发布，仅主编和评价调用普通模型
 
 
 def test_morning_isolation_blocks_unmocked_http_and_uses_memory_store():
@@ -142,3 +143,68 @@ def test_morning_isolation_blocks_unmocked_http_and_uses_memory_store():
     assert type(store.client._client).__name__ == "QdrantLocal"
     provider = report_service.DefaultEmbeddingProvider()
     assert provider.model_name == "fake-morning-isolated"
+
+
+def test_fetch_text_respects_html_declared_gb2312():
+    from app.morning_report.adapters.http_common import fetch_text
+    html = '<meta charset="gb2312"><div>热点排行 国内新闻</div>'
+    with respx.mock() as mock:
+        mock.get("https://www.chinanews.com.cn/china/").respond(
+            200, content=html.encode("gb18030"), headers={"content-type": "text/html"})
+        assert fetch_text("https://www.chinanews.com.cn/china/") == html
+
+
+def test_outdated_official_ranking_candidates_reach_pipeline_for_diagnostics(monkeypatch):
+    from app.morning_report.adapters import article
+    html = '<div class="hotlist"><a href="/gn/2026/11-09/10728638.shtml">旧榜标题</a></div>'
+    monkeypatch.setattr(chinanews, "fetch_text", lambda url: html)
+    monkeypatch.setattr(article, "fetch_article", lambda url: {
+        "published_at": "2026-11-09T10:00:00+08:00", "summary": "摘要"})
+    rows = chinanews.fetch_hot_ranked("domestic", "2026-11-10T08:00:00+08:00", "2026-11-11T08:00:00+08:00")
+    assert len(rows) == 1
+    assert rows[0].published_at == "2026-11-09T10:00:00+08:00"
+
+
+@pytest.mark.parametrize("stamp", ["2026-11-09T10:00:00+08:00", "2026-11-11T12:00:00+08:00", None])
+def test_official_ranking_kept_without_time_filter(fclient, monkeypatch, stamp):
+    monkeypatch.setattr(news_pipeline.aihot, "fetch_daily", lambda day: [])
+    monkeypatch.setattr(chinanews, "fetch_hot_ranked", lambda cat, *a, **kw: [NewsCandidate(
+        cat, "榜单新闻", "摘要", "中国新闻网", f"https://example.com/{cat}",
+        stamp, "chinanews", {"selection_kind": "official_hotlist", "rank": 1})])
+    with fclient.app.state.mr_session_factory() as mr:
+        run = news_pipeline.create_collect_run(mr, "2026-11-11")
+        summary = news_pipeline.run_collect(mr, run.id)
+        assert summary["saved_unique"] == 2
+        assert summary["out_of_window_dropped"] == 0
+        assert summary["clue_only"] == 0
+        assert summary["by_category"] == {"domestic": 1, "international": 1, "ai": 0}
+        assert all("已排除" not in note and "仅保留为线索" not in note for note in summary["coverage_notes"])
+        assert [r.published_at for r in mr.execute(select(NewsItem)).scalars()] == [stamp, stamp]
+
+
+@pytest.mark.parametrize("stamp", ["2026-11-09T10:00:00+08:00", "2026-11-11T12:00:00+08:00", None])
+def test_generation_snapshot_keeps_news_regardless_of_time(fclient, monkeypatch, stamp):
+    from app.morning_report.services import report_service
+    from app.morning_report.config import MRSettings
+    from tests.test_morning_stage4_graph import _deps
+    captured = {}
+    class SnapshotCaptured(Exception):
+        pass
+    async def execute(deps, initial, run_id):
+        captured.update(initial)
+        raise SnapshotCaptured()
+    monkeypatch.setattr(report_service, "_execute", execute)
+    with fclient.app.state.mr_session_factory() as mr:
+        collect = news_pipeline.create_collect_run(mr, "2026-11-11")
+        collect.status = "success"
+        for cat in ("domestic", "international"):
+            mr.add(NewsItem(run_id=collect.id, category=cat, title=cat, source_url=cat,
+                           published_at=stamp, content_hash=cat))
+        run = RunRecord(run_date="2026-11-11", kind="generate", status="pending")
+        mr.add(run); mr.commit()
+        with pytest.raises(SnapshotCaptured):
+            report_service.run_generate(mr, run.id, MRSettings(schedule_enabled=False), mode="manual",
+                deps_override=_deps(fclient, run_id=run.id),
+                mr_session_factory=fclient.app.state.mr_session_factory)
+    assert {n["category"] for n in captured["news"]} == {"domestic", "international"}
+    assert captured["clues"] == []

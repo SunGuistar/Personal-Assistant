@@ -16,7 +16,7 @@ CST = timezone(timedelta(hours=8))
 
 
 def fingerprint(*parts) -> str:
-    """输入依赖（资讯快照、Memory、模型、prompt 版本等）序列化哈希。"""
+    """输入依赖（资讯快照、个人上下文、模型、prompt 版本等）序列化哈希。"""
 
     canonical = json.dumps(parts, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha1(canonical.encode("utf-8")).hexdigest()

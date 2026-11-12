@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class StatusOut(BaseModel):
@@ -12,27 +12,6 @@ class StatusOut(BaseModel):
     today: str
     today_run: dict | None  # run_records(kind=generate) 当日最新一条摘要
     news_counts: dict  # {domestic: n, international: n, ai: n} 当日窗口
-
-
-class MemoryIn(BaseModel):
-    kind: str = Field(pattern="^(interest|action_pref|supplement_goal|other)$")
-    content: str = Field(min_length=1, max_length=2000)
-
-
-class MemoryPatch(BaseModel):
-    content: str | None = Field(default=None, min_length=1, max_length=2000)
-    enabled: bool | None = None
-
-
-class MemoryOut(BaseModel):
-    id: int
-    kind: str
-    content: str
-    enabled: bool
-    confirmed: bool
-    source: str
-    created_at: str
-    updated_at: str
 
 
 class RunOut(BaseModel):

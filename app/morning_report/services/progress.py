@@ -26,12 +26,10 @@ CST = timezone(timedelta(hours=8))
 # 完整阶段定义（顺序即展示顺序；映射真实 LangGraph 工作流与采集管线，不得虚构）
 STAGE_DEFS: list[dict] = [
     {"stage": "collect", "title": "资讯采集", "group": None},
-    {"stage": "index", "title": "索引同步与检查", "group": None},
-    {"stage": "snapshot", "title": "数据快照", "group": None},
-    {"stage": "info_analysis", "title": "资讯分析", "group": None},
-    {"stage": "personal_analysis", "title": "个人分析", "group": None},
-    {"stage": "tech_research", "title": "技术研究 Subagent", "group": "parallel_analysis"},
-    {"stage": "goal_analysis", "title": "目标分析 Subagent", "group": "parallel_analysis"},
+    {"stage": "snapshot", "title": "准备本轮数据", "group": None},
+    {"stage": "info_analysis", "title": "资讯整理", "group": None},
+    {"stage": "personal_analysis", "title": "个人数据准备", "group": None},
+    {"stage": "goal_analysis", "title": "目标分析 Subagent", "group": None},
     {"stage": "advice", "title": "建议 Subagent", "group": None},
     {"stage": "editor", "title": "主编整合", "group": None},
     {"stage": "quality_eval", "title": "质量评价", "group": None},

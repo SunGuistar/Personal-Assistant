@@ -65,10 +65,20 @@ def _v3_stop_fields(engine) -> None:
             conn.execute(text("ALTER TABLE run_records ADD COLUMN stopped_at TEXT"))
 
 
+def _v4_news_importance(engine) -> None:
+    from sqlalchemy import inspect
+
+    cols = {c["name"] for c in inspect(engine).get_columns("news_items")}
+    if "is_important" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE news_items ADD COLUMN is_important BOOLEAN NOT NULL DEFAULT 0"))
+
+
 MIGRATIONS: list[tuple[int, str, object]] = [
     (1, "init_core_tables", _v1_init),
     (2, "run_stages", _v2_run_stages),
     (3, "stop_fields", _v3_stop_fields),
+    (4, "news_importance", _v4_news_importance),
 ]
 
 

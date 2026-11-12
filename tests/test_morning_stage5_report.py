@@ -37,14 +37,18 @@ def _seed_two_versions(fclient):
         return v1.id, v2.id
 
 
-def test_report_api_primary_and_version(fclient):
+def test_report_api_latest_and_explicit_version(fclient):
     v1_id, v2_id = _seed_two_versions(fclient)
     primary = fclient.get("/api/morning/report", params={"report_date": "2026-11-10"})
     assert primary.status_code == 200
     body = primary.json()
     assert "fact_check" not in body
-    assert body["is_primary"] is True and body["version_no"] == 1
-    assert "内容A" in body["content_md"]
+    assert body["is_primary"] is False and body["version_no"] == 2
+    assert "内容B" in body["content_md"]
+    latest = fclient.get("/api/morning/report")
+    assert latest.status_code == 200 and latest.json()["id"] == v2_id
+    old = fclient.get("/api/morning/report", params={"report_date": "2026-11-10", "version_no": 1})
+    assert old.json()["id"] == v1_id and "内容A" in old.json()["content_md"]
 
     specific = fclient.get("/api/morning/report", params={"report_date": "2026-11-10", "version_no": 2})
     assert specific.json()["id"] == v2_id
@@ -178,7 +182,9 @@ def test_personal_snapshot_and_usage(fclient):
     res = fclient.get("/api/morning/usage", params={"run_id": rid})
     assert res.status_code == 200
     body = res.json()
-    assert body["totals"]["calls"] >= 4  # info/personal/advice/editor/fact/eval 均落库
-    assert body["totals"]["input_tokens"] > 0
+    # 当前新闻/个人准备为确定性步骤，假 Subagent 不产生模型用量；只记录主编与评价。
+    assert {item["node"] for item in body["items"]} == {"editor", "quality_eval"}
+    assert body["totals"]["calls"] == len(body["items"]) == 2
+    assert body["totals"]["input_tokens"] == 20
     usage_all = fclient.get("/api/morning/usage")
     assert usage_all.json()["totals"]["calls"] >= body["totals"]["calls"]

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""阶段 1 验收：晨报独立库迁移、Memory CRUD API、hub 只读上下文、hub 零写入。"""
+"""阶段 1 验收：晨报独立库迁移、已移除的 Memory API 与历史兼容、hub 只读上下文、hub 零写入。"""
 
 from __future__ import annotations
 
@@ -35,21 +35,23 @@ def test_mr_db_isolated_from_hub(fclient):
     assert "long_term_plans" not in names  # hub 表不出现在晨报库
 
 
-def test_memory_crud_api(fclient):
-    created = fclient.post("/api/morning/memory", json={"kind": "interest", "content": "关注 AI Agent 框架"})
-    assert created.status_code == 201
-    mid = created.json()["id"]
-
-    listed = fclient.get("/api/morning/memory").json()
-    assert any(m["id"] == mid and m["kind"] == "interest" for m in listed)
-
-    patched = fclient.patch(f"/api/morning/memory/{mid}", json={"enabled": False})
-    assert patched.json()["enabled"] is False
-
-    assert fclient.delete(f"/api/morning/memory/{mid}").status_code == 204
-    assert fclient.get("/api/morning/memory").json() == []
-    assert fclient.patch(f"/api/morning/memory/{mid}", json={"enabled": True}).status_code == 404
-    assert fclient.post("/api/morning/memory", json={"kind": "bad_kind", "content": "x"}).status_code == 422
+def test_memory_api_removed_without_erasing_legacy_records(fclient):
+    with fclient.app.state.mr_session_factory() as mr:
+        legacy = Memory(kind="interest", content="历史偏好", enabled=True, confirmed=True)
+        mr.add(legacy)
+        mr.commit()
+        memory_id = legacy.id
+    for method, path, payload in (
+        ("GET", "/api/morning/memory", None),
+        ("POST", "/api/morning/memory", {"kind": "interest", "content": "新偏好"}),
+        ("PATCH", f"/api/morning/memory/{memory_id}", {"enabled": False}),
+        ("DELETE", f"/api/morning/memory/{memory_id}", None),
+    ):
+        # API 路由已移除；全站仅 GET 的 SPA 回退对其他方法返回 405。
+        assert fclient.request(method, path, json=payload).status_code == (404 if method == "GET" else 405)
+    with fclient.app.state.mr_session_factory() as mr:
+        assert mr.get(Memory, memory_id).content == "历史偏好"
+        assert mr.get(Memory, memory_id).enabled is True
 
 
 def test_status_endpoint(fclient):

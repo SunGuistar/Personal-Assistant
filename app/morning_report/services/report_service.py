@@ -1,7 +1,7 @@
 """生成编排（每天 08:00 流程 / 手动重新生成共用）。
 
-步骤（V0.6 §五）：清阶段缓存 → 采集(缺则补) → AI 索引同步+必要索引检查(阻塞)
-→ 冻结快照 → LangGraph 工作流 → 结果落库。
+步骤（V0.6 §五）：清阶段缓存 → 采集(缺则补)
+→ 准备本轮数据 → LangGraph 工作流 → 结果落库。
 正式自动用 DeepSeek（时段外阻塞）；手动重新生成可用 DashScope（mode 决定）。
 """
 
@@ -11,20 +11,21 @@ import asyncio
 import hashlib
 import json
 import logging
+import sqlite3
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..adapters.embedding import DefaultEmbeddingProvider
 from ..config import MRSettings
-from ..models import Memory, NewsItem, RunRecord
-from ..services import index_sync, news_pipeline, progress as progress_mod, stage_cache
-from ..services.cancel import check_cancel
+from ..models import NewsItem, RunRecord
+from ..services import news_pipeline, progress as progress_mod, stage_cache
+from ..services.cancel import GenerationCancelled, check_cancel
 from ..services.llm_router import (ModelNotAllowedError, dev_client, formal_client,
                                    record_usage)
 from ..services.qdrant_store import QdrantStore
-from ..services.rag_tool import RagTool
 from ..graph.subagents import LangChainSubagentRunner
 from ..graph.workflow import WorkflowDeps, build_workflow
 
@@ -89,7 +90,16 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
             deps_override is None and not news_pipeline.collection_is_current(mr, collect.id)):
         log_run(mr, run_id, "generate", "本期无可用采集，先执行采集", level="warning")
         collect = news_pipeline.create_collect_run(mr, run.run_date)
-        news_pipeline.run_collect(mr, collect.id)
+        try:
+            news_pipeline.run_collect(mr, collect.id, cancel_token=cancel_token)
+        except GenerationCancelled:
+            collect.status = "cancelled"
+            collect.stop_reason = "用户主动停止"
+            collect.finished_at = collect.stopped_at = _now()
+            progress_mod.ProgressTracker(mr, collect.id).stage_completed(
+                "collect", status="cancelled", reason="用户主动停止")
+            mr.commit()
+            raise
         collect = mr.get(RunRecord, collect.id)
         c_rows = mr.execute(select(NewsItem).where(NewsItem.run_id == collect.id)).scalars().all()
         tracker.stage_completed("collect",
@@ -115,37 +125,21 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         raise RuntimeError(collect.error or "采集失败")
 
     check_cancel(cancel_token)
-    # 2) AI 索引同步 + 必要索引检查（阻塞规则）
-    store = store or QdrantStore(settings.qdrant_url, dense_dims=settings.embedding_dims,
-                                 api_key=settings.qdrant_api_key)
-    provider = provider or DefaultEmbeddingProvider()
-    if deps_override is None:
-        # 首日无历史晨报：先确保两个 Collection 存在（空历史不阻塞首期生成）
-        store.ensure_collection(settings.collections.tech_news)
-        store.ensure_collection(settings.collections.reports)
-        tracker.stage_started("index")
-        sync = index_sync.sync_tech_news(mr, store, provider, collect.id,
-                                         settings.collections.tech_news)
-        log_run(mr, run_id, "index", "AI 索引同步完成", detail=sync)
-        tracker.stage_completed("index",
-                                summary=f"AI 索引 {sync.get('indexed', 0)} 条，一致性 {sync.get('consistency')}",
-                                data=sync)
-        _recover_dirty_report_index(mr, store, provider, settings)
-        problems = index_sync.check_required_indexes(
-            mr, store, [settings.collections.tech_news, settings.collections.reports])
-        if problems:
-            tracker.stage_failed("index", f"必要索引不可用: {problems}")
-            run.status = "failed"
-            run.error = f"必要索引不可用，按规则阻塞: {problems}"
-            run.finished_at = _now()
-            mr.commit()
-            log_run(mr, run_id, "index", run.error, level="error")
-            raise RuntimeError(run.error)
-
     check_cancel(cancel_token)
-    # 3) 冻结快照
+    # 3) 准备本轮数据（固定输入，保留现有证据保存逻辑）
     tracker.stage_started("snapshot")
     news_rows = mr.execute(select(NewsItem).where(NewsItem.run_id == collect.id)).scalars().all()
+    # 当期 AIHOT 日报成员：按日报归属与展示顺序确定性组装，不走窗口过滤/模型筛选/AI 截断
+    daily_rows = [r for r in news_rows
+                  if r.category == "ai" and (r.raw_ref or {}).get("daily_member")
+                  and (r.raw_ref or {}).get("daily_date") == run.run_date]
+    daily_rows.sort(key=lambda r: (r.raw_ref or {}).get("display_order", 10**9))
+    ai_daily = [{"id": r.id, "title": r.title, "summary": r.summary or "",
+                 "source_name": r.source_name, "url": r.source_url,
+                 "section_label": (r.raw_ref or {}).get("section_label", ""),
+                 "daily_kind": (r.raw_ref or {}).get("daily_kind", ""),
+                 "published_at": r.published_at} for r in daily_rows]
+    # 其余 AI 条目（旧策略遗留/线索）不进模型输入：AI 列表唯一来源是当期日报
     news = [{
         "id": r.id, "category": r.category, "title": r.title, "summary": r.summary or "",
         "source_name": r.source_name, "source_url": r.source_url,
@@ -154,23 +148,45 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         "selection_kind": (r.raw_ref or {}).get("selection_kind"),
         "rank": (r.raw_ref or {}).get("rank"),
         "rank_date": (r.raw_ref or {}).get("rank_date"),
-    } for r in news_rows]
-    clues = [n for n in news if not n.get("published_at")]
-    news = _trim_for_llm([n for n in news if news_pipeline._in_window(
-        n.get("published_at"), collect.window_start, collect.window_end)])
-    coverage_notes = collect_detail.get("coverage_notes") or ([collect.error] if collect.error else [])
-    memory_rows = mr.execute(select(Memory)).scalars().all()
-    memory = [{"id": m.id, "kind": m.kind, "content": m.content, "enabled": m.enabled,
-               "updated_at": m.updated_at} for m in memory_rows]
+    } for r in news_rows if r.category != "ai"]
+    clues = []  # 国内/国际榜单条目不再按发布时间或时间缺失降为线索
+    news = _trim_for_llm(news)
+    coverage_notes = list(collect_detail.get("coverage_notes") or ([collect.error] if collect.error else []))
     snapshot_id = "snap-" + hashlib.sha1(json.dumps(
-        [collect.id, len(news), [m["updated_at"] for m in memory]],
+        [collect.id, len(news), len(ai_daily)],
         ensure_ascii=False).encode()).hexdigest()[:16]
-    log_run(mr, run_id, "snapshot", f"快照已冻结: {snapshot_id}", detail={"news": len(news)})
+    log_run(mr, run_id, "snapshot", f"快照已冻结: {snapshot_id}",
+            detail={"news": len(news), "ai_daily": len(ai_daily)})
     tracker.stage_completed("snapshot", summary=f"快照 {snapshot_id}",
-                            data={"news": len(news)})
+                            data={"news": len(news), "ai_daily": len(ai_daily)})
 
     # 4) 工作流
-    personal_ctx = personal_ctx_override or _load_personal(hub_session_factory, collect.window_start, collect.window_end)
+    if personal_ctx_override is not None:
+        personal_ctx = personal_ctx_override
+    elif deps_override is not None:
+        personal_ctx = _load_personal(hub_session_factory, collect.window_start, collect.window_end)
+    else:
+        from .hub_readonly import load_readonly_context
+        try:
+            personal_ctx = load_readonly_context(settings.personal_db_path, collect.window_start, collect.window_end)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            personal_ctx = _load_personal(None, collect.window_start, collect.window_end)
+            personal_ctx["source_meta"] = {"status": "failed", "readonly": True, "counts": {},
+                "source_id": hashlib.sha256(str(Path(settings.personal_db_path).resolve()).casefold().encode()).hexdigest()[:16],
+                "queried_at": _now(), "query_error": type(exc).__name__}
+            coverage_notes.append("个人数据库读取失败，系统未取得数据，不能推断为没有进展")
+    table_map = {"daily_done": "daily_tasks", "daily_pending": "daily_tasks", "yesterday_pending": "daily_tasks",
+                 "today_pending": "daily_tasks", "history_tasks": "daily_tasks", "longterm_highlight": "long_term_plans",
+                 "longterm_active": "long_term_plans", "important_infos": "important_infos", "memos": "memos"}
+    for key, table in table_map.items():
+        for row in personal_ctx.get(key, []):
+            if row.get("id") is not None:
+                row.setdefault("source_id", f"{table}:{row['id']}")
+    meta = personal_ctx.get("source_meta", {})
+    log_run(mr, run_id, "personal_context", "个人数据读取完成" if meta.get("status") != "failed" else "个人数据读取失败",
+        detail={"source_id": meta.get("source_id"), "counts": meta.get("counts", {}),
+                "queried_at": meta.get("queried_at"), "status": meta.get("status", "injected"),
+                "missing_tables": meta.get("missing_tables", []), "query_error": meta.get("query_error")})
     _snapshot_personal(mr, run_id, snapshot_id, personal_ctx)
     if deps_override is not None:
         deps = deps_override
@@ -183,22 +199,26 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         else:
             llm = dev_client(settings)
             client_note = "dev"
-        rag = RagTool(store, provider, mr_session_factory)
         def _recorder(node, result, model, base_url):
             from ..services.llm_router import record_usage as _ru
             with mr_session_factory() as s:
                 _ru(s, run_id, node, _ClientShim(model, base_url), result,
                     allowed="off_peak" if mode == "auto" else "dev")
-        subagents = LangChainSubagentRunner(settings, rag_tool=rag)
+        subagents = LangChainSubagentRunner(settings)
         deps = WorkflowDeps(llm=llm, subagents=subagents,
                             mr_session_factory=mr_session_factory, run_id=run_id)
+        from ..services.llm_router import ChatClient
+        deps.quality_llm = ChatClient(settings.dashscope_base_url, "DASHSCOPE_API_KEY",
+                                      settings.quality_eval_model, thinking=False)
         deps.recorder = _recorder
+        subagents.recorder = _recorder
+        subagents.configure_context(personal_ctx, tracker, cancel_token)
         log_run(mr, run_id, "generate", f"模型路由: {client_note} ({deps.llm.model})")
 
     initial = {
-        "run_id": run_id, "snapshot_id": snapshot_id, "report_date": run.run_date,
+        "run_id": run_id, "snapshot_id": snapshot_id, "report_date": run.run_date, "generation_mode": mode,
         "window_start": collect.window_start, "window_end": collect.window_end,
-        "news": news, "clues": clues, "memory": memory,
+        "news": news, "clues": clues, "ai_daily": ai_daily,
         "coverage_notes": coverage_notes,
         "personal": personal_ctx,
     }
@@ -220,36 +240,15 @@ def run_generate(mr: Session, run_id: int, settings: MRSettings,
         category: len(final.get("news_selection", {}).get(category, []))
         for category in ("domestic", "international", "ai")}})
     # 5) 结果落库状态
-    degraded = [final["tech_result"].get("status") == "failed" and "技术研究缺失",
+    degraded = [bool(coverage_notes) or personal_ctx.get("source_meta", {}).get("status") in ("failed", "empty"),
                 final["goal_result"].get("status") == "failed" and "目标分析缺失",
                 final["advice_result"].get("status") == "failed" and "建议分析失败"]
-    ev = final.get("evaluation") or {}
-    tracker.stage_completed("quality_eval",
-                            status="success" if ev.get("status") == "ok" else "skipped",
-                            summary=f"综合分 {ev.get('composite')}" if ev.get("composite") else "评价失败（不阻塞）",
-                            reason="" if ev.get("status") == "ok" else "评价模型不可用，按规则标记未评价")
-    tracker.stage_started("publish")
     run.status = "degraded" if any(degraded) else "success"
     run.snapshot_id = snapshot_id
     run.finished_at = _now()
     mr.commit()
     log_run(mr, run_id, "publish", "晨报已发布", detail=final.get("publish"))
 
-    # 历史晨报索引更新（V0.6 流程末步）；失败记 dirty 并降级，不阻塞本期已生成内容
-    pub = final.get("publish") or {}
-    if pub.get("version_id") and store is not None and provider is not None:
-        try:
-            rs = index_sync.sync_report_version(mr, store, provider, pub["version_id"],
-                                                settings.collections.reports)
-            log_run(mr, run_id, "index", "历史晨报索引已更新", detail=rs)
-        except Exception as exc:
-            logger.warning("历史晨报索引更新失败: %s", f"{type(exc).__name__}: {exc}"[:150])
-            index_sync._touch_state(mr, settings.collections.reports, "dirty",
-                                    f"version {pub['version_id']} sync failed")
-            if run.status == "success":
-                run.status = "degraded"
-                mr.commit()
-            log_run(mr, run_id, "index", "历史晨报索引更新失败（已标记 dirty）", level="warning")
     tracker.stage_completed("publish",
                             summary=f"版本 v{(final.get('publish') or {}).get('version_no')} 已发布",
                             data=final.get("publish"))
@@ -294,9 +293,9 @@ class _ClientShim:
 
 
 def _trim_for_llm(news: list[dict]) -> list[dict]:
-    """LLM 输入截断：每类按时间倒序保留上限（国内120/国际80/AI60），防上下文溢出。
+    """LLM 输入截断：每类按时间倒序保留上限（国内120/国际80），防上下文溢出。
 
-    截断只影响分析输入，DB 与索引保留全量；信息说明中体现覆盖。
+    截断只影响分析输入，DB 与索引保留全量；AI 日报条目不经此截断（确定性组装，见 ai_daily）。
     """
 
     caps = {"domestic": 120, "international": 80, "ai": 60}
@@ -326,28 +325,3 @@ def _snapshot_personal(mr: Session, run_id: int, snapshot_id: str, ctx: dict) ->
     add("daily_tasks", ctx.get("daily_done", []))
     add("long_term_plans", ctx.get("longterm_highlight", []), time_key="target_date")
     mr.commit()
-
-
-def _recover_dirty_report_index(mr: Session, store, provider, settings: MRSettings) -> None:
-    """历史晨报索引 dirty 时的恢复检查：重同步最近已发布版本，成功即恢复 ok。"""
-
-    from ..models import IndexState
-
-    row = mr.execute(
-        select(IndexState).where(IndexState.collection_name == settings.collections.reports)
-    ).scalars().first()
-    if row is None or row.status != "dirty":
-        return
-    from ..models import ReportVersion
-    ver = mr.execute(
-        select(ReportVersion).where(ReportVersion.status == "published")
-        .order_by(ReportVersion.id.desc()).limit(1)
-    ).scalars().first()
-    if ver is None:
-        index_sync._touch_state(mr, settings.collections.reports, "ok", "无已发布版本，恢复为空索引")
-        return
-    try:
-        index_sync.sync_report_version(mr, store, provider, ver.id, settings.collections.reports)
-        log_run(mr, 0, "index", f"历史晨报索引已恢复（重同步版本 {ver.id}）")
-    except Exception as exc:
-        logger.warning("历史晨报索引恢复失败: %s", f"{type(exc).__name__}: {exc}"[:150])

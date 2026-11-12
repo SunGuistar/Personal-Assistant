@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""阶段 6 验收（后端部分）：SSE 日志增量与断线续传、助手无 Key 降级、chat 提议块解析。"""
+"""阶段 6 验收（后端部分）：SSE 日志增量与断线续传、已移除助手接口与 API 契约。"""
 
 from __future__ import annotations
 
 import json
 import re
 
-import respx
 
 from app.morning_report.models import RunLog, RunRecord
 
@@ -53,39 +52,13 @@ def test_logs_stream_resume_after_id(fclient):
     assert "第二条" in messages and "第三条" in messages
 
 
-def test_assistant_chat_without_key_degrades(fclient, monkeypatch):
-    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-    resp = fclient.post("/api/morning/assistant/chat", json={"message": "帮我记录偏好"})
-    assert resp.status_code == 200
-    assert "暂不可用" in resp.text
+def test_assistant_chat_removed(fclient):
+    response = fclient.post("/api/morning/assistant/chat", json={"message": "记录偏好"})
+    assert response.status_code == 405  # 仅命中全站 GET 回退，不存在 POST 助手路由
 
 
-def test_assistant_proposal_block_parsed(fclient, monkeypatch):
-    """有 Key 时走真实 OpenAI 客户端——这里 mock httpx 层流式响应。"""
-    import os
-
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test-fake")
-
-    import httpx
-
-    def sse(events: list[dict]) -> bytes:
-        out = b""
-        for e in events:
-            payload = json.dumps(e, ensure_ascii=False)
-            out += f"data: {payload}\n\n".encode()
-        out += b"data: [DONE]\n\n"
-        return out
-
-    text = "好的，我建议记录这条偏好。[MEMORY_PROPOSAL]{\"kind\": \"interest\", \"content\": \"关注数据库技术\"}[/MEMORY_PROPOSAL]"
-    chunks = [{"choices": [{"delta": {"content": text[i:i + 4]}}]} for i in range(0, len(text), 4)]
-
-    with respx.mock(assert_all_called=False) as rspx:
-        rspx.post("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions").respond(
-            200, content=sse(chunks),
-            headers={"Content-Type": "text/event-stream"})
-        resp = fclient.post("/api/morning/assistant/chat", json={"message": "我想关注数据库"})
-    assert resp.status_code == 200
-    finals = [json.loads(m) for m in re.findall(r"data: (.+)", resp.text) if "proposals" in m]
-    assert finals, "应输出 proposals 字段"
-    assert finals[-1]["proposals"] == [{"kind": "interest", "content": "关注数据库技术"}]
-    assert "MEMORY_PROPOSAL" not in finals[-1]["content"]
+def test_removed_features_not_exposed_in_openapi(fclient):
+    schema = fclient.get("/openapi.json").json()
+    paths = schema["paths"]
+    assert not any(path.startswith(("/api/morning/memory", "/api/morning/assistant")) for path in paths)
+    assert not any(name.startswith("Memory") for name in schema.get("components", {}).get("schemas", {}))

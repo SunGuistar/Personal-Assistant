@@ -2,20 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
 
-export interface MemoryItem {
-  id: number;
-  kind: string;
-  content: string;
-  enabled: boolean;
-  confirmed: boolean;
-  source: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Evaluation {
   status: string;
-  scores: Record<string, number> | null;
+  scores: Record<string, number | null> | null;
   composite: number | null;
   comment: string;
   rule_version: string;
@@ -68,7 +57,7 @@ export const useMorningStatus = () =>
 
 export const useMorningReport = (reportDate?: string, versionNo?: number) =>
   useQuery({
-    queryKey: ["morning", "report", reportDate ?? "today", versionNo ?? 0],
+    queryKey: ["morning", "report", reportDate ?? "latest", versionNo ?? 0],
     queryFn: () => {
       const qs = [
         reportDate && `report_date=${reportDate}`,
@@ -82,38 +71,6 @@ export const useMorningReport = (reportDate?: string, versionNo?: number) =>
 
 export const useMorningHistory = () =>
   useQuery({ queryKey: ["morning", "history"], queryFn: () => api<{ items: HistoryItem[] }>("/morning/history") });
-
-export const useMorningMemories = () =>
-  useQuery({ queryKey: ["morning", "memory"], queryFn: () => api<MemoryItem[]>("/morning/memory") });
-
-export function useCreateMemory() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { kind: string; content: string; source?: string }) =>
-      api<MemoryItem>("/morning/memory", { method: "POST", json: body }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["morning", "memory"] }),
-  });
-}
-
-export function usePatchMemory() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: { id: number; enabled?: boolean; content?: string }) =>
-      api<MemoryItem>(`/morning/memory/${args.id}`, {
-        method: "PATCH",
-        json: { enabled: args.enabled, content: args.content },
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["morning", "memory"] }),
-  });
-}
-
-export function useDeleteMemory() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) => api<void>(`/morning/memory/${id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["morning", "memory"] }),
-  });
-}
 
 export function useRegenerate() {
   const qc = useQueryClient();
@@ -135,46 +92,6 @@ export function useRunCollect() {
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["morning"] }),
   });
-}
-
-/** 助手 SSE 对话：返回逐 token 回调；结束回调携带 proposals（Memory 提议需用户确认）。 */
-export async function assistantChat(
-  message: string,
-  history: { role: string; content: string }[],
-  onDelta: (delta: string) => void,
-): Promise<{ content: string; proposals: { kind: string; content: string }[] }> {
-  const resp = await fetch("/api/morning/assistant/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
-  });
-  if (!resp.ok || !resp.body) throw new Error("助手请求失败");
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let final: { content: string; proposals: { kind: string; content: string }[] } = {
-    content: "",
-    proposals: [],
-  };
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() ?? "";
-    for (const evt of events) {
-      const line = evt.trim();
-      if (!line.startsWith("data:")) continue;
-      try {
-        const data = JSON.parse(line.slice(5));
-        if (data.delta) onDelta(data.delta);
-        if (data.done) final = { content: data.content ?? "", proposals: data.proposals ?? [] };
-      } catch {
-        // 忽略不完整帧
-      }
-    }
-  }
-  return final;
 }
 
 // ---------- 进度面板 ----------
@@ -236,3 +153,47 @@ export const stopRun = (runId: number) =>
   api<{ run_id: number; status: string; note?: string }>(`/morning/runs/${runId}/stop`, {
     method: "POST",
   });
+
+export interface TokenUsageItem {
+  node: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_hit_tokens?: number | null;
+  cache_miss_tokens?: number | null;
+}
+
+export const useMorningUsage = (runId: number, active: boolean) =>
+  useQuery({
+    queryKey: ["morning", "usage", runId],
+    queryFn: () => api<{ items: TokenUsageItem[] }>(`/morning/usage?run_id=${runId}`),
+    refetchInterval: active ? 5000 : false,
+  });
+
+export interface NewsReference {
+  id: number;
+  title: string;
+  source_url: string | null;
+  content_hash: string | null;
+  category: string;
+  is_important: boolean;
+}
+
+export const useReportNews = (versionId: number) => useQuery({
+  queryKey: ["morning", "report-news", versionId],
+  queryFn: () => api<{ items: NewsReference[] }>(`/morning/report/${versionId}/news`),
+});
+
+export function useNewsImportance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, is_important }: { id: number; is_important: boolean }) =>
+      api<NewsReference>(`/morning/news/${id}/importance`, { method: "PATCH", json: { is_important } }),
+    onSuccess: (updated) => {
+      qc.setQueriesData<{ items: NewsReference[] }>({ queryKey: ["morning", "report-news"] }, (old) =>
+        old ? { items: old.items.map((item) => item.id === updated.id ||
+          (updated.content_hash && item.content_hash === updated.content_hash)
+          ? { ...item, is_important: updated.is_important } : item) } : old);
+      void qc.invalidateQueries({ queryKey: ["morning", "report-news"] });
+    },
+  });
+}

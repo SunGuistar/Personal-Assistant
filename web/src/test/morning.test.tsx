@@ -31,6 +31,9 @@ const REPORT = {
 function makeFetchMock() {
   return vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
+    if (/\/api\/morning\/report\/\d+\/news/.test(url)) {
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }
     if (url.includes("/api/morning/report")) {
       return new Response(JSON.stringify(REPORT), { status: 200 });
     }
@@ -44,6 +47,9 @@ function makeFetchMock() {
         { status: 200 },
       );
     }
+    if (url.includes("/api/morning/usage")) {
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }
     if (url.includes("/api/morning/history")) {
       return new Response(JSON.stringify({ items: [
         { id: 1, report_date: "2026-11-10", version_no: 1, is_primary: true, status: "published",
@@ -52,21 +58,15 @@ function makeFetchMock() {
     }
     if (url.includes("/api/morning/progress/active")) {
       return new Response(JSON.stringify({
-        run: null, stages: [], recent: [], done_count: 0, total_count: 11,
+        run: null, stages: [], recent: [], done_count: 0, total_count: 9,
         server_now: new Date().toISOString(), stall_seconds: 150, seq: 0, active: false,
       }), { status: 200 });
     }
     if (url.includes("/api/morning/progress")) {
       return new Response(JSON.stringify({
-        run: null, stages: [], recent: [], done_count: 0, total_count: 11,
+        run: null, stages: [], recent: [], done_count: 0, total_count: 9,
         server_now: new Date().toISOString(), stall_seconds: 150, seq: 0, active: false,
       }), { status: 200 });
-    }
-    if (url.includes("/api/morning/memory")) {
-      return new Response(JSON.stringify([
-        { id: 1, kind: "interest", content: "关注 AI Agent", enabled: true, confirmed: true,
-          source: "manual", created_at: "", updated_at: "" },
-      ]), { status: 200 });
     }
     return new Response(JSON.stringify({ detail: { code: "not_found", message: "not found" } }), { status: 404 });
   });
@@ -141,21 +141,19 @@ describe("MorningReportPage", () => {
     });
   });
 
-  it("Memory 管理面板可禁用记忆", async () => {
+  it("保留生成进度，移除晨报助手与 Memory 管理且不请求其接口", async () => {
     const fetchMock = makeFetchMock();
     vi.stubGlobal("fetch", fetchMock);
     renderPage();
-    fireEvent.click(await screen.findByText("Memory 管理"));
-    const disableBtn = await screen.findByText("禁用");
-    fireEvent.click(disableBtn);
-    await waitFor(() => {
-      const patchCall = fetchMock.mock.calls.find(
-        (c) => String(c[0]).includes("/api/morning/memory/1") &&
-          (c as unknown as [unknown, RequestInit?])[1]?.method === "PATCH",
-      );
-      expect(patchCall).toBeTruthy();
-    });
+    await screen.findByText("今天值得关注的事。");
+    expect(screen.getByText("生成进度")).toBeInTheDocument();
+    expect(screen.queryByText("晨报助手")).not.toBeInTheDocument();
+    expect(screen.queryByText("Memory 管理")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("偏好 / Memory / 目标补充…")).not.toBeInTheDocument();
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => /\/morning\/(memory|assistant)/.test(url))).toBe(false);
   });
+
 });
 
 // ---------- 进度面板（生成进度） ----------
@@ -168,10 +166,7 @@ const STAGES = [
       raw_by_category: { domestic: 400, international: 200, ai: 40 },
       windowed_by_category: { domestic: 350, international: 160, ai: 35 },
       selected_by_category: { domestic: 10, international: 10, ai: 3 } } },
-  { stage: "tech_research", title: "技术研究 Subagent", group: "parallel_analysis", status: "running",
-    summary: "", reason: "", started_at: "2026-11-11T12:01:00+08:00", finished_at: null,
-    elapsed_ms: null, attempts: 1, last_event_at: new Date().toISOString(), data: null },
-  { stage: "goal_analysis", title: "目标分析 Subagent", group: "parallel_analysis", status: "running",
+  { stage: "goal_analysis", title: "目标分析 Subagent", group: null, status: "running",
     summary: "", reason: "", started_at: "2026-11-11T12:01:00+08:00", finished_at: null,
     elapsed_ms: null, attempts: 1, last_event_at: new Date().toISOString(), data: null },
   { stage: "advice", title: "建议 Subagent", group: null, status: "pending", summary: "", reason: "",
@@ -188,7 +183,7 @@ function makeProgressFetchMock(overrides: { active?: boolean; status?: string } 
     stages: STAGES,
     recent: [{ id: 1, at: "2026-11-11T12:00:20+08:00", stage: "collect", level: "info",
                message: "采集完成" }],
-    done_count: 1, total_count: 11,
+    done_count: 1, total_count: 9,
     server_now: new Date().toISOString(), stall_seconds: 150, seq: 5,
     active: overrides.active ?? true,
   };
@@ -222,7 +217,7 @@ describe("生成进度面板", () => {
       await act(async () => {
         connections[0].onmessage!({ data: JSON.stringify({
           run: { id: 9, status: "failed", error: "主编生成失败", started_at: null, finished_at: null },
-          stages: [], recent: [], done_count: 0, total_count: 11, seq: 5,
+          stages: [], recent: [], done_count: 0, total_count: 9, seq: 5,
           active: false, server_now: new Date().toISOString(), stall_seconds: 150,
         }) });
         connections[0].onmessage!({ data: JSON.stringify({ done: true, status: "failed", seq: 5 }) });
@@ -240,10 +235,10 @@ describe("生成进度面板", () => {
   it("轮询收到生成失败后更新面板、提示并恢复按钮", async () => {
     let failed = false;
     let submitted = false;
-    let poll: (() => void) | undefined;
+    const polls = new Set<() => void>();
     const originalInterval = window.setInterval.bind(window);
     const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation((handler, timeout, ...args) => {
-      if (timeout === 5000) poll = handler as () => void;
+      if (timeout === 5000) polls.add(handler as () => void);
       return originalInterval(handler, timeout, ...args);
     });
     const base = makeFetchMock();
@@ -258,7 +253,7 @@ describe("生成进度面板", () => {
         return new Response(JSON.stringify({
           run: { id: 9, status: failed ? "failed" : "running", error: failed ? "主编生成失败" : null,
             started_at: new Date().toISOString(), finished_at: failed ? new Date().toISOString() : null },
-          stages: [], recent: [], done_count: 0, total_count: 11, seq: 5,
+          stages: [], recent: [], done_count: 0, total_count: 9, seq: 5,
           active: !failed, server_now: new Date().toISOString(), stall_seconds: 150,
         }));
       }
@@ -270,7 +265,7 @@ describe("生成进度面板", () => {
     expect(screen.queryByText("已提交重新生成，生成中…")).not.toBeInTheDocument();
     try {
       failed = true;
-      await act(async () => { poll!(); });
+      await act(async () => { for (const poll of polls) poll(); });
       expect(screen.queryByText("进行中")).not.toBeInTheDocument();
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
       expect(screen.getByText("重新生成").closest("button")).not.toBeDisabled();
@@ -281,18 +276,18 @@ describe("生成进度面板", () => {
     }
   });
 
-  it("展示完整阶段列表：已完成/进行中/未开始与并行标识", async () => {
+  it("展示新阶段列表：已完成/进行中/未开始且没有技术研究与并行标识", async () => {
     vi.stubGlobal("fetch", makeProgressFetchMock());
     renderPage();
     await waitFor(() => expect(screen.getByText("资讯采集")).toBeInTheDocument());
-    expect(screen.getAllByText("技术研究 Subagent").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("技术研究 Subagent")).not.toBeInTheDocument();
     expect(screen.getAllByText("目标分析 Subagent").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("建议 Subagent")).toBeInTheDocument();
-    expect(screen.getByText("并行执行")).toBeInTheDocument(); // 并行组标识
-    expect(screen.getByText("阶段 1/11")).toBeInTheDocument(); // 整体进度
+    expect(screen.queryByText("并行执行")).not.toBeInTheDocument(); // 目标分析与建议顺序执行
+    expect(screen.getByText("阶段 1/9")).toBeInTheDocument(); // 整体进度
     expect(screen.getByText("当前：")).toBeInTheDocument(); // 当前阶段行
-    // 当前阶段高亮（技术研究 running）：阶段列表行带高亮底色
-    const highlighted = screen.getAllByText("技术研究 Subagent")
+    // 当前阶段高亮（目标分析 running）：阶段列表行带高亮底色
+    const highlighted = screen.getAllByText("目标分析 Subagent")
       .some((el) => el.closest("button")?.className.includes("bg-sky-50"));
     expect(highlighted).toBe(true);
   });
@@ -307,7 +302,7 @@ describe("生成进度面板", () => {
     expect(screen.getByText("AI 30 条")).toBeInTheDocument();
     expect(screen.getByText("国内：400 → 350 → 320")).toBeInTheDocument();
     expect(screen.getByText("最终选用：国内 10 条、国际 10 条、AI 3 条")).toBeInTheDocument();
-    expect(screen.getByText(/新浪国内\/国际热榜/)).toBeInTheDocument(); // 阶段目的
+    expect(screen.getByText("中新网官方热点排行（顺序依据未公开）和 AIHOT 当期日报")).toBeInTheDocument(); // 阶段目的
     expect(screen.getByText("技术详情（已脱敏）")).toBeInTheDocument(); // 折叠区标题
     fireEvent.click(screen.getByLabelText("关闭详情"));
     await waitFor(() => expect(screen.queryByText("尝试次数")).not.toBeInTheDocument());
@@ -347,7 +342,7 @@ describe("停止生成", () => {
         return new Response(JSON.stringify({
           run: { id: 9, run_date: "2026-11-11", kind: "generate", status: "running",
                  error: null, started_at: "2026-11-11T12:00:00+08:00", finished_at: null },
-          stages: STAGES, recent: [], done_count: 1, total_count: 11,
+          stages: STAGES, recent: [], done_count: 1, total_count: 9,
           server_now: new Date().toISOString(), stall_seconds: 150, seq: 5, active: true,
         }), { status: 200 });
       }

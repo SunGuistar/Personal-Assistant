@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 import httpx
@@ -30,6 +31,17 @@ def fetch_text(url: str, *, timeout: float = DEFAULT_TIMEOUT, params: dict | Non
             with httpx.Client(timeout=timeout, follow_redirects=True) as client:
                 r = client.get(url, params=params, headers=UA)
             if r.status_code == 200:
+                # httpx 默认 UTF-8；HTML 页面常仅在 meta 中声明 GB2312。
+                if "charset=" not in r.headers.get("content-type", "").lower():
+                    declared = re.search(rb"charset\s*=\s*[\"\']?([a-zA-Z0-9_-]+)", r.content[:4096], re.I)
+                    if declared:
+                        encoding = declared[1].decode("ascii").lower()
+                        if encoding in ("gb2312", "gbk", "gb18030"):
+                            encoding = "gb18030"
+                        try:
+                            return r.content.decode(encoding)
+                        except (LookupError, UnicodeError):
+                            pass
                 return r.text
             last = f"HTTP {r.status_code}"
         except httpx.HTTPError as exc:

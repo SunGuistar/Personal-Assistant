@@ -65,6 +65,7 @@ class NewsItem(MRBase):
     source_url = Column(Text)
     published_at = Column(String(32), index=True)  # ISO8601 CST，原始发布时间
     collected_at = Column(String(32), default=_ts)
+    is_important = Column(Boolean, nullable=False, default=False, server_default="0")
     content_status = Column(String(16), default="summary")
     content_hash = Column(String(64), index=True)  # sha1(规范化标题+来源)，精确去重键
     event_group_id = Column(Integer, index=True)  # 同事件归组（保守，不删原始）
@@ -117,6 +118,7 @@ class Evaluation(MRBase):
 
 
 class Memory(MRBase):
+    """停用的历史表映射：仅保留结构兼容，晨报运行时不再读取或写入。"""
     __tablename__ = "memories"
 
     id = Column(Integer, primary_key=True)

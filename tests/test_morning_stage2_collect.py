@@ -38,38 +38,45 @@ REMOSHUANG_MD = """# 2026年11月10日早间新闻
    AI 摘要内容。
 """
 
-AIHOT_PAGE1 = {
-    "items": [
-        {"id": "a1", "title": "LangGraph 0.6 发布", "summary": "s1",
-         "publishedAt": "2026-11-09T10:00:00Z", "discoveredAt": "2026-11-09T11:00:00Z",
-         "source": {"name": "GitHub"}, "links": {"original": "https://example.com/lg"}},
-        {"id": "a2", "title": "OpenAI 新模型", "summary": "s2",
-         "publishedAt": "2026-11-09T20:00:00+08:00", "discoveredAt": "2026-11-09T20:30:00+08:00",
-         "source": {"name": "OpenAI"}, "links": {"original": "https://example.com/oai"}},
-    ],
-    "page": {"hasMore": True, "nextCursor": "c2"},
-}
-AIHOT_PAGE2 = {
-    "items": [
-        {"id": "a3", "title": "昨日旧闻", "summary": "s3",
-         "publishedAt": "2026-11-08T09:00:00+08:00", "discoveredAt": "2026-11-08T10:00:00+08:00",
-         "source": {"name": "X"}, "links": {"original": "https://example.com/old"}},
-    ],
-    "page": {"hasMore": False, "nextCursor": None},
+AIHOT_DAILY = {
+    "schemaVersion": 1,
+    "report": {
+        "date": "2026-11-10",
+        "generatedAt": "2026-11-10T07:30:00+08:00",
+        "windowStart": "2026-11-09T08:00:00+08:00",
+        "windowEnd": "2026-11-10T08:00:00+08:00",
+        "lead": {"title": "LangGraph 0.6 发布", "leadParagraph": "……"},
+        "sections": [
+            {"label": "模型发布/更新", "items": [
+                {"title": "LangGraph 0.6 发布", "summary": "s1",
+                 "source": {"name": "GitHub"},
+                 "links": {"aihot": "https://aihot.news/i/a1", "original": "https://example.com/lg"},
+                 "publishedAt": "2026-11-09T10:00:00Z"},
+                {"title": "OpenAI 新模型", "summary": "s2",
+                 "source": {"name": "OpenAI"},
+                 "links": {"aihot": "https://aihot.news/i/a2", "original": "https://example.com/oai"},
+                 "publishedAt": "2026-11-09T20:00:00+08:00"},
+            ]},
+        ],
+        "flashes": [
+            {"title": "昨日旧闻", "source": {"name": "X"},
+             "links": {"aihot": "https://aihot.news/i/a3", "original": "https://example.com/old"},
+             "publishedAt": "2026-11-08T09:00:00+08:00"},
+        ],
+        "highlights": [],
+    },
 }
 
 
 def _mock_sources(rspx, aihot_status=200, cn_status=200, rm_status=200):
-    def _aihot(request):
-        if aihot_status != 200:
-            return httpx.Response(aihot_status, text="err")
-        if "cursor=c2" in str(request.url.query):
-            return httpx.Response(200, json=AIHOT_PAGE2)
-        return httpx.Response(200, json=AIHOT_PAGE1)
-
-    rspx.get("https://aihot.news/api/v1/items").side_effect = _aihot
-    for page in chinanews.FEATURED_PAGES:
-        rspx.get(page).respond(cn_status, text=ARCHIVE_1109 + ARCHIVE_1110 if cn_status == 200 else "err")
+    if aihot_status == 200:
+        rspx.get("https://aihot.news/api/v1/dailies/latest").respond(200, json=AIHOT_DAILY)
+    else:
+        rspx.get("https://aihot.news/api/v1/dailies/latest").respond(aihot_status, text="err")
+    entries = chinanews.parse_archive(ARCHIVE_1109, "2026/11/09") + chinanews.parse_archive(ARCHIVE_1110, "2026/11/10")
+    for category, page in chinanews.HOT_PAGES.items():
+        html = '<div class="hotlist"><ul>' + ''.join(f'<li><a href="{e.source_url}">{e.title}</a></li>' for e in entries if e.category == category) + '</ul></div>'
+        rspx.get(page).respond(cn_status, text=html if cn_status == 200 else "err")
     for entry in chinanews.parse_archive(ARCHIVE_1109, "2026/11/09") + chinanews.parse_archive(ARCHIVE_1110, "2026/11/10"):
         rspx.get(entry.source_url).respond(200, text=f'<time datetime="{entry.published_at}"></time><p>{entry.title * 5}</p>')
     for cat, title in (("news_china_suda", "国内主要政策发布"), ("news_world_suda", "国际外交谈判取得突破")):
@@ -112,15 +119,15 @@ def test_pipeline_full_flow(fclient):
             run = news_pipeline.create_collect_run(mr, "2026-11-10")
             summary = news_pipeline.run_collect(mr, run.id)
 
-    assert summary["per_source"]["aihot"] == 3  # 两页合并
-    assert summary["per_source"]["chinanews"] == 5
-    assert summary["per_source"]["sina_domestic"] == 1
-    assert summary["per_source"]["sina_international"] == 1
-    assert summary["per_source"]["remoshuang"] == 4
-    # 中新精选在适配器过滤时间后补充 5 条；热榜 2 条、AIHOT 2 条在窗口内
-    assert summary["in_window"] == 9
-    assert summary["clue_only"] == 4
-    assert summary["out_of_window_dropped"] == 1
+    assert summary["per_source"]["aihot"] == 3  # 当期日报：2 条栏目 + 1 条快讯
+    assert summary["per_source"]["chinanews_domestic"] == 2
+    assert summary["per_source"]["chinanews_international"] == 5
+    assert set(summary["per_source"]) == {"aihot", "chinanews_domestic", "chinanews_international"}
+    assert not any("sina.com" in str(c.request.url) or "remoshuang.com" in str(c.request.url) or "scroll-news" in str(c.request.url) for c in rspx.calls)
+    assert summary["in_window"] == 7
+    assert summary["ai_daily_members"] == 3
+    assert summary["clue_only"] == 0
+    assert summary["out_of_window_dropped"] == 0  # 官方榜单新闻不按时间过滤
     assert summary["source_failures"] == {}
     assert summary["event_groups"] >= 1
 
@@ -137,24 +144,31 @@ def test_pipeline_full_flow(fclient):
         assert sum(summary["by_category"].values()) == summary["saved_unique"]
         # 涉外时政入国际
         assert any(r.category == "international" and "黄仁勋" in r.title for r in rows)
+        # 日报成员带日报归属元数据；日报窗口与原文发布时间分开记录
+        daily_rows = [r for r in rows if (r.raw_ref or {}).get("daily_member")]
+        assert len(daily_rows) == 3
+        assert all(r.raw_ref["daily_date"] == "2026-11-10" for r in daily_rows)
+        assert all(r.raw_ref["daily_window_start"] == "2026-11-09T08:00:00+08:00" for r in daily_rows)
+        flash = next(r for r in daily_rows if r.title == "昨日旧闻")
+        assert flash.published_at == "2026-11-08T09:00:00+08:00"  # 原文时间如实保留，不伪造
+        lead = next(r for r in daily_rows if r.title == "LangGraph 0.6 发布")
+        assert lead.raw_ref["is_lead"] is True
         # 线索保留但无发布时间
         clues = [r for r in rows if r.published_at is None]
-        assert len(clues) == 2  # 4 条两期相同去重后 2 条
+        assert len(clues) == 0  # 不混入其他来源线索
         assert all(r.raw_ref["time_confidence"] == "day_only" for r in clues)
 
 
 def test_pipeline_dedup_across_sources(fclient):
-    dup_md = REMOSHUANG_MD.replace(
-        "https://view.inews.qq.com/a/20261109A09BX600",
-        "https://www.chinanews.com.cn/gj/2026/11-09/10729001.shtml",
-    ).replace("特朗普称将与中俄元首在APEC讨论美伊冲突", "特朗普宣布实施铁门行动")
+    from app.morning_report.adapters import NewsCandidate
+    candidates = [NewsCandidate("domestic", "重要政策公布", "摘要", "中国新闻网", f"https://example.com/{i}", "2026-11-09T10:00:00+08:00", "chinanews", {"rank": i}) for i in (1, 2)]
     with respx.mock(assert_all_called=False) as rspx:
         _mock_sources(rspx)
-        rspx.get("https://remoshuang.com/daily/2026-11-09.md").respond(200, text=dup_md)
-        rspx.get("https://remoshuang.com/daily/2026-11-10.md").respond(200, text=dup_md)
-        with fclient.app.state.mr_session_factory() as mr:
-            run = news_pipeline.create_collect_run(mr, "2026-11-10")
-            summary = news_pipeline.run_collect(mr, run.id)
+        from unittest.mock import patch
+        with patch.object(chinanews, "fetch_hot_ranked", side_effect=lambda cat, *a, **k: candidates if cat == "domestic" else []):
+            with fclient.app.state.mr_session_factory() as mr:
+                run = news_pipeline.create_collect_run(mr, "2026-11-10")
+                summary = news_pipeline.run_collect(mr, run.id)
     assert summary["duplicates_merged"] > 0
 
 

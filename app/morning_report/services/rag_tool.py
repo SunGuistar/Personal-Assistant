@@ -3,7 +3,7 @@
 - 基础模式：Dense+BM25 混合检索，返回可追溯来源（payload 含 source_url/report 版本）。
 - 按需增强：Query 改写（LLM，失败自动回退基础检索并记录）；Rerank 默认关闭（T21：真实
   Reranker 无可用服务，收益不显著），保留开关便于将来接入。
-- 必要索引不存在/不一致时抛 IndexUnavailableError（由工作流转为阻塞，不允许绕过）。
+- 索引不存在/不一致时抛 IndexUnavailableError；晨报工具明确返回检索失败，由生成流程披露并降级。
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class IndexUnavailableError(DomainError):
-    """必要索引缺失或不一致——工作流必须阻塞，不得回退绕过。"""
+    """索引缺失或不一致；禁止将失败伪装成成功的检索结果。"""
 
     def __init__(self, message: str):
         super().__init__(message, code="index_unavailable", status_code=409)

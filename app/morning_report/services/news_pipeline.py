@@ -1,8 +1,10 @@
-"""采集管线：热榜为主、精选补充 → 窗口过滤 → 同事件代表合并 → 持久化。
+"""采集管线：中新网官方热点排行与 AIHOT 当期日报 → 校验去重 → 持久化。
 
 规则（V0.6 §4.1 / V0.6.1 §4）：
-- 按原始发布时间过滤 [window_start, window_end)；无可靠时间的热摸爽条目仅作线索（保留，不入窗口统计）。
-- 新浪两类热榜各取前 20 条，中新精选每类最多补充 5 条；相同事件只保留代表，其余来源保留在元信息，不删除历史记录。
+- 国内/国际按采集时官方热点榜收录，不按发布时间筛选；缺失时间保留并如实展示。
+- AI 资讯以 AIHOT 最新日报为唯一来源：日报成员按"属于当期日报"收录，不受逐条原文发布时间的窗口限制
+  （日报归属窗口与原文发布时间分开记录）；日期不符/结构异常/接口失败走来源失败降级，不用旧日报冒充。
+- 中新网两类官方热点排行各只检查前 10 条；相同事件只保留代表，不补其他来源，不删除历史。
 - 单源失败不阻塞整体：记录 run_logs 与覆盖缺口，run 状态 degraded；全部失败才 failed。
 """
 
@@ -16,8 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..adapters import NewsCandidate
-from ..adapters import aihot, chinanews, remoshuang, sina_hot
-from ..adapters.article import fetch_article
+from ..adapters import aihot, chinanews
 from ..adapters.http_common import FetchError
 from ..models import EventGroup, NewsItem, RunLog, RunRecord
 from . import progress as progress_mod
@@ -27,7 +28,8 @@ logger = logging.getLogger(__name__)
 CST = timezone(timedelta(hours=8))
 # 事件归组：标题字符 bigram Jaccard 阈值（保守偏高，宁可漏归不可误并）
 EVENT_GROUP_THRESHOLD = 0.55
-COLLECTION_STRATEGY = "hot_featured_v1"
+# 延续 AIHOT 日报字段和版本校验，国内/国际旧采集策略不再复用。
+COLLECTION_STRATEGY = "cnn_official_hot10_v5_no_time_ai_daily"
 
 
 def saved_category_counts(mr: Session, collect_run_id: int) -> dict[str, int]:
@@ -162,15 +164,11 @@ def run_collect(mr: Session, run_id: int, cancel_token=None) -> dict:
     log_run(mr, run_id, "collect", f"开始采集，窗口 {run.window_start} ~ {run.window_end}")
 
     sources = {
-        "aihot": lambda: aihot.fetch_selected(),
-        "sina_domestic": lambda: sina_hot.fetch_hot("domestic", run.run_date),
-        "sina_international": lambda: sina_hot.fetch_hot("international", run.run_date),
-        "chinanews": lambda: chinanews.fetch_featured(run.window_start, run.window_end,
-                                                       cancel_check=lambda: check_cancel(cancel_token)),
-        "remoshuang": lambda: (
-            remoshuang.fetch_daily((datetime.fromisoformat(run.window_end) - timedelta(days=1)).date().isoformat())
-            + remoshuang.fetch_daily(datetime.fromisoformat(run.window_end).date().isoformat())
-        ),
+        "aihot": lambda: aihot.fetch_daily(run.run_date),
+        "chinanews_domestic": lambda: chinanews.fetch_hot_ranked("domestic", run.window_start, run.window_end,
+                                                               cancel_check=lambda: check_cancel(cancel_token)),
+        "chinanews_international": lambda: chinanews.fetch_hot_ranked("international", run.window_start, run.window_end,
+                                                                    cancel_check=lambda: check_cancel(cancel_token)),
     }
 
     candidates: list[NewsCandidate] = []
@@ -190,26 +188,6 @@ def run_collect(mr: Session, run_id: int, cancel_token=None) -> dict:
                 notes.append("中新网部分精选页面不可用")
             if name == "chinanews" and any(not i.summary for i in got):
                 notes.append("中新网部分候选未取得正文摘录，仅保留标题与来源信息")
-            if name.startswith("sina_"):
-                detail_failed = 0
-                for item in got:
-                    check_cancel(cancel_token)
-                    if item.published_at and not _in_window(item.published_at, run.window_start, run.window_end):
-                        continue
-                    try:
-                        detail = fetch_article(item.source_url)
-                        item.summary = detail["summary"]
-                        if not item.summary:
-                            detail_failed += 1
-                            item.raw["detail_status"] = "missing"
-                        if detail["published_at"]:
-                            item.published_at = detail["published_at"]
-                            item.raw["time_source"] = "article_page"
-                    except FetchError:
-                        detail_failed += 1
-                        item.raw["detail_status"] = "failed"
-                if detail_failed:
-                    notes.append(f"{name} 有 {detail_failed} 条详情获取失败，保留榜单提供的时间与标题")
             candidates.extend(got)
             log_run(mr, run_id, "collect", f"{name} 获取 {len(got)} 条", detail={"adapter": name})
         except GenerationCancelled:
@@ -223,21 +201,29 @@ def run_collect(mr: Session, run_id: int, cancel_token=None) -> dict:
     tracker.stage_progress("collect",
                            summary=f"已获取 {len(candidates)} 条候选",
                            data={"per_source": per_source, "raw_by_category": _category_counts(candidates)})
-    # 窗口过滤（无时间线索保留但标记）
-    windowed = [c for c in candidates if _in_window(c.published_at, run.window_start, run.window_end)]
-    clues = [c for c in candidates if c.published_at is None]
-    dropped = len(candidates) - len(windowed) - len(clues)
+    # 国内/国际按官方榜单收录；发布时间仅作展示，不决定是否进入正文。
+    daily = [c for c in candidates if c.raw.get("daily_member")]
+    windowed = [c for c in candidates if not c.raw.get("daily_member") and (
+        c.category in ("domestic", "international") or
+        _in_window(c.published_at, run.window_start, run.window_end))]
+    clues = [c for c in candidates if not c.raw.get("daily_member")
+             and c.category not in ("domestic", "international") and c.published_at is None]
+    dropped = len(candidates) - len(windowed) - len(clues) - len(daily)
 
-    # 无可靠时间仅作线索；国内/国际同事件只保存单一代表，其他来源进元信息。
-    uniques, dup = _merge_candidates(windowed + clues)
+    # 国内/国际同事件只保存单一代表，其他来源进元信息。
+    uniques, dup = _merge_candidates(windowed + daily + clues)
+    if daily:
+        notes.append(f"AIHOT 当期日报成员 {len(daily)} 条按日报归属收录（日报窗口独立于原文发布时间）")
+    if "aihot" in failures:
+        notes.append("AIHOT 最新日报不可用，本期 AI 标题列表缺失")
     if clues:
         notes.append(f"{len(clues)} 条候选缺少可靠发布时间，仅保留为线索，不直接进入正文新闻")
     for source in failures:
         notes.append(f"{source} 获取失败，本期覆盖可能不足")
     for category, title in (("domestic", "国内"), ("international", "国际")):
-        count = sum(i.category == category and i.published_at is not None for i in uniques)
+        count = sum(i.category == category for i in uniques)
         if count < 10:
-            notes.append(f"{title}窗口内去重候选仅 {count} 条，不用旧闻或重复事件凑数")
+            notes.append(f"{title}官方榜单去重候选仅 {count} 条，不用其他来源或重复事件凑数")
 
     items = [
         NewsItem(
@@ -248,6 +234,12 @@ def run_collect(mr: Session, run_id: int, cancel_token=None) -> dict:
         )
         for c in uniques
     ]
+    # 同一来源新闻重新采集时继承用户星标，不参与模型筛选或清理。
+    hashes = [item.content_hash for item in items]
+    important_hashes = set(mr.execute(select(NewsItem.content_hash).where(
+        NewsItem.content_hash.in_(hashes), NewsItem.is_important.is_(True))).scalars()) if hashes else set()
+    for item in items:
+        item.is_important = item.content_hash in important_hashes
     mr.add_all(items)
     mr.flush()
     _group_events(mr, items)
@@ -265,15 +257,17 @@ def run_collect(mr: Session, run_id: int, cancel_token=None) -> dict:
         "out_of_window_dropped": dropped,
         "duplicates_merged": dup,
         "saved_unique": len(items),
+        "ai_daily_members": sum(1 for i in items if (i.raw_ref or {}).get("daily_member")),
         "by_category": saved_category_counts(mr, run_id),
         "event_groups": len({i.event_group_id for i in items if i.event_group_id}),
         "source_failures": failures,
     }
     log_run(mr, run_id, "collect", "采集完成", detail=summary)
     tracker.stage_completed("collect",
-                            summary=f"窗口内 {len(windowed)} 条，保存 {len(items)} 条",
+                            summary=f"榜单及其他有效候选 {len(windowed)} 条，保存 {len(items)} 条",
                             data={"in_window": len(windowed), "saved": len(items),
                                   "by_category": summary["by_category"],
+                                  "ai_daily_members": summary["ai_daily_members"],
                                   "duplicates_merged": dup, "event_groups": summary["event_groups"],
                                   "source_failures": failures, "per_source": per_source,
                                   "coverage_notes": notes,

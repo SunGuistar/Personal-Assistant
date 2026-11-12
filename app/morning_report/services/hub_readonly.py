@@ -88,3 +88,82 @@ def window_for(report_date: str) -> tuple[str, str]:
     start = datetime(day.year, day.month, day.day, 8, 0) - timedelta(days=1)
     end = start + timedelta(days=1)
     return start.isoformat(), end.isoformat()
+
+
+# 决策工作流：独立只读连接，绝不复用可写 hub Session。
+from contextlib import contextmanager
+from pathlib import Path
+import sqlite3
+import hashlib
+from datetime import timezone
+
+CST = timezone(timedelta(hours=8))
+
+
+@contextmanager
+def readonly_connection(path):
+    path = Path(path).resolve(strict=True)
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only=ON")
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+def _stamp(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        return parsed.replace(tzinfo=CST) if parsed.tzinfo is None else parsed.astimezone(CST)
+    except ValueError:
+        return None
+
+
+def load_readonly_context(path, window_start, window_end):
+    """读取已明确配置的数据源；不存在或异常时上抛，不猜测其他库。"""
+    path = Path(path).resolve(strict=True)
+    start, end = _stamp(window_start), _stamp(window_end)
+    tables = ("daily_tasks", "long_term_plans", "important_infos", "memos", "books", "book_notes")
+    records, missing = {}, []
+    with readonly_connection(path) as db:
+        available = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for table in tables:
+            if table not in available:
+                missing.append(table)
+                records[table] = []
+                continue
+            rows = [dict(row) for row in db.execute("SELECT * FROM " + table)]
+            for row in rows:
+                row["source_id"] = f"{table}:{row['id']}"
+                row["recorded_at"] = row.get("completed_at") or row.get("updated_at") or row.get("created_at") or row.get("uploaded_at")
+                # 附件只提供数据库已有元数据，不读取磁盘正文、不泄露附件路径。
+                row.pop("path", None)
+            records[table] = rows
+    if "daily_tasks" in missing or "long_term_plans" in missing:
+        raise ValueError("configured personal database lacks required tables")
+    tasks = records["daily_tasks"]
+    today, yesterday = end.date().isoformat(), start.date().isoformat()
+    done = [r for r in tasks if r.get("done") and _stamp(r.get("completed_at")) is not None
+            and start <= _stamp(r["completed_at"]) < end]
+    pending = [r for r in tasks if not r.get("done") and r.get("task_date", "") <= today]
+    plans = records["long_term_plans"]
+    counts = {table: len(rows) for table, rows in records.items()}
+    meta = {"source_id": hashlib.sha256(str(path).casefold().encode()).hexdigest()[:16],
+            "database_path": str(path), "readonly": True,
+            "queried_at": datetime.now(CST).isoformat(), "counts": counts,
+            "missing_tables": missing, "query_error": None,
+            "status": "empty" if not any(counts.values()) else "ok"}
+    return {"window_start": window_start, "window_end": window_end,
+        "daily_done": done, "daily_pending": pending,
+        "yesterday_pending": [r for r in pending if r.get("task_date") == yesterday],
+        "today_pending": [r for r in pending if r.get("task_date") == today],
+        "longterm_highlight": [r for r in plans if r.get("is_important") and r.get("status") != "completed"],
+        "longterm_active": [r for r in plans if r.get("status") == "in_progress" and not r.get("is_important")],
+        "important_infos": records["important_infos"], "memos": records["memos"],
+        "books": records["books"], "book_notes": records["book_notes"],
+        "history_tasks": sorted([r for r in tasks if r.get("task_date", "") <= today],
+                                key=lambda r: (r.get("task_date", ""), r["id"]), reverse=True)[:200],
+        "source_meta": meta}

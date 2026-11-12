@@ -1,6 +1,6 @@
 """LangGraph 晨报工作流（V0.6 §五 / V0.6.1 §3.2）。
 
-结构：并行(资讯分析, 个人分析) → 并行(技术研究, 目标分析 Subagent) → 建议(后置) → 主编
+结构：新闻整理 → 个人上下文 → GoalAnalysis → ActionSuggest → 主编
       → 质量评价(可缺失) → 发布(幂等主报告)。
 LLM 与 Subagent 经 WorkflowDeps 注入：生产用真实现，测试用假实现（图结构始终真实）。
 """
@@ -10,9 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Protocol, TypedDict
+from urllib.parse import quote, urlsplit
 
 from langgraph.graph import END, StateGraph
 
@@ -30,12 +32,12 @@ class LlmChat(Protocol):
 
     model: str
 
-    def chat(self, messages: list[dict], *, json_mode: bool = False,
+    def chat(self, messages: list[dict], *, json_mode: bool = True,
              tools: list[dict] | None = None, thinking: bool | None = None): ...
 
 
 class SubagentRunner(Protocol):
-    """技术研究/目标分析/建议的执行器（生产实现见 subagents.py）。"""
+    """目标分析与行动建议的执行器（生产实现见 subagents.py）。"""
 
     def run(self, name: str, prompt: str, tools: list) -> str: ...
 
@@ -51,12 +53,14 @@ class WorkflowDeps:
         self.recorder = None  # callable(node, result, model, base_url)，生产注入落 TokenUsage
         self.progress = None  # ProgressTracker（可选）；节点据此上报阶段状态
         self.cancel_token = None  # CancelToken（可选）；节点入口安全检查点
+        self.quality_llm = None  # 生产评价独立使用配置的 DashScope 模型；测试默认复用假模型。
 
-    def record(self, node: str, result) -> None:
+    def record(self, node: str, result, client=None) -> None:
         if self.recorder is not None:
             try:
-                self.recorder(node, result, getattr(self.llm, "model", ""),
-                              getattr(self.llm, "base_url", ""))
+                client = client or self.llm
+                self.recorder(node, result, getattr(client, "model", ""),
+                              getattr(client, "base_url", ""))
             except Exception:
                 logger.warning("Token 用量落库失败（不影响主流程）", exc_info=True)
 
@@ -65,16 +69,16 @@ class MRState(TypedDict, total=False):
     run_id: int
     snapshot_id: str
     report_date: str
+    generation_mode: str
     window_start: str
     window_end: str
-    news: list[dict]            # 本期窗口内新闻（含 category/title/summary/url/published_at）
+    news: list[dict]            # 本期采集的官方榜单新闻（不含 AI；AI 走 ai_daily 确定性组装）
     clues: list[dict]           # 无可靠时间线索
+    ai_daily: list[dict]        # 当期 AIHOT 日报完整条目（去重后、按 display_order；不参与模型筛选）
     coverage_notes: list[str]
-    memory: list[dict]
     personal: dict              # hub 只读上下文
     news_selection: dict        # 资讯分析输出（缓存）
     personal_summary: str       # 个人分析输出（缓存）
-    tech_result: dict           # {status: ok/failed, content}
     goal_result: dict
     advice_result: dict         # {status: ok/failed/no_advice, advices}
     draft: str                  # 主编正文 Markdown
@@ -86,17 +90,88 @@ class MRState(TypedDict, total=False):
 
 
 def _json_of(content: str) -> dict:
-    """容忍 ```json 围栏的 JSON 解析；失败抛 ValueError（节点级处理）。"""
+    """严格解析 JSON 对象；不接受 Markdown 围栏或夹带的说明文字。"""
+    from ..services.json_contract import parse_json_object
+    return parse_json_object(content)
 
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:]
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError(f"输出不是 JSON: {content[:80]}")
-    return json.loads(text[start:end + 1])
+
+# ---------- AI 日报列表：确定性组装与占位符注入 ----------
+
+AI_LIST_PLACEHOLDER = "{{AI_NEWS_LIST}}"
+_MD_TITLE_ESCAPE = re.compile(r"([\\`*_\[\]])")
+_AI_HEADING_RE = re.compile(r"(?m)^#{1,6}\s*AI[^\n]*$")
+_ANY_HEADING_RE = re.compile(r"(?m)^#{1,6}\s")
+_SECTION3_RE = re.compile(r"(?m)^#{1,6}\s*三[、.．]")
+_LIST_LINE_RE = re.compile(r"^\s*(?:[-*+]|\d+[.、)])\s+")
+
+
+def _md_escape_title(title: str) -> str:
+    """标题中的 Markdown 特殊字符转义（破坏链接语法的括号优先）。"""
+
+    return _MD_TITLE_ESCAPE.sub(r"\\\1", title)
+
+
+def _safe_url(url) -> str:
+    """只接受有效 http/https；空白与括号百分号编码，防破坏 Markdown 链接；其余丢弃。"""
+
+    if not isinstance(url, str) or not url.strip():
+        return ""
+    url = url.strip()
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return ""
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return ""
+    return quote(url, safe=":/?#[]@!$&'*+,;=%~")
+
+
+def assemble_ai_list(items: list[dict]) -> str:
+    """把当期 AIHOT 日报条目组装为 Markdown 列表（全部去重后标题+链接，顺序=日报展示顺序）。"""
+
+    lines = []
+    for it in items:
+        title = _md_escape_title(str(it.get("title") or "").strip()) or "（无标题）"
+        url = _safe_url(it.get("url") or it.get("source_url") or "")
+        lines.append(f"- [{title}]({url})" if url else f"- {title}")
+    return "\n".join(lines) if lines else "（本期 AIHOT 日报不可用或无条目，AI 资讯列表缺失）"
+
+
+def _strip_model_ai_items(head: str) -> str:
+    """占位符之前、最近一个 AI 小节标题之后：剔除模型自写的列表行（防虚构/改写），保留引语。"""
+
+    lines = head.split("\n")
+    ai_idx = None
+    for i, line in enumerate(lines):
+        if _AI_HEADING_RE.match(line.rstrip()):
+            ai_idx = i
+    if ai_idx is None:
+        return head
+    kept = [line for line in lines[ai_idx + 1:] if not _LIST_LINE_RE.match(line)]
+    return "\n".join(lines[:ai_idx + 1] + kept).rstrip() + "\n"
+
+
+def inject_ai_list(draft: str, block: str) -> tuple[str, bool]:
+    """把组装好的 AI 列表注入正文。返回 (正文, 是否按占位符注入)。
+
+    占位符在则替换首个、清除重复占位，并剔除占位符前模型自写的 AI 列表行；
+    模型遗漏占位符时改写已有 AI 小节内容，无小节则插入到"三、"标题之前，
+    仍找不到则追加到文末——不做脆弱的全文替换，不产生重复小节。
+    """
+
+    if AI_LIST_PLACEHOLDER in draft:
+        first = draft.index(AI_LIST_PLACEHOLDER)
+        out = _strip_model_ai_items(draft[:first]) + block + draft[first + len(AI_LIST_PLACEHOLDER):]
+        return out.replace(AI_LIST_PLACEHOLDER, ""), True
+    m = _AI_HEADING_RE.search(draft)
+    if m:
+        nxt = _ANY_HEADING_RE.search(draft, m.end())
+        end = nxt.start() if nxt else len(draft)
+        return draft[:m.end()] + "\n\n" + block + "\n\n" + draft[end:].lstrip("\n"), False
+    m3 = _SECTION3_RE.search(draft)
+    if m3:
+        return draft[:m3.start()].rstrip() + "\n\n### AI\n\n" + block + "\n\n" + draft[m3.start():], False
+    return draft.rstrip() + "\n\n### AI\n\n" + block, False
 
 
 # ---------- 节点 ----------
@@ -124,163 +199,139 @@ def _limit_selection(selection: dict, news: list[dict]) -> dict:
 
 
 def node_info_analysis(state: MRState, deps: WorkflowDeps) -> dict:
+    """只按来源顺序整理新闻，不进行模型二次筛选；AIHOT 保持完整。"""
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("info_analysis")
-    fp = stage_cache.fingerprint(
-        "news", [{key: n.get(key) for key in (
-            "id", "content_hash", "summary", "published_at", "rank", "rank_date",
-            "selection_kind", "event_group_id")} for n in state["news"]],
-        "memory", [m["updated_at"] for m in state["memory"]],
-        deps.prompt_version, deps.llm.model,
-    )
-    with deps.mr_session_factory() as mr:
-        cached = stage_cache.get_cached(mr, "info_analysis", fp)
-        if cached is not None:
-            deps.progress and deps.progress.stage_completed(
-                "info_analysis", summary="命中阶段缓存",
-                status="skipped", reason="输入未变化，复用缓存")
-            return {"news_selection": _limit_selection(cached, state["news"])}
-        memory_txt = "；".join(m["content"] for m in state["memory"] if m.get("enabled"))
-        result = deps.llm.chat([{"role": "user", "content": prompts.INFO_ANALYSIS.format(
-            news=json.dumps(state["news"], ensure_ascii=False), memory=memory_txt)}], json_mode=True)
-        deps.record("info_analysis", result)
-        selection = _limit_selection(_json_of(result.content), state["news"])
-        stage_cache.put_cache(mr, "info_analysis", fp, selection, model=deps.llm.model,
-                              prompt_version=deps.prompt_version)
-    deps.progress and deps.progress.stage_completed(
-        "info_analysis",
-        summary=f"选中 国内{len(selection.get('domestic', []))}/国际{len(selection.get('international', []))}/AI{len(selection.get('ai', []))} 条",
-        data={"selected": {k: len(v) for k, v in selection.items()}})
-    return {"news_selection": selection}
+    selected = {}
+    for category in ("domestic", "international"):
+        rows = [n for n in state["news"] if n.get("category") == category]
+        rows.sort(key=lambda n: (n.get("rank") or 10**9, n["id"]))
+        selected[category] = [{"id": n["id"], "title": n["title"]} for n in rows]
+    selected = _limit_selection(selected, state["news"])
+    selected["ai"] = list(state.get("ai_daily", []))
+    deps.progress and deps.progress.stage_completed("info_analysis", summary="新闻按来源顺序整理，无模型筛选",
+        data={"selected": {k: len(v) for k, v in selected.items()}})
+    return {"news_selection": selected}
 
 
 def node_personal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("personal_analysis")
     p = state["personal"]
-    fp = stage_cache.fingerprint(
-        "personal", p, "memory", [m["updated_at"] for m in state["memory"]],
-        deps.prompt_version, deps.llm.model,
-    )
-    with deps.mr_session_factory() as mr:
-        cached = stage_cache.get_cached(mr, "personal_analysis", fp)
-        if cached is not None:
-            deps.progress and deps.progress.stage_completed(
-                "personal_analysis", summary="命中阶段缓存",
-                status="skipped", reason="输入未变化，复用缓存")
-            return {"personal_summary": cached["summary"]}
-        result = deps.llm.chat([{"role": "user", "content": prompts.PERSONAL_ANALYSIS.format(
-            window=f"{state['window_start']} ~ {state['window_end']}",
-            done=json.dumps(p.get("daily_done", []), ensure_ascii=False),
-            highlight=json.dumps(p.get("longterm_highlight", []), ensure_ascii=False),
-            active=json.dumps(p.get("longterm_active", []), ensure_ascii=False),
-            infos=json.dumps(p.get("important_infos", []), ensure_ascii=False))}])
-        deps.record("personal_analysis", result)
-        summary = result.content.strip()
-        stage_cache.put_cache(mr, "personal_analysis", fp, {"summary": summary},
-                              model=deps.llm.model, prompt_version=deps.prompt_version)
-    deps.progress and deps.progress.stage_completed("personal_analysis",
-                                                    summary=f"{len(summary)} 字总结")
+    counts = {key: len(value) for key, value in p.items() if isinstance(value, list)}
+    summary = (f"系统取得窗口内完成任务 {counts.get('daily_done', 0)} 条、昨日未完成 {counts.get('yesterday_pending', 0)} 条、"
+               f"今日待办 {counts.get('today_pending', 0)} 条。未记录不能推断为未发生或没有进展。")
+    deps.progress and deps.progress.stage_completed("personal_analysis", summary="个人上下文准备完成",
+        data={"counts": counts, "source_id": p.get("source_meta", {}).get("source_id"),
+              "source_status": p.get("source_meta", {}).get("status", "injected")})
     return {"personal_summary": summary}
 
 
-def node_tech_research(state: MRState, deps: WorkflowDeps) -> dict:
-    check_cancel(deps.cancel_token)
-    if not state["news_selection"].get("ai"):
-        deps.progress and deps.progress.stage_completed(
-            "tech_research", summary="本期无 AI 候选，跳过", status="skipped",
-            reason="资讯分析未选出 AI 条目")
-        return {"tech_result": {"status": "ok", "content": "本期无值得深究的 AI 进展。"}}
-    deps.progress and deps.progress.stage_started("tech_research")
-    fp = stage_cache.fingerprint(
-        "tech", state["news_selection"]["ai"], deps.prompt_version, deps.llm.model)
-    with deps.mr_session_factory() as mr:
-        cached = stage_cache.get_cached(mr, "tech_research", fp)
-        if cached is not None:
-            deps.progress and deps.progress.stage_completed(
-                "tech_research", summary="命中阶段缓存", status="skipped",
-                reason="输入未变化，复用缓存")
-            return {"tech_result": cached}
-        try:
-            content = deps.subagents.run("tech_research", prompts.TECH_RESEARCH.format(
-                ai_items=json.dumps(state["news_selection"]["ai"], ensure_ascii=False)), tools=[])
-            res = {"status": "ok", "content": content}
-        except Exception as exc:
-            logger.warning("技术研究失败，按规则降级: %s", f"{type(exc).__name__}: {exc}"[:150])
-            res = {"status": "failed", "content": "", "error": f"{type(exc).__name__}"}
-            deps.progress and deps.progress.stage_completed(
-                "tech_research", summary="执行失败，结论缺失", status="skipped",
-                reason=f"{type(exc).__name__}: 按规则降级，建议不引用该结论")
-        else:
-            deps.progress and deps.progress.stage_completed(
-                "tech_research", summary=f"分析完成（{len(content)} 字）",
-                data={"result_chars": len(content)})
-        stage_cache.put_cache(mr, "tech_research", fp, res, model=deps.llm.model,
-                              prompt_version=deps.prompt_version)
-    return {"tech_result": res}
+def _decision_context(state):
+    personal = dict(state.get("personal", {}))
+    if "source_meta" in personal:
+        personal["source_meta"] = {k: v for k, v in personal["source_meta"].items() if k != "database_path"}
+    return {"personal": personal, "goal_analysis": state.get("goal_result"),
+            "window_start": state["window_start"], "window_end": state["window_end"]}
+
+
+def _evidence(state, deps, stage):
+    from ..services.decision_tools import evidence_records
+    records = evidence_records(state.get("personal", {}))
+    for record in getattr(deps.subagents, "evidence", {}).get(stage, []):
+        if record.get("source_id") in records:
+            records[record["source_id"]] = record
+    return records
+
+
+def _agent_tools(deps, name):
+    factory = getattr(deps.subagents, "tools_for", None)
+    return factory(name) if factory else []
 
 
 def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("goal_analysis")
-    fp = stage_cache.fingerprint(
-        "goal", state["personal"], "memory", [m["updated_at"] for m in state["memory"]],
-        deps.prompt_version, deps.llm.model)
-    with deps.mr_session_factory() as mr:
-        cached = stage_cache.get_cached(mr, "goal_analysis", fp)
-        if cached is not None:
-            deps.progress and deps.progress.stage_completed(
-                "goal_analysis", summary="命中阶段缓存", status="skipped",
-                reason="输入未变化，复用缓存")
-            return {"goal_result": cached}
-        try:
-            content = deps.subagents.run("goal_analysis", prompts.GOAL_ANALYSIS.format(
-                personal=state.get("personal_summary", ""),
-                plans=json.dumps(state["personal"].get("longterm_highlight", []), ensure_ascii=False),
-                memory="；".join(m["content"] for m in state["memory"] if m.get("enabled")),
-            ), tools=[])
-            res = {"status": "ok", "content": content}
-        except Exception as exc:
-            logger.warning("目标分析失败，按规则降级: %s", f"{type(exc).__name__}: {exc}"[:150])
-            res = {"status": "failed", "content": "", "error": f"{type(exc).__name__}"}
-            deps.progress and deps.progress.stage_completed(
-                "goal_analysis", summary="执行失败，结论缺失", status="skipped",
-                reason=f"{type(exc).__name__}: 按规则降级")
-        else:
-            deps.progress and deps.progress.stage_completed(
-                "goal_analysis", summary=f"分析完成（{len(content)} 字）",
-                data={"result_chars": len(content)})
-        stage_cache.put_cache(mr, "goal_analysis", fp, res, model=deps.llm.model,
-                              prompt_version=deps.prompt_version)
-    return {"goal_result": res}
+    try:
+        content = deps.subagents.run("goal_analysis", prompts.GOAL_ANALYSIS.format(
+            context=json.dumps(_decision_context(state), ensure_ascii=False)), tools=_agent_tools(deps, "goal_analysis"))
+        data = _json_of(content)
+        records = _evidence(state, deps, "goal_analysis")
+        gaps = list(data.get("data_gaps") or [])
+        for field in ("current_state", "progress", "risks", "goal_observations", "associations", "questions"):
+            values = [data.get(field)] if field == "current_state" else data.get(field, [])
+            if not isinstance(values, list):
+                raise ValueError("invalid goal schema")
+            cleaned = []
+            for value in values:
+                if not isinstance(value, dict):
+                    continue
+                refs = value.get("evidence_ids") or []
+                if value.get("kind") not in ("confirmed", "analysis", "unknown") or not refs or any(ref not in records for ref in refs):
+                    value = {"content": value.get("content", ""), "kind": "unknown", "evidence_ids": []}
+                    gaps.append("部分判断缺少有效来源，标为尚未证实")
+                cleaned.append(value)
+            data[field] = (cleaned[0] if cleaned else {"content": "系统尚未取得足够证据", "kind": "unknown", "evidence_ids": []}) if field == "current_state" else cleaned
+        if not any(key.startswith(("daily_tasks:", "long_term_plans:", "important_infos:", "memos:")) for key in records):
+            data["current_state"] = {"content": "系统未取得相关个人记录，无法判断实际进展；不代表没有发生或没有进展", "kind": "unknown", "evidence_ids": []}
+            gaps.append("个人数据缺失")
+        data["data_gaps"] = list(dict.fromkeys(gaps))
+        result = {"status": "ok", "analysis": data, "content": json.dumps(data, ensure_ascii=False)}
+    except Exception as exc:
+        from ..services.cancel import GenerationCancelled
+        if isinstance(exc, GenerationCancelled):
+            raise
+        result = {"status": "failed", "analysis": {}, "content": "系统未能取得目标分析，不能据此判断个人进展", "error": type(exc).__name__}
+    deps.progress and deps.progress.stage_completed("goal_analysis", status="success" if result["status"] == "ok" else "skipped",
+        summary="个人目标分析完成" if result["status"] == "ok" else "目标分析失败，已明确降级",
+        reason=result.get("error", ""),
+        data={"tool_calls": getattr(deps.subagents, "last_tool_calls", {}).get("goal_analysis", 0)})
+    return {"goal_result": result}
 
 
 def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("advice")
-    ctx = {
-        "news": state["news_selection"],
-        "personal": state.get("personal_summary", ""),
-        "tech": state["tech_result"],
-        "goal": state["goal_result"],
-    }
-    if state["tech_result"].get("status") == "failed" and state["goal_result"].get("status") == "failed":
-        deps.progress and deps.progress.stage_failed("advice", "上游技术研究与目标分析均失败，无法形成建议")
-        return {"advice_result": {"status": "failed", "advices": [], "note": "建议分析失败"}}
-    result = deps.llm.chat([{"role": "user", "content": prompts.ADVICE.format(
-        context=json.dumps(ctx, ensure_ascii=False))}], json_mode=True)
-    deps.record("advice", result)
     try:
-        data = _json_of(result.content)
-        advices = [{"content": a.get("content", ""), "basis": a.get("basis", "")}
-                   for a in data.get("advices", [])][:3]
-        deps.progress and deps.progress.stage_completed(
-            "advice", summary=f"{len(advices)} 条建议",
-            data={"advice_count": len(advices)})
-        return {"advice_result": {"status": "ok", "advices": advices, "note": data.get("note", "")}}
-    except ValueError:
-        deps.progress and deps.progress.stage_failed("advice", "建议输出解析失败")
-        return {"advice_result": {"status": "failed", "advices": [], "note": "建议输出解析失败"}}
+        content = deps.subagents.run("advice", prompts.ADVICE.format(
+            context=json.dumps(_decision_context(state), ensure_ascii=False)), tools=_agent_tools(deps, "advice"))
+        data = _json_of(content)
+        records = _evidence(state, deps, "advice")
+        personal_ids = {key for key in records if key.startswith(("daily_tasks:", "long_term_plans:", "important_infos:", "memos:"))}
+        kept, rejected, seen = [], 0, set()
+        for item in data.get("advices", []):
+            refs = item.get("personal_refs") or []
+            evidence = item.get("evidence_ids") or []
+            if (not item.get("content") or not item.get("basis") or not item.get("next_step") or not refs or
+                any(ref not in personal_ids for ref in refs) or not evidence or any(ref not in records for ref in evidence) or
+                item.get("priority") not in ("今日优先", "近期推进", "长期关注")):
+                rejected += 1
+                continue
+            key = (tuple(sorted(refs)), re.sub(r"\s+", "", item["next_step"]).casefold())
+            if key in seen:
+                rejected += 1
+                continue
+            seen.add(key)
+            if all(records[ref].get("done") or records[ref].get("status") == "completed" for ref in refs):
+                rejected += 1
+                continue
+            item["estimated_time"] = item.get("estimated_time") if item.get("time_basis") else None
+            item["expected_value"] = item.get("expected_value") if item.get("value_basis") else None
+            kept.append(item)
+        result = {"status": "ok", "advices": kept[:3], "note": data.get("note", ""), "rejected_count": rejected}
+        if rejected:
+            result["note"] += "；部分候选缺少有效个人依据或已完成，未作为行动建议发布"
+    except Exception as exc:
+        from ..services.cancel import GenerationCancelled
+        if isinstance(exc, GenerationCancelled):
+            raise
+        result = {"status": "failed", "advices": [], "note": "行动建议生成失败，未编造建议", "error": type(exc).__name__}
+    deps.progress and deps.progress.stage_completed("advice", status="success" if result["status"] == "ok" else "skipped",
+        summary=f"有效行动建议 {len(result['advices'])} 条",
+        reason=result.get("error", ""),
+        data={"advice_count": len(result["advices"]), "rejected_count": result.get("rejected_count", 0),
+              "tool_calls": getattr(deps.subagents, "last_tool_calls", {}).get("advice", 0)})
+    return {"advice_result": result}
 
 
 def _selected_with_urls(state: MRState, cat: str) -> list[dict]:
@@ -301,53 +352,168 @@ def _selected_with_urls(state: MRState, cat: str) -> list[dict]:
     return out
 
 
+def _source_news_block(state, category):
+    rows = _selected_with_urls(state, category)
+    pool = {n["id"]: n for n in state["news"]}
+    selected = state["news_selection"].get(category, [])
+    lines = []
+    for item, selected_item in zip(rows, selected):
+        source = pool.get(selected_item["id"], {})
+        title = _md_escape_title(source.get("title") or item["title"])
+        link = _safe_url(source.get("source_url", ""))
+        summary = source.get("summary") or "（来源未提供可用摘要，未补写）"
+        if len(summary) > 240:
+            summary = summary[:240] + "…（来源摘录）"
+        lines.append(f"- **[{title}]({link})**\n  {summary}\n  发布时间：{source.get('published_at') or '未知'} · 来源：中国新闻网")
+    return "\n\n".join(lines) or "（本期没有可用的官方热点新闻，不补造）"
+
+
+def _inject_source_news(draft, category, label, block):
+    placeholder = "{{" + category.upper() + "_NEWS_LIST}}"
+    heading = re.search(r"(?m)^#{2,6}\s*" + label + r"\s*$", draft)
+    if heading:
+        nxt = _ANY_HEADING_RE.search(draft, heading.end())
+        stop = nxt.start() if nxt else len(draft)
+        return (draft[:heading.end()] + "\n\n" + block + "\n\n" + draft[stop:]).replace(placeholder, "")
+    if placeholder in draft:
+        return draft.replace(placeholder, block, 1).replace(placeholder, "")
+    anchor = _AI_HEADING_RE.search(draft) or _SECTION3_RE.search(draft)
+    pos = anchor.start() if anchor else len(draft)
+    return draft[:pos] + f"\n\n### {label}\n\n" + block + "\n\n" + draft[pos:]
+
+
+
+def assemble_overview(state: MRState) -> str:
+    """指定顺序取来源条目，不调用模型改写标题/摘要。观点类兼容来源历史标签。"""
+    chosen = []
+    pool = {n["id"]: n for n in state.get("news", [])}
+    for category, label in (("domestic", "国内新闻"), ("international", "国外新闻")):
+        rows = state.get("news_selection", {}).get(category, [])
+        if rows and rows[0].get("id") in pool:
+            chosen.append((pool[rows[0]["id"]], label))
+    daily = state.get("ai_daily", [])
+    if daily:
+        chosen.append((daily[0], "AI新闻"))
+    chosen.extend((item, "技巧与观点") for item in daily
+                  if item.get("section_label") in ("技巧与观点", "讨论与观点"))
+    lines = []
+    seen = set()
+    for item, label in chosen:
+        url = _safe_url(item.get("url") or item.get("source_url") or "")
+        key = (url or str(item.get("id") or item.get("title")), label)
+        if key in seen:
+            continue
+        seen.add(key)
+        title = _md_escape_title(str(item.get("title") or "（无标题）"))
+        title = f"[{title}]({url})" if url else title
+        summary = str(item.get("summary") or "暂无来源摘要").strip().replace("\n", " ").replace("\r", " ")
+        lines.append(f"- {title}【{label}】\n  {summary}")
+    return "\n\n".join(lines) or "（本期暂无可用速览资讯）"
+
+
+def inject_overview(draft: str, block: str) -> str:
+    heading = re.search(r"(?m)^(#{1,3})\s*(?:一[、.．]\s*)?开篇速览\s*$", draft)
+    if heading:
+        next_heading = re.search(r"(?m)^#{1," + str(len(heading[1])) + r"}\s+", draft[heading.end():])
+        end = heading.end() + next_heading.start() if next_heading else len(draft)
+        draft = draft[:heading.end()] + "\n\n" + block + "\n\n" + draft[end:]
+    elif "{{OVERVIEW_LIST}}" in draft:
+        draft = draft.replace("{{OVERVIEW_LIST}}", block, 1)
+    else:
+        anchor = re.search(r"(?m)^#{1,3}\s*二[、.．]", draft)
+        pos = anchor.start() if anchor else 0
+        draft = draft[:pos] + "## 一、开篇速览\n\n" + block + "\n\n" + draft[pos:]
+    return draft.replace("{{OVERVIEW_LIST}}", "")
+
 def node_editor(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("editor")
-    sel = state["news_selection"]
-    result = deps.llm.chat([{"role": "user", "content": prompts.EDITOR.format(
+    result = deps.llm.chat([{"role": "system", "content": prompts.EDITOR_SYSTEM},
+                            {"role": "user", "content": prompts.EDITOR.format(
         generated_at=datetime.now(CST).isoformat(timespec="seconds"),
-        domestic=json.dumps(_selected_with_urls(state, "domestic"), ensure_ascii=False),
-        international=json.dumps(_selected_with_urls(state, "international"), ensure_ascii=False),
-        ai=json.dumps(_selected_with_urls(state, "ai"), ensure_ascii=False),
-        personal=state.get("personal_summary", ""),
-        tech=state["tech_result"].get("content", "") or "（技术研究缺失，本期不作技术深评）",
+        domestic="{{DOMESTIC_NEWS_LIST}}",
+        international="{{INTERNATIONAL_NEWS_LIST}}",
+        ai_placeholder=AI_LIST_PLACEHOLDER,
+        overview_placeholder="{{OVERVIEW_LIST}}",
+        personal=json.dumps(_decision_context(state)["personal"], ensure_ascii=False),
         goal=state["goal_result"].get("content", "") or "（目标分析缺失）",
         advice=json.dumps(state["advice_result"], ensure_ascii=False),
         coverage="；".join(state.get("coverage_notes", [])) or "无额外覆盖缺口",
-    )}])
+    )}], json_mode=True)
     deps.record("editor", result)
-    deps.progress and deps.progress.stage_completed("editor", summary=f"正文 {len(result.content)} 字")
-    draft = result.content.strip()
-    notes = state.get("coverage_notes", [])
+    editor_data = _json_of(result.content)
+    draft = editor_data.get("content_md")
+    if not isinstance(draft, str) or not draft.strip():
+        raise ValueError("主编 JSON 必须包含非空字符串 content_md")
+    draft = draft.strip()
+    for category, label in (("domestic", "国内"), ("international", "国际")):
+        draft = _inject_source_news(draft, category, label, _source_news_block(state, category))
+    # AI 小节完整列表由系统按当期日报组装注入，先于质量评价/发布落库
+    draft, injected = inject_ai_list(draft, assemble_ai_list(state.get("ai_daily", [])))
+    draft = inject_overview(draft, assemble_overview(state))
+    deps.progress and deps.progress.stage_completed(
+        "editor", summary=f"正文 {len(draft)} 字",
+        data={"ai_list_items": len(state.get("ai_daily", [])), "ai_list_injected": injected})
+    notes = list(state.get("coverage_notes", []))
+    if not injected:
+        notes.append("模型未保留 AI 列表占位符，系统已自动补齐完整 AI 标题列表")
     if notes:
         draft += "\n\n> 采集说明：" + "；".join(notes)
     return {"draft": draft}
 
 
 def node_quality_eval(state: MRState, deps: WorkflowDeps) -> dict:
+    from decimal import Decimal, ROUND_HALF_UP
+    from math import isfinite
+    from ..services.decision_tools import evidence_records
     check_cancel(deps.cancel_token)
+    deps.progress and deps.progress.stage_started("quality_eval")
     try:
-        result = deps.llm.chat([{"role": "user", "content": prompts.QUALITY_EVAL.format(
-            content=state["draft"])}], json_mode=True)
-        deps.record("quality_eval", result)
+        client = deps.quality_llm or deps.llm
+        result = client.chat([{"role": "user", "content": prompts.QUALITY_EVAL.format(
+            content=state["draft"], evidence=json.dumps(_decision_context(state) | {
+                "advice": state.get("advice_result"), "news": state.get("news", []),
+                "ai_daily": state.get("ai_daily", []), "retrieved_evidence": getattr(deps.subagents, "evidence", {})}, ensure_ascii=False))}], json_mode=True)
+        deps.record("quality_eval", result, client)
         data = _json_of(result.content)
         scores = data.get("scores") or {}
-        valid = {k: max(0, min(100, int(v))) for k, v in scores.items()
-                 if isinstance(v, (int, float))}
-        if len(valid) < 5:
-            raise ValueError("五维分数不完整")
-        composite = round(sum(valid.values()) / 5)  # quality_score_v1：等权、四舍五入
+        if set(scores) != set(prompts.EVALUATION_DIMENSIONS):
+            raise ValueError("seven named dimensions required")
+        valid = {}
+        for key, value in scores.items():
+            if value is None:
+                valid[key] = None
+            elif isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value) and 0 <= value <= 100:
+                valid[key] = int(value)
+            else:
+                raise ValueError("invalid score")
+        missing_personal = not evidence_records(state.get("personal", {}))
+        if missing_personal:
+            for key in ("个人分析", "目标关联", "行动价值"):
+                valid[key] = None
+        scored = [v for v in valid.values() if v is not None]
+        composite = int((Decimal(sum(scored)) / Decimal(len(scored))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) if scored else None
+        comment = data.get("comment", "")
+        if missing_personal:
+            comment += "\n个人数据缺失：个人分析、目标关联、行动价值无法验证，不予高分；综合分仅统计可评价维度。"
+        comment += "\n缺陷：" + "；".join(str(v) for v in data.get("defects", []))
+        comment += "\n修复建议：" + "；".join(str(v) for v in data.get("repairs", []))
+        deps.progress and deps.progress.stage_completed("quality_eval", summary=f"综合分 {composite}" if composite is not None else "无可评价维度")
         return {"evaluation": {"status": "ok", "scores": valid, "composite": composite,
-                               "comment": data.get("comment", "")}}
+                               "comment": comment, "rule_version": "decision_score_v2"}}
     except Exception as exc:
-        logger.warning("质量评价失败（不阻塞发布）: %s", f"{type(exc).__name__}: {exc}"[:150])
+        from ..services.cancel import GenerationCancelled
+        if isinstance(exc, GenerationCancelled):
+            raise
+        logger.warning("质量评价失败（不阻塞发布）: %s", type(exc).__name__)
+        deps.progress and deps.progress.stage_completed("quality_eval", status="skipped", summary="评价失败（不阻塞发布）", reason=type(exc).__name__)
         return {"evaluation": {"status": "failed", "scores": None, "composite": None,
-                               "comment": ""}}
+                               "comment": "评价失败，未阻塞发布", "rule_version": "decision_score_v2"}}
 
 
 def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
+    deps.progress and deps.progress.stage_started("publish")
     from sqlalchemy import func as sqla_func
     from sqlalchemy import select as sqla_select
 
@@ -371,12 +537,13 @@ def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
             sections={
                 "news_selection": state["news_selection"],
                 "personal_summary": state.get("personal_summary", ""),
-                "tech": state["tech_result"], "goal": state["goal_result"],
+                "goal": state["goal_result"],
                 "advice": state["advice_result"],
             },
             content_md=state["draft"],
             window_start=state["window_start"], window_end=state["window_end"],
             snapshot_id=state["snapshot_id"],
+            generation_mode=state.get("generation_mode", "manual"),
         )
         mr.add(ver)
         mr.flush()
@@ -384,8 +551,8 @@ def node_publish(state: MRState, deps: WorkflowDeps) -> dict:
         mr.add(Evaluation(
             version_id=ver.id, status=ev.get("status", "failed"),
             scores=ev.get("scores"), composite=ev.get("composite"),
-            comment=ev.get("comment", ""), model=getattr(deps.llm, "model", ""),
-            rule_version="quality_score_v1",
+            comment=ev.get("comment", ""), model=getattr(deps.quality_llm or deps.llm, "model", ""),
+            rule_version=ev.get("rule_version", "decision_score_v2"),
         ))
         mr.commit()
         return {"publish": {"version_id": ver.id, "version_no": ver.version_no,
@@ -398,7 +565,6 @@ def build_workflow(deps: WorkflowDeps):
     g = StateGraph(MRState)
     g.add_node("info_analysis", _async(node_info_analysis, deps))
     g.add_node("personal_analysis", _async(node_personal_analysis, deps))
-    g.add_node("tech_research", _async(node_tech_research, deps))
     g.add_node("goal_analysis", _async(node_goal_analysis, deps))
     g.add_node("advice", _async(node_advice, deps))
     g.add_node("editor", _async(node_editor, deps))
@@ -406,10 +572,8 @@ def build_workflow(deps: WorkflowDeps):
     g.add_node("publish", _async(node_publish, deps))
 
     g.set_entry_point("info_analysis")
-    g.add_edge("__start__", "personal_analysis")
-    g.add_edge("info_analysis", "tech_research")
+    g.add_edge("info_analysis", "personal_analysis")
     g.add_edge("personal_analysis", "goal_analysis")
-    g.add_edge("tech_research", "advice")
     g.add_edge("goal_analysis", "advice")
     g.add_edge("advice", "editor")
     g.add_edge("editor", "quality_eval")

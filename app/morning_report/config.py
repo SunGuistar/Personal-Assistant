@@ -22,6 +22,9 @@ class MRSettings(BaseSettings):
 
     # 独立 SQLite
     db_filename: str = "morning_report.db"
+    # 已核验：main 服务 8620 的 Settings.data_dir 和存量数据；只读，不存在时不回退。
+    # 可显式用 PH_MR_PERSONAL_DB_PATH 指定其他权威源。
+    personal_db_path: str = "E:/wechat-LangGraph/data/hub.db"
 
     # Qdrant（必须用 127.0.0.1，禁止 localhost：Windows IPv6 每请求卡 ~21s）
     qdrant_url: str = "http://127.0.0.1:6333"
@@ -36,8 +39,8 @@ class MRSettings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-flash"
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    dashscope_model: str = "qwen-flash"
-    quality_eval_model: str = "qwen-flash"
+    dashscope_model: str = "qwen3.7-plus"
+    quality_eval_model: str = "qwen3.7-plus"
 
     # Embedding（DashScope text-embedding-v4，1024 维；T13 实测）
     embedding_model: str = "text-embedding-v4"

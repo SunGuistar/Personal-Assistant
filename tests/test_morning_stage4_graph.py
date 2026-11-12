@@ -37,7 +37,8 @@ REPORT_MD = """# 今日晨报
 ### 国际
 [特朗普宣布铁门行动](https://example.com/i1)：美伊局势。
 ### AI
-[LangGraph 0.6 发布](https://example.com/a1)：新增中断恢复，价值显著。
+本期 AI 进展概览。
+{{AI_NEWS_LIST}}
 
 ## 三、我的昨日
 按计划推进，无异常。
@@ -48,6 +49,13 @@ REPORT_MD = """# 今日晨报
 ## 五、信息说明
 窗口 2026-11-09 08:00 ~ 2026-11-10 08:00；来源见链接。
 """
+
+AI_DAILY = [
+    {"id": 3, "title": "LangGraph 0.6 发布", "summary": "新增中断恢复",
+     "source_name": "GitHub", "url": "https://example.com/a1",
+     "section_label": "模型发布/更新", "daily_kind": "section",
+     "published_at": "2026-11-09T10:00:00+08:00"},
+]
 
 
 class FakeLLM:
@@ -60,7 +68,7 @@ class FakeLLM:
 
     def chat(self, messages, *, json_mode=False, tools=None, thinking=None):
         prompt = messages[-1]["content"]
-        self.calls.append(prompt[:40])
+        self.calls.append(prompt[:120])
         if "选出值得进入晨报的条目" in prompt:
             content = json.dumps({
                 "domestic": [{"id": 1, "title": "国常会部署经济工作", "why": "重要政策"}],
@@ -73,12 +81,12 @@ class FakeLLM:
             content = json.dumps({"advices": [{"content": "继续推进长期计划", "basis": "目标分析"}],
                                   "note": ""}, ensure_ascii=False)
         elif "五部分结构" in prompt:
-            content = REPORT_MD
-        elif "五个维度各打" in prompt:
+            content = json.dumps({"content_md": REPORT_MD}, ensure_ascii=False)
+        elif "七个维度各打" in prompt:
             if self.fail_eval:
                 raise RuntimeError("评价模型不可用")
-            content = json.dumps({"scores": {"资讯呈现": 88, "内容逻辑与一致性": 86,
-                                             "AI 技术分析": 90, "个人总结与建议": 84, "阅读体验": 87},
+            content = json.dumps({"scores": {"资讯完整性": 88, "信息准确性": 86,
+                                             "个人分析": 90, "目标关联": 84, "行动价值": 87, "逻辑一致性": 87, "阅读体验": 87},
                                   "comment": "整体质量良好。"}, ensure_ascii=False)
         else:
             content = "……"
@@ -86,7 +94,7 @@ class FakeLLM:
 
 
 class TraceSubagents:
-    """记录执行轨迹：断言并行与后置顺序。"""
+    """记录执行轨迹：断言两个 Agent 的真实顺序。"""
 
     def __init__(self, fail_first: dict | None = None):
         self.events: list[tuple[str, float]] = []
@@ -103,7 +111,7 @@ class TraceSubagents:
             raise RuntimeError(f"{name} 首次失败（注入）")
         time.sleep(0.05)
         self.events.append((f"{name}:end", time.perf_counter()))
-        return f"{name} 的分析结论"
+        return json.dumps({"current_state": {"content": "现有记录不足以验证完整个人进展", "kind": "unknown", "evidence_ids": []}, "progress": [], "risks": [], "goal_observations": [], "associations": [], "questions": [], "data_gaps": []} if name == "goal_analysis" else {"advices": [], "note": "没有足够依据，不凑数"}, ensure_ascii=False)
 
 
 def _deps(fclient, llm=None, subagents=None, run_id=1):
@@ -119,8 +127,8 @@ def _initial(run_id=1):
     return {
         "run_id": run_id, "snapshot_id": "snap-x", "report_date": "2026-11-10",
         "window_start": "2026-11-09T08:00:00+08:00", "window_end": "2026-11-10T08:00:00+08:00",
-        "news": NEWS, "clues": [], "memory": [],
-        "personal": {"daily_done": [{"title": "读论文"}], "longterm_highlight": [],
+        "news": NEWS, "clues": [], "ai_daily": AI_DAILY,
+        "personal": {"daily_done": [{"id": 1, "source_id": "daily_tasks:1", "title": "读论文", "done": True}], "longterm_highlight": [],
                      "longterm_active": [], "important_infos": []},
     }
 
@@ -141,18 +149,22 @@ def test_full_workflow_publish(fclient):
     deps = _deps(fclient)
     final = asyncio.run(_run_graph(fclient, deps, _initial()))
     assert "fact_check" not in final
-    assert final["evaluation"]["composite"] == 87  # (88+86+90+84+87)/5=87
+    assert final["evaluation"]["composite"] == 87  # 七维等权四舍五入
     assert final["publish"]["is_primary"] is True and final["publish"]["version_no"] == 1
 
     with fclient.app.state.mr_session_factory() as mr:
         ver = mr.get(ReportVersion, final["publish"]["version_id"])
         assert ver.status == "published" and "# 今日晨报" in ver.content_md
+        # AI 小节由系统按当期日报组装注入：标题与链接与落库日报一致，不经模型复述
+        assert "- [LangGraph 0.6 发布](https://example.com/a1)" in ver.content_md
+        assert "{{AI_NEWS_LIST}}" not in ver.content_md
         ev = mr.execute(select(Evaluation).where(Evaluation.version_id == ver.id)).scalars().one()
-        assert ev.rule_version == "quality_score_v1" and ev.composite == 87
-        # 并行为真：技术研究窗口与个人分析窗口相交
-    deps.subagents.events  # tech/goal 事件存在
+        assert ev.rule_version == "decision_score_v2" and ev.composite == 87
+        # 两个核心 Agent 均执行，技术研究不再调用
+    deps.subagents.events  # goal/advice 事件存在
     starts = [t for e, t in deps.subagents.events if e.endswith(":start")]
-    assert any(e.startswith("tech_research") for e, _ in deps.subagents.events)
+    assert not any(e.startswith("tech_research") for e, _ in deps.subagents.events)
+    assert any(e.startswith("advice") for e, _ in deps.subagents.events)
     assert any(e.startswith("goal_analysis") for e, _ in deps.subagents.events)
 
 
@@ -199,9 +211,9 @@ def test_eval_failure_does_not_block(fclient):
 
 def test_subagent_failure_degrades(fclient):
     """Subagent 失败 → 节点降级（结论缺失），图继续完成并发布。"""
-    deps = _deps(fclient, subagents=TraceSubagents(fail_first={"tech_research": True}))
+    deps = _deps(fclient, subagents=TraceSubagents(fail_first={"goal_analysis": True}))
     final = asyncio.run(_run_graph(fclient, deps, _initial()))
-    assert final["tech_result"]["status"] == "failed"
+    assert final["goal_result"]["status"] == "failed"
     assert final["publish"]["version_no"] == 1  # 降级不阻塞发布
 
 
@@ -209,24 +221,26 @@ def test_advice_after_subagents(fclient):
     deps = _deps(fclient)
     asyncio.run(_run_graph(fclient, deps, _initial()))
     names = [e for e, _ in deps.subagents.events]
-    # advice 是 LLM 节点；校验 subagent 在 advice 之前完成（由图结构保证，这里验轨迹存在）
-    assert names.index("tech_research:start") < len(names)
+    # ActionSuggest 走 Subagent Runner，并在 GoalAnalysis 完成后执行
+    assert names.index("goal_analysis:end") < names.index("advice:start")
     assert any(e.startswith("goal_analysis") for e in names)
 
 
-def test_stage_cache_reuse_across_runs(fclient):
+def test_deterministic_preparation_needs_no_model_or_stage_cache(fclient):
     llm = FakeLLM()
     deps1 = _deps(fclient, llm=llm, run_id=1)
     asyncio.run(_run_graph(fclient, deps1, _initial(run_id=1)))
     n_after_first = len(llm.calls)
-    # 第二次同样输入：资讯/个人分析应命中缓存（LLM 调用数不增）
+    # 同样输入再次执行：资讯/个人准备仍零模型，两个 Agent 正常获取上下文
     deps2 = _deps(fclient, llm=llm, run_id=2)
     asyncio.run(_run_graph(fclient, deps2, _initial(run_id=2)))
     info_calls_1 = sum(1 for c in llm.calls[:n_after_first] if "选出值得进入晨报" in c)
     info_calls_2 = sum(1 for c in llm.calls[n_after_first:] if "选出值得进入晨报" in c)
-    assert info_calls_1 == 1 and info_calls_2 == 0
+    assert info_calls_1 == 0 and info_calls_2 == 0
+    assert len(llm.calls) == 4  # 每轮仅主编、评价；资讯整理无需模型
+    assert [e for e, _ in deps2.subagents.events] == ["goal_analysis:start", "goal_analysis:end", "advice:start", "advice:end"]
     with fclient.app.state.mr_session_factory() as mr:
-        assert mr.execute(select(StageCache)).scalars().all() != []
+        assert mr.execute(select(StageCache)).scalars().all() == []  # 不缓存伪造的模型资讯分析
 
 
 async def _run_graph(fclient, deps, initial):
@@ -286,13 +300,15 @@ def test_checkpoint_resume_after_subagent_failure(fclient):
 
 def test_run_generate_publishes_without_fact_check(fclient):
     """report_service 不再依赖事实校验结果即可完成发布。"""
-    from app.morning_report.models import RunRecord
+    from sqlalchemy import event
+    from app.morning_report.models import Memory, RunRecord
     from app.morning_report.services import news_pipeline
 
     with fclient.app.state.mr_session_factory() as mr:
         collect = news_pipeline.create_collect_run(mr, "2026-11-10")
         collect.status = "success"  # 预置数据只用于生成，禁止意外启动真实采集
         run = RunRecord(run_date="2026-11-10", kind="generate", status="pending")
+        mr.add(Memory(kind="interest", content="已停用的历史偏好", enabled=True, confirmed=True))
         mr.add(run)
         mr.commit()
         run_id = run.id
@@ -308,10 +324,19 @@ def test_run_generate_publishes_without_fact_check(fclient):
                             source_url=n["source_url"], published_at=n["published_at"],
                             content_hash=n["content_hash"], dedupe_status="unique", raw_ref={}))
         mr.commit()
-        out = report_service.run_generate(
-            mr, run_id, MRSettings(schedule_enabled=False), mode="manual",
-            deps_override=deps, hub_session_factory=None,
-            mr_session_factory=fclient.app.state.mr_session_factory)
+        statements = []
+        def capture_sql(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+        engine = mr.get_bind()
+        event.listen(engine, "before_cursor_execute", capture_sql)
+        try:
+            out = report_service.run_generate(
+                mr, run_id, MRSettings(schedule_enabled=False), mode="manual",
+                deps_override=deps, hub_session_factory=None,
+                mr_session_factory=fclient.app.state.mr_session_factory)
+        finally:
+            event.remove(engine, "before_cursor_execute", capture_sql)
+        assert not any("memories" in sql.lower() for sql in statements)
     assert out["status"] == "success"
     assert "fact_check" not in out
     with fclient.app.state.mr_session_factory() as mr:

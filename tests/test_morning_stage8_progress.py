@@ -41,9 +41,9 @@ def test_stage_lifecycle(fclient):
         assert row.status == "success" and row.summary == "正文 1200 字"
         assert row.elapsed_ms is not None and row.data == {"chars": 1200}
         # 降级跳过
-        t.stage_completed("tech_research", status="skipped", reason="执行失败，按规则降级")
+        t.stage_completed("goal_analysis", status="skipped", reason="执行失败，按规则降级")
         mr.expire_all()
-        tr = mr.execute(select(RunStage).where(RunStage.stage == "tech_research")).scalars().one()
+        tr = mr.execute(select(RunStage).where(RunStage.stage == "goal_analysis")).scalars().one()
         assert tr.status == "skipped" and "降级" in tr.reason
 
 
@@ -54,13 +54,13 @@ def test_snapshot_covers_all_stages_and_groups(fclient):
         t.stage_completed("collect", summary="复用采集", status="skipped", reason="x")
         t.stage_started("editor")
         snap = progress_mod.snapshot(mr, rid, stall_seconds=99)
-    assert snap["total_count"] == 11  # 完整阶段列表，含未开始
+    assert snap["total_count"] == 9  # 完整阶段列表，含未开始
     statuses = {s["stage"]: s["status"] for s in snap["stages"]}
     assert statuses["collect"] == "skipped" and statuses["editor"] == "running"
     assert statuses["quality_eval"] == "pending"
     assert "fact_check" not in statuses
     groups = {s["stage"]: s["group"] for s in snap["stages"]}
-    assert groups["tech_research"] == "parallel_analysis" == groups["goal_analysis"]
+    assert groups["goal_analysis"] is None
     assert groups["advice"] is None  # 建议后置，不属于并行组
     assert snap["stall_seconds"] == 99 and snap["server_now"]
     assert snap["done_count"] == 1
@@ -81,7 +81,7 @@ def test_legacy_fact_check_stage_is_preserved_but_hidden(fclient):
                         sort_order=9, status="success"))
         mr.commit()
         snap = progress_mod.snapshot(mr, rid)
-        assert snap["total_count"] == 11
+        assert snap["total_count"] == 9
         assert all(stage["stage"] != "fact_check" for stage in snap["stages"])
         assert mr.execute(select(RunStage).where(
             RunStage.run_id == rid, RunStage.stage == "fact_check")).scalar_one().status == "success"
@@ -147,14 +147,14 @@ def test_progress_api_snapshot_and_active(fclient):
     assert res.status_code == 200
     body = res.json()
     assert body["run"]["id"] == rid and body["seq"] > 0
-    assert len(body["stages"]) == 11
-    act = fclient.get("/api/morning/progress/active").json()
+    assert len(body["stages"]) == 9
+    act = fclient.get("/api/morning/progress/active", params={"report_date": "2026-11-11"}).json()
     assert act["active"] is True and act["run"]["id"] == rid
     # 终态后 active=False
     with fclient.app.state.mr_session_factory() as mr:
         mr.get(RunRecord, rid).status = "success"
         mr.commit()
-    act = fclient.get("/api/morning/progress/active").json()
+    act = fclient.get("/api/morning/progress/active", params={"report_date": "2026-11-11"}).json()
     assert act["active"] is False
 
 
@@ -188,7 +188,7 @@ def test_progress_stream_incremental_no_duplicate(fclient):
         t = ProgressTracker(mr, rid)
         t.stage_completed("collect", summary="a")
         seq1 = progress_mod_progress_seq(mr, rid)
-        t.stage_completed("index", summary="b")
+        t.stage_completed("snapshot", summary="b")
         seq2 = progress_mod_progress_seq(mr, rid)
     with fclient.stream("GET", f"/api/morning/progress/stream?run_id={rid}&after_seq={seq1}") as resp:
         text = ""
@@ -238,10 +238,13 @@ def test_run_generate_writes_stage_flow(fclient):
     with fclient.app.state.mr_session_factory() as mr:
         collect = news_pipeline.create_collect_run(mr, "2026-11-10")
         for n in NEWS:
+            raw = ({"daily_member": True, "daily_date": "2026-11-10", "display_order": 1,
+                    "daily_kind": "section", "section_label": "模型发布/更新"}
+                   if n["category"] == "ai" else {})
             mr.add(NewsItem(run_id=collect.id, category=n["category"], title=n["title"],
                             summary=n["summary"], source_name=n["source_name"],
                             source_url=n["source_url"], published_at=n["published_at"],
-                            content_hash=n["content_hash"], dedupe_status="unique", raw_ref={}))
+                            content_hash=n["content_hash"], dedupe_status="unique", raw_ref=raw))
         collect.status = "success"  # 标记采集已完成，避免 run_generate 触发真实补采
         run = RunRecord(run_date="2026-11-10", kind="generate", status="pending")
         mr.add(run)
@@ -258,7 +261,7 @@ def test_run_generate_writes_stage_flow(fclient):
         snap = progress_mod.snapshot(mr, rid)
     statuses = {s["stage"]: s["status"] for s in snap["stages"]}
     # 并行 Subagent 都真实执行完成（独立状态，非顺序伪装）
-    assert statuses["tech_research"] == "success"
+    assert "tech_research" not in statuses
     assert statuses["goal_analysis"] == "success"
     assert statuses["advice"] == "success"
     assert statuses["editor"] == "success"

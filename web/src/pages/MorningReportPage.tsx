@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, CheckCircle2, Circle, Clock, Loader2, MinusCircle, RefreshCw,
-  Send, Star, Trash2, XCircle,
+  Star, XCircle,
 } from "lucide-react";
 
 import {
-  fetchActiveProgress, fetchProgress, HistoryItem, MemoryItem, ProgressSnapshot,
+  fetchActiveProgress, fetchProgress, HistoryItem, ProgressSnapshot,
   stopRun,
-  Report, StageInfo, assistantChat, useCreateMemory, useDeleteMemory,
-  useMorningHistory, useMorningMemories, useMorningReport, usePatchMemory, useRegenerate,
+  Report, StageInfo,
+  useMorningHistory, useMorningReport, useRegenerate,
 } from "../api/morning";
-import { SafeMarkdown } from "../components/SafeMarkdown";
+import { MorningTokenUsage } from "../components/MorningTokenUsage";
+import { StarredMorningReport } from "../components/StarredMorningReport";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 
@@ -21,6 +22,7 @@ export function MorningReportPage() {
   const [tab, setTab] = useState<Tab>("report");
   const [historyView, setHistoryView] = useState<{ date: string; versionNo: number } | null>(null);
   const report = useMorningReport();
+  const qc = useQueryClient();
 
   const data: Report | undefined = report.data;
   // 活动任务：初始化与兜底轮询 /progress/active（5s）；重新生成提交后立即切换
@@ -46,6 +48,13 @@ export function MorningReportPage() {
     };
   }, [taskActive, acceptSnapshot]);
   const runId = active?.run?.id ?? null;
+  const runStatus = active?.run?.status;
+  useEffect(() => {
+    if (runStatus === "success" || runStatus === "degraded") {
+      void qc.invalidateQueries({ queryKey: ["morning", "report"] });
+      void qc.invalidateQueries({ queryKey: ["morning", "history"] });
+    }
+  }, [qc, runId, runStatus]);
 
   return (
     <div className="flex h-full min-h-0">
@@ -57,7 +66,7 @@ export function MorningReportPage() {
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               {data
                 ? `${data.report_date} · 版本 v${data.version_no}${data.is_primary ? "（主报告）" : ""}`
-                : "今天还没有主报告"}
+                : "还没有已生成的晨报"}
               {taskActive ? " · 生成中…" : ""}
             </p>
           </div>
@@ -67,7 +76,7 @@ export function MorningReportPage() {
             onSubmitted={(id) => {
               setActive({ run: { id, run_date: "", kind: "generate", status: "pending",
                 error: null, started_at: null, finished_at: null }, active: true,
-                stages: [], recent: [], done_count: 0, total_count: 11,
+                stages: [], recent: [], done_count: 0, total_count: 9,
                 seq: 0, server_now: new Date().toISOString(), stall_seconds: 150 });
               // 立即切换到新任务并置活动态（不等 5s 轮询，按钮即刻互斥）
               fetchProgress(id)
@@ -118,9 +127,8 @@ export function MorningReportPage() {
         )}
       </div>
 
-      {/* 右栏：晨报助手 + 实时日志 */}
+      {/* 右栏：生成进度 */}
       <aside className="hidden w-80 shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800 lg:flex">
-        <AssistantPanel />
         <ProgressPanel snap={active} onSnapshot={acceptSnapshot} />
       </aside>
     </div>
@@ -205,7 +213,7 @@ function ReportTab({ data, loading, error }: { data?: Report; loading: boolean; 
   }
   return (
     <article className="mx-auto max-w-3xl text-[15px] leading-7 text-neutral-800 dark:text-neutral-200">
-      <SafeMarkdown text={data.content_md} />
+      <StarredMorningReport key={data.id} report={data} />
       <footer className="mt-6 border-t border-neutral-200 pt-3 text-xs text-neutral-400 dark:border-neutral-800">
         窗口 {data.window_start.slice(0, 16)} ~ {data.window_end.slice(0, 16)} · 快照 {data.snapshot_id} ·{" "}
         {data.generation_mode === "auto" ? "自动生成" : "手动生成"} · {data.created_at.slice(0, 16)}
@@ -225,7 +233,7 @@ function EvaluationTab({ data }: { data?: Report }) {
     <div className="mx-auto max-w-2xl">
       <div className="mb-4 flex items-baseline gap-3">
         <span className="text-4xl font-bold text-neutral-900 dark:text-neutral-50">{ev.composite}</span>
-        <span className="text-xs text-neutral-400">综合分（{ev.rule_version}，五维等权，程序计算）</span>
+        <span className="text-xs text-neutral-400">综合分（{ev.rule_version}，{ev.rule_version === "decision_score_v2" ? "七维评价，仅对可验证维度计算" : "五维等权，程序计算"}）</span>
       </div>
       <div className="space-y-3">
         {dims.map(([name, score]) => (
@@ -235,7 +243,7 @@ function EvaluationTab({ data }: { data?: Report }) {
               <span className="font-medium">{score}</span>
             </div>
             <div className="h-2 rounded bg-neutral-200 dark:bg-neutral-700">
-              <div className="h-2 rounded bg-neutral-900 dark:bg-neutral-100" style={{ width: `${score}%` }} />
+              <div className="h-2 rounded bg-neutral-900 dark:bg-neutral-100" style={{ width: `${score ?? 0}%` }} />
             </div>
           </div>
         ))}
@@ -278,145 +286,17 @@ function HistoryTab({ current, onSelect }: {
   );
 }
 
-interface ChatMsg { role: "user" | "assistant"; content: string }
-interface Proposal { kind: string; content: string }
-
-function AssistantPanel() {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [proposals, setProposals] = useState<Proposal[]>([]);
-  const memories = useMorningMemories();
-  const createMemory = useCreateMemory();
-  const patchMemory = usePatchMemory();
-  const deleteMemory = useDeleteMemory();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [showMemory, setShowMemory] = useState(false);
-
-  useEffect(() => bottomRef.current?.scrollIntoView?.({ behavior: "smooth" }), [messages]);
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput("");
-    setBusy(true);
-    setMessages((m) => [...m, { role: "user", content: text }]);
-    let acc = "";
-    try {
-      const final = await assistantChat(text, messages, (delta) => {
-        acc += delta;
-        setMessages((m) => [...m, { role: "assistant" as const, content: acc }].slice(-12));
-      });
-      setMessages((m) => [...m.filter((x) => x.content !== acc || x.role !== "assistant"), { role: "assistant", content: final.content || acc }]);
-      if (final.proposals.length) setProposals(final.proposals);
-    } catch {
-      setMessages((m) => [...m, { role: "assistant", content: "（助手调用失败，请稍后重试）" }]);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="flex min-h-0 flex-1 flex-col border-b border-neutral-200 dark:border-neutral-800">
-      <header className="flex items-center justify-between px-4 py-2">
-        <h2 className="text-sm font-medium">晨报助手</h2>
-        <button className="text-xs text-neutral-500 underline" onClick={() => setShowMemory((v) => !v)}>
-          Memory 管理
-        </button>
-      </header>
-
-      {showMemory && (
-        <div className="max-h-48 overflow-y-auto border-t border-neutral-100 px-4 py-2 text-sm dark:border-neutral-800">
-          {(memories.data ?? []).map((m: MemoryItem) => (
-            <div key={m.id} className="flex items-start gap-2 py-1">
-              <span className="rounded bg-neutral-100 px-1 text-xs dark:bg-neutral-700">{m.kind}</span>
-              <span className={cn("flex-1", !m.enabled && "text-neutral-400 line-through")}>{m.content}</span>
-              <button
-                className="text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
-                onClick={() => patchMemory.mutate({ id: m.id, enabled: !m.enabled })}
-              >
-                {m.enabled ? "禁用" : "启用"}
-              </button>
-              <button
-                className="text-neutral-400 hover:text-red-500"
-                onClick={() => deleteMemory.mutate(m.id)}
-                aria-label="删除"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-          {!(memories.data ?? []).length && <p className="text-xs text-neutral-400">暂无 Memory。</p>}
-        </div>
-      )}
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
-        {messages.map((m, i) => (
-          <div key={i} className={cn("mb-2 text-sm leading-6", m.role === "user" ? "text-right" : "")}>
-            <span
-              className={cn(
-                "inline-block rounded-lg px-3 py-1.5",
-                m.role === "user"
-                  ? "bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900"
-                  : "bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200",
-              )}
-            >
-              {m.content}
-            </span>
-          </div>
-        ))}
-        {proposals.map((p, i) => (
-          <div key={`p-${i}`} className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-700 dark:bg-amber-900/30">
-            <p className="mb-1 font-medium">助手提议记录一条 Memory（需你确认）：</p>
-            <p className="mb-2 text-neutral-600 dark:text-neutral-300">[{p.kind}] {p.content}</p>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => {
-                  createMemory.mutate({ kind: p.kind, content: p.content, source: "chat" });
-                  setProposals((list) => list.filter((_, j) => j !== i));
-                }}
-              >
-                确认写入
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setProposals((list) => list.filter((_, j) => j !== i))}>
-                忽略
-              </Button>
-            </div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="flex items-center gap-2 border-t border-neutral-200 p-2 dark:border-neutral-800">
-        <input
-          className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-transparent px-3 py-1.5 text-sm dark:border-neutral-600"
-          placeholder="偏好 / Memory / 目标补充…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-        />
-        <Button size="sm" disabled={busy} onClick={send} aria-label="发送">
-          <Send className="h-4 w-4" />
-        </Button>
-      </div>
-    </section>
-  );
-}
-
 // 阶段展示辅助
 const STAGE_PURPOSE: Record<string, string> = {
-  collect: "新浪国内/国际热榜为主，中新网精选补充，结合 AIHOT 和热摸爽获取候选",
-  index: "AI 资讯写入 Qdrant 向量索引并做必要索引一致性检查（不通过则阻塞）",
-  snapshot: "冻结本期新闻与个人上下文快照，保证生成基于确定的数据版本",
-  info_analysis: "从候选中选出值得进入晨报的国内/国际/AI 条目（公共价值优先）",
-  personal_analysis: "只依据有时间证据的个人记录总结昨日进展",
-  tech_research: "分析本期 AI 资讯的技术价值、局限与历史脉络（Subagent）",
-  goal_analysis: "对照昨日活动、长期计划与 Memory 识别目标进展（Subagent）",
-  advice: "综合前两阶段结论与历史建议，形成 0–3 条行动建议（后置）",
+  collect: "中新网官方热点排行（顺序依据未公开）和 AIHOT 当期日报",
+  snapshot: "固定本轮新闻输入，并保留个人事件证据；不调用大模型",
+  info_analysis: "按官方榜单顺序整理国内/国际新闻，AIHOT 保留完整标题列表，不调用模型筛选",
+  personal_analysis: "准备只读个人数据与数量检查，缺失记录不等于没有进展",
+  goal_analysis: "仅根据昨日活动、长期计划及个人记录识别目标进展，不接收新闻（Subagent）",
+  advice: "仅根据个人数据与目标分析形成 0–3 条行动建议，不接收新闻（后置）",
   editor: "把材料整合为五部分中文晨报正文",
-  quality_eval: "独立模型对最终正文做五维评分（失败不阻塞发布）",
-  publish: "保存报告版本、质量评价并更新历史晨报索引",
+  quality_eval: "结合结构化证据和最终正文做七维评价，无法验证的维度不评分（失败不阻塞发布）",
+  publish: "保存报告版本与质量评价，不更新向量索引",
 };
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -533,7 +413,7 @@ function ProgressPanel({ snap, onSnapshot }: {
     : false;
 
   return (
-    <section className="relative flex h-2/5 min-h-0 flex-col">
+    <section className="relative flex min-h-0 flex-1 flex-col">
       <header className="flex items-center justify-between px-4 py-2">
         <h2 className="text-sm font-medium">生成进度</h2>
         {live && <span className="text-xs text-emerald-600">● 已连接</span>}
@@ -576,12 +456,8 @@ function ProgressPanel({ snap, onSnapshot }: {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-1">
         {snap?.stages.map((s) => {
-          const showGroupHead = s.group && s.stage === "tech_research";
           return (
             <div key={s.stage}>
-              {showGroupHead && (
-                <p className="mt-1 text-[10px] uppercase tracking-wide text-neutral-400">并行执行</p>
-              )}
               <button
                 className={cn(
                   "flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-xs hover:bg-neutral-100",
@@ -606,6 +482,7 @@ function ProgressPanel({ snap, onSnapshot }: {
             </div>
           );
         })}
+        {runId && snap && <MorningTokenUsage runId={runId} active={active} stages={snap.stages} />}
         {!snap && <p className="py-2 text-xs text-neutral-400">今天还没有生成任务。</p>}
       </div>
 
@@ -686,11 +563,11 @@ function StagePopover({ stage, onClose, onCopied, copied }: {
         )}
         {stage.stage === "collect" && rawCounts && windowCounts && categoryCounts && (
           <div className="mt-2 space-y-1 text-neutral-500">
-            <p>获取候选 → 时间过滤 → 事件去重后保存</p>
+            <p>获取候选 → 按来源规则收录 → 事件去重后保存</p>
             {([["domestic", "国内"], ["international", "国际"], ["ai", "AI"]] as const).map(([key, label]) => (
               <p key={key}>{label}：{rawCounts[key] ?? 0} → {windowCounts[key] ?? 0} → {categoryCounts[key] ?? 0}</p>
             ))}
-            <p>时间过滤只计窗口内新闻；保存数量还包含时间未知的线索。</p>
+            <p>国内、国际按官方榜单收录，不按发布时间筛选；AI 按当期日报归属收录。</p>
           </div>
         )}
         {stage.stage === "collect" && selectedCounts && (
@@ -787,7 +664,7 @@ function HistoryModal({ date, versionNo, onClose }: {
           {q.error && <p className="text-sm text-neutral-500">报告不存在或加载失败。</p>}
           {data && (
             <article className="mx-auto max-w-2xl text-[15px] leading-7 text-neutral-800">
-              <SafeMarkdown text={data.content_md} />
+              <StarredMorningReport key={data.id} report={data} />
               <footer className="mt-6 border-t border-neutral-200 pt-3 text-xs text-neutral-400">
                 窗口 {data.window_start.slice(0, 16)} ~ {data.window_end.slice(0, 16)} ·{" "}
                 {data.generation_mode === "auto" ? "自动生成" : "手动生成"} · {data.created_at.slice(0, 16)}

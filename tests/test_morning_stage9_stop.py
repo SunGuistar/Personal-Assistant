@@ -194,13 +194,13 @@ def test_collect_cooperative_cancel_between_sources(fclient, monkeypatch):
 
     calls: list[str] = []
 
-    def slow_aihot():
+    def slow_aihot(report_date):
         calls.append("aihot")
         time.sleep(0.3)
         return []
 
-    monkeypatch.setattr(aihot, "fetch_selected", slow_aihot)
-    monkeypatch.setattr(chinanews, "fetch_window", lambda *a: calls.append("chinanews") or [])
+    monkeypatch.setattr(aihot, "fetch_daily", slow_aihot)
+    monkeypatch.setattr(chinanews, "fetch_hot_ranked", lambda *a, **k: calls.append("chinanews") or [])
     monkeypatch.setattr(remoshuang, "fetch_daily", lambda *a: calls.append("remoshuang") or [])
 
     with fclient.app.state.mr_session_factory() as mr:
@@ -210,7 +210,8 @@ def test_collect_cooperative_cancel_between_sources(fclient, monkeypatch):
 
     def work():
         with fclient.app.state.mr_session_factory() as mr:
-            news_pipeline.run_collect(mr, rid, cancel_token=token)
+            with pytest.raises(GenerationCancelled):
+                news_pipeline.run_collect(mr, rid, cancel_token=token)
 
     t = threading.Thread(target=work)
     t.start()
@@ -220,3 +221,47 @@ def test_collect_cooperative_cancel_between_sources(fclient, monkeypatch):
     assert not t.is_alive(), "采集线程未在取消后结束"
     assert "aihot" in calls
     assert "chinanews" not in calls and "remoshuang" not in calls  # 后续来源未启动
+
+
+def test_regenerate_passes_runner_cancel_token(fclient, monkeypatch):
+    seen = {}
+    def submit(kind, run_id, fn):
+        with fclient.app.state.mr_session_factory() as mr:
+            fn(mr, run_id)
+        return True
+    token = CancelToken()
+    monkeypatch.setattr(fclient.app.state.mr_runner, "submit", submit)
+    monkeypatch.setattr(fclient.app.state.mr_runner, "token_for", lambda rid: token)
+    monkeypatch.setattr(report_service, "run_generate", lambda *a, **kw: seen.update(kw))
+    assert fclient.post("/api/morning/regenerate", json={"mode": "reuse"}).status_code == 202
+    assert seen.get("cancel_token") is token
+
+
+def test_generate_propagates_cancel_to_supplementary_collection(fclient, monkeypatch):
+    from app.morning_report.config import MRSettings
+    token = CancelToken()
+    def collect(mr, run_id, cancel_token=None):
+        assert cancel_token is token
+        token.cancel()
+        raise GenerationCancelled()
+    monkeypatch.setattr(news_pipeline, "run_collect", collect)
+    with fclient.app.state.mr_session_factory() as mr:
+        run = RunRecord(run_date="2026-11-11", kind="generate", status="pending")
+        mr.add(run); mr.commit()
+        with pytest.raises(GenerationCancelled):
+            report_service.run_generate(mr, run.id, MRSettings(schedule_enabled=False),
+                                        mode="manual", cancel_token=token)
+
+
+def test_manual_collection_passes_runner_cancel_token(fclient, monkeypatch):
+    seen = {}
+    token = CancelToken()
+    def submit(kind, run_id, fn):
+        with fclient.app.state.mr_session_factory() as mr:
+            fn(mr, run_id)
+        return True
+    monkeypatch.setattr(fclient.app.state.mr_runner, "submit", submit)
+    monkeypatch.setattr(fclient.app.state.mr_runner, "token_for", lambda rid: token)
+    monkeypatch.setattr(news_pipeline, "run_collect", lambda *a, **kw: seen.update(kw))
+    assert fclient.post("/api/morning/runs/collect").status_code == 202
+    assert seen.get("cancel_token") is token

@@ -181,3 +181,82 @@ def fetch_featured(window_start: str, window_end: str, cancel_check=None) -> lis
             out.append(entry)
             saved += 1
     return out
+
+
+HOT_PAGES = {"domestic": "https://www.chinanews.com.cn/china/",
+             "international": "https://www.chinanews.com.cn/world/"}
+
+
+def parse_hot_ranking(html: str, category: str) -> list[NewsCandidate]:
+    """只读取官方 hotlist 区顺序；站方未公开点击数/算法/榜单日期，不伪称量化热度。"""
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin, urlparse
+    class Ranking(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.depth = 0
+            self.hot_depth = None
+            self.anchor = None
+            self.text = []
+            self.rows = []
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "div":
+                self.depth += 1
+                if "hotlist" in attrs.get("class", "").split():
+                    self.hot_depth = self.depth
+            if tag == "a" and self.hot_depth is not None:
+                self.anchor = attrs
+                self.text = []
+        def handle_data(self, text):
+            if self.anchor is not None:
+                self.text.append(text)
+        def handle_endtag(self, tag):
+            if tag == "a" and self.anchor is not None:
+                self.rows.append((self.anchor.get("href", ""), self.anchor.get("title") or "".join(self.text).strip()))
+                self.anchor = None
+            if tag == "div":
+                if self.depth == self.hot_depth:
+                    self.hot_depth = None
+                self.depth = max(0, self.depth - 1)
+    parser = Ranking(); parser.feed(html)
+    rows, seen = [], set()
+    for position, (href, title) in enumerate(parser.rows, 1):
+        url = urljoin(HOT_PAGES[category], href)
+        parsed = urlparse(url)
+        if parsed.hostname not in ("www.chinanews.com.cn", "www.chinanews.com") or not re.search(r"/20\d{2}/\d{2}-\d{2}/\d+\.shtml$", parsed.path):
+            continue
+        url = "https://www.chinanews.com.cn" + parsed.path
+        if url in seen or not title:
+            continue
+        seen.add(url)
+        rows.append(NewsCandidate(category, title, "", "中国新闻网", url, None, "chinanews",
+            {"selection_kind": "official_hotlist", "rank": position,
+             "ranking_basis": "官方页面热点排行顺序；未公开点击数、热度算法及榜单更新时间",
+             "ranking_page": HOT_PAGES[category], "fetched_at": datetime.now(CST).isoformat()}))
+        if len(rows) == 10:
+            break
+    return rows
+
+
+def fetch_hot_ranked(category: str, window_start: str, window_end: str, cancel_check=None):
+    from .article import fetch_article
+    from .http_common import FetchError
+    rows = parse_hot_ranking(fetch_text(HOT_PAGES[category]), category)
+    if not rows:
+        raise FetchError(HOT_PAGES[category], "官方热点排行为空或页面结构变化")
+    output = []
+    for row in rows:
+        if cancel_check:
+            cancel_check()
+        try:
+            detail = fetch_article(row.source_url)
+            row.summary, row.published_at = detail["summary"], detail["published_at"]
+            row.raw["time_source"] = "article_page" if row.published_at else "unknown"
+        except FetchError:
+            row.raw["detail_status"] = "failed"
+        if not row.published_at:
+            row.raw["time_confidence"] = "unknown"
+        # 统一交管线过滤，保留真实获取量和窗口外数量用于诊断。
+        output.append(row)
+    return output
