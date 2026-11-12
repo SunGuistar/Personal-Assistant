@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Download, FileText, LayoutGrid, LayoutList, Pencil, PenLine, Plus, Trash2, Upload } from "lucide-react";
+import { BookOpen, Download, ExternalLink, FileText, LayoutGrid, LayoutList, Pencil, PenLine, Plus, Trash2, Upload } from "lucide-react";
 
 import { ApiError } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -244,6 +244,19 @@ function BookActions({
 
   return (
     <span className="flex shrink-0 items-center gap-1">
+      {/* 链接只给跳转入口，具体内容（URL 文本）不在展示栏渲染；仅放行 http/https */}
+      {/^https?:\/\//i.test(book.url) && (
+        <a
+          href={book.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="打开链接"
+          title="打开链接"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
       <Button size="sm" variant="ghost" onClick={onManageNotes}>
         笔记
       </Button>
@@ -280,6 +293,7 @@ function BookRow({
       <BookOpen className="h-4 w-4 shrink-0 text-neutral-400" />
       <div className="min-w-0 flex-1">
         <BookTitle book={book} />
+        {book.note && <div className="truncate text-xs text-neutral-500">备注：{book.note}</div>}
       </div>
       <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${statusBadgeClass(book.status)}`}>
         {BOOK_STATUS_LABELS[book.status] ?? book.status}
@@ -350,6 +364,7 @@ function BookFormDialog({
   const [bookType, setBookType] = useState("book");
   const [author, setAuthor] = useState("");
   const [note, setNote] = useState("");
+  const [url, setUrl] = useState("");
   const [status, setStatus] = useState("todo");
 
   useEffect(() => {
@@ -359,13 +374,14 @@ function BookFormDialog({
       setBookType(book?.book_type ?? "book");
       setAuthor(book?.author ?? "");
       setNote(book?.note ?? "");
+      setUrl(book?.url ?? "");
       setStatus(book?.status ?? "todo");
     }
   }, [open, book]);
 
   const submit = () => {
     if (!title.trim()) return;
-    const body = { title: title.trim(), title_cn: titleCn.trim(), book_type: bookType, author, note, status };
+    const body = { title: title.trim(), title_cn: titleCn.trim(), book_type: bookType, author, note, url: url.trim(), status };
     const mutation = book ? updateBook : createBook;
     const payload = book ? { id: book.id, ...body } : body;
     mutation.mutate(payload as never, { onSuccess: () => onOpenChange(false) });
@@ -415,6 +431,10 @@ function BookFormDialog({
           <div>
             <Label>备注</Label>
             <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          <div>
+            <Label>链接（可选）</Label>
+            <Input value={url} placeholder="https://…（仅记录与跳转，不在展示栏显示内容）" onChange={(e) => setUrl(e.target.value)} />
           </div>
         </div>
         <DialogFooter>

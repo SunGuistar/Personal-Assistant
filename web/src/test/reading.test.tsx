@@ -12,6 +12,7 @@ const BOOK_WITH_NOTES = {
   book_type: "book",
   author: "刘慈欣",
   note: "",
+  url: "",
   status: "reading",
   is_important: false,
   note_count: 2,
@@ -117,6 +118,47 @@ describe("阅读管理页面", () => {
     expect(screen.getByText("译：深度工作")).toBeInTheDocument();
     expect(screen.queryByText("未知作者")).not.toBeInTheDocument();
     expect(screen.queryByText(/^\s*刘慈欣\s*$/)).not.toBeInTheDocument();
+  });
+
+  it("链接信息：展示栏只渲染跳转图标，不显示 URL 文本", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/books")) {
+          return new Response(
+            JSON.stringify([{ ...BOOK_WITH_NOTES, id: 4, url: "https://example.com/santi" }]),
+            { status: 200 }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+    expect(await screen.findByRole("link", { name: "打开链接" })).toHaveAttribute(
+      "href",
+      "https://example.com/santi"
+    );
+    // URL 文本本身不出现在展示栏
+    expect(screen.queryByText(/example\.com/)).not.toBeInTheDocument();
+  });
+
+  it("列表展示：书籍备注随行显示；无备注不占位", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/books")) {
+          return new Response(
+            JSON.stringify([{ ...BOOK_WITH_NOTES, id: 3, note: "雨果奖长篇，值得二刷" }]),
+            { status: 200 }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    renderPage();
+    expect(await screen.findByText("备注：雨果奖长篇，值得二刷")).toBeInTheDocument();
   });
 
   it("有笔记的书籍禁止删除：前端预检直接提示且不发起 DELETE", async () => {

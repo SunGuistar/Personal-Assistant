@@ -36,6 +36,28 @@ def test_books_crud_and_filter(fclient):
     assert fclient.get(f"/api/books/{book['id']}").status_code == 404
 
 
+def test_book_url_roundtrip(fclient):
+    created = fclient.post(
+        "/api/books",
+        json={"title": "三体", "url": "https://example.com/santi"},
+    )
+    assert created.status_code == 201
+    book = created.json()
+    assert book["url"] == "https://example.com/santi"
+
+    listed = fclient.get("/api/books").json()
+    assert listed[0]["url"] == "https://example.com/santi"
+
+    patched = fclient.patch(f"/api/books/{book['id']}", json={"url": "https://example.com/v2"})
+    assert patched.json()["url"] == "https://example.com/v2"
+
+    cleared = fclient.patch(f"/api/books/{book['id']}", json={"url": ""})
+    assert cleared.json()["url"] == ""
+
+    too_long = fclient.post("/api/books", json={"title": "x", "url": "https://e.co/" + "a" * 1024})
+    assert too_long.status_code == 422
+
+
 def test_books_400_404_422(fclient):
     assert fclient.get("/api/books/9999").status_code == 404
     assert fclient.patch("/api/books/9999", json={"title": "x"}).status_code == 404

@@ -78,6 +78,7 @@ def book_to_dict(session: Session, book: Book) -> dict:
         "book_type": book.book_type,
         "author": book.author,
         "note": book.note,
+        "url": book.url,
         "status": book.status,
         "is_important": bool(book.is_important),
         "note_count": int(note_count),
@@ -128,14 +129,14 @@ def get_book(session: Session, book_id: int) -> Book:
 
 def create_book(
     session: Session, *, title: str, title_cn: str = "", book_type: str = "book",
-    author: str = "", note: str = "", status: str = "todo", is_important: bool = False
+    author: str = "", note: str = "", url: str = "", status: str = "todo", is_important: bool = False
 ) -> dict:
     if status not in BOOK_STATUS:
         raise DomainError(f"非法阅读状态: {status}", code="invalid_status", status_code=400)
     if book_type not in BOOK_TYPES:
         raise DomainError(f"非法阅读类型: {book_type}", code="invalid_book_type", status_code=400)
     book = Book(title=title, title_cn=title_cn, book_type=book_type,
-                author=author, note=note, status=status, is_important=1 if is_important else 0)
+                author=author, note=note, url=url, status=status, is_important=1 if is_important else 0)
     session.add(book)
     session.commit()
     session.refresh(book)
@@ -148,7 +149,7 @@ def update_book(session: Session, book_id: int, fields: dict) -> dict:
         raise DomainError(f"非法阅读状态: {fields['status']}", code="invalid_status", status_code=400)
     if "book_type" in fields and fields["book_type"] is not None and fields["book_type"] not in BOOK_TYPES:
         raise DomainError(f"非法阅读类型: {fields['book_type']}", code="invalid_book_type", status_code=400)
-    for key in ("title", "title_cn", "author", "note", "status", "book_type"):
+    for key in ("title", "title_cn", "author", "note", "url", "status", "book_type"):
         if key in fields and fields[key] is not None:
             setattr(book, key, fields[key])
     if fields.get("is_important") is not None:

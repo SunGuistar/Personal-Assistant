@@ -31,6 +31,7 @@ class Book(Base):
     book_type: Mapped[str] = mapped_column(String(16), default="book")  # book/article/video/essay
     author: Mapped[str] = mapped_column(String(128), default="")
     note: Mapped[str] = mapped_column(String(2000), default="")
+    url: Mapped[str] = mapped_column(String(1024), default="")  # 链接（可空，展示栏只给跳转入口）
     status: Mapped[str] = mapped_column(String(16), default="todo")
     is_important: Mapped[int] = mapped_column(Integer, default=0)  # 重要置顶（筛选内 重要 > 默认排序）
     created_at: Mapped[str] = mapped_column(String(32), default=_now)

@@ -10,6 +10,7 @@ export interface Book {
   book_type: string; // book/article/video/essay
   author: string;
   note: string;
+  url: string; // 链接（可空，展示栏只给跳转入口）
   status: string;
   note_count: number;
 }
@@ -69,7 +70,7 @@ export function useBooks(status: string | null = null, bookType: string | null =
 export function useCreateBook() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { title: string; author?: string; note?: string; status?: string }) =>
+    mutationFn: (body: { title: string; author?: string; note?: string; url?: string; status?: string }) =>
       api<Book>("/books", { method: "POST", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["books"] }),
   });

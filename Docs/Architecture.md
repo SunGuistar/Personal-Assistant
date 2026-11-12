@@ -60,7 +60,7 @@ Docs/                 # 本文档等
 ### 3.3 计划 / 阅读 / 右栏
 
 - 长期计划与每日任务**完全独立**（迁移 0006 移除 plan_id，0 条历史关联）。排序统一为 **未完成优先 > 重要 > 任务类型（daily/feature_add/feature_optimize/idea，迁移 0007 新增 task_type 列，存量默认 daily）> sort_order**：长期计划 `PUT /plans/reorder`（ordered_ids 覆盖全部活动计划，按位置写 sort_order）；每日任务**无手动排序接口/入口**——sort_order 仅由创建与移入追加（max+1）决定，同组内按创建先后展示。已完成任务置底（内部完成时间倒序）。完成可反复切换（取消完成清除 completed_at，移除原 history_readonly 限制）。不提供跨日期移动：任务逾期即自然延续到后续日期视图（无 `POST /tasks/{id}/move`；历史已移入任务保留 moved_from_date 溯源展示）。
-- 阅读：书籍重要标记筛选内置顶；**有笔记禁删**（service 事务内检查，409 `book_has_notes`）；笔记文件落盘 `data/reading_notes/<book_id>/`，库中存相对路径与元数据，上传校验扩展名/大小/文件头签名，下载按库中路径解析（不接受用户传入路径，防穿越）。
+- 阅读：书籍重要标记筛选内置顶；**有笔记禁删**（service 事务内检查，409 `book_has_notes`）；链接字段 `url` 仅记录与跳转，展示栏只渲染 http/https 跳转图标、不显示 URL 文本；笔记文件落盘 `data/reading_notes/<book_id>/`，库中存相对路径与元数据，上传校验扩展名/大小/文件头签名，下载按库中路径解析（不接受用户传入路径，防穿越）。
 - 右栏：`/api/infos`（important_infos 表）与 `/api/memos`（memos 表）——均为 CRUD + reorder，标题/内容完整显示自动换行（共用 RecordCard 组件），SafeMarkdown 先转义再解析（标题/列表/代码块/粗斜体/行内代码，链接仅 http/https），XSS 安全；长期保留不参与清理。
 - **双向转换（移动语义，单事务原子）**：`POST /api/memos/{id}/to_task {target_date, task_type, is_important}`（标题/内容迁入 daily_tasks.content，删原备忘）；`POST /api/tasks/{id}/to_memo`（仅未完成，409 `task_done_not_convertible`；标题/内容迁入 memos，删原任务）。源记录删除使重复请求自然 404。
 - 旧备忘文件：启动钩子调用 `migrate_legacy_memo()` 把 `~/.personal-hub/memo.md` 内容（如有）以固定标题导入一条备忘（幂等判重，不删除/不改写原文件）；memo.md 不再是数据源。

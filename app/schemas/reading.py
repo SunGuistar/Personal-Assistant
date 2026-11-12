@@ -16,6 +16,7 @@ class BookIn(BaseModel):
     book_type: BookType = "book"
     author: str = ""
     note: str = ""
+    url: str = Field(default="", max_length=1024)
     status: BookStatus = "todo"
     is_important: bool = False
 
@@ -26,6 +27,7 @@ class BookPatch(BaseModel):
     book_type: BookType | None = None
     author: str | None = None
     note: str | None = None
+    url: str | None = Field(default=None, max_length=1024)
     status: BookStatus | None = None
     is_important: bool | None = None
 
@@ -37,6 +39,7 @@ class BookOut(BaseModel):
     book_type: str
     author: str
     note: str
+    url: str
     status: str
     is_important: bool
     note_count: int
