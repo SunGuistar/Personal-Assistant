@@ -3,6 +3,7 @@ export { ReadingPage } from "./ReadingPage";
 export { WechatPage } from "./WechatPage";
 export { GithubPage } from "./GithubPage";
 export { CleanupPage } from "./CleanupPage";
+export { MorningReportPage } from "./MorningReportPage";
 
 function Placeholder({ title, note }: { title: string; note: string }) {
   return (

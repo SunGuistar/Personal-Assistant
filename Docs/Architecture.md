@@ -126,3 +126,59 @@ Docs/                 # 本文档等
 ### 每日一问
 
 计划管理通过 `/api/daily_questions`（GET/POST）及 `/api/daily_questions/{id}`（PUT）访问独立 Service；`daily_questions` 表保存 id、question、answer、created_at、updated_at，Schema 通过 Alembic 新增迁移维护。前端独立 DailyQuestionsPanel 放在随手备忘下方，答案在点击问题后展示。现有备忘及计划接口保持兼容。
+
+
+## 9. 晨报资讯候选采集（2026-11-11 更新）
+
+`app/morning_report/adapters/` 获取中新网国内、国际页面的 `hotlist` 官方热点排行，各只检查前 10 篇详情，保留原始排名、标题、发布时间和来源摘录。榜单没有公开点击数、算法或更新时间，不能声称量化热度；国内、国际不按文章发布时间过滤，未知时间也可进入正文并标注“未知”；时间字段保留原始证据用于展示。同事件合并、不从第 11 条或其他来源补位。生产不再调用新浪、归档或热摸爽。
+
+采集策略 `cnn_official_hot10_v5_no_time_ai_daily` 延续 AIHOT 日报字段与复用机制，并使旧国内/国际采集失效；不修改 Schema、不删除历史。正文三类资讯均由程序确定性组装，保存结构化新闻快照后发布，不再调用主编或质量评价模型。
+
+### 9.0 个人决策工作流
+
+资讯整理和个人数据准备不调用模型。每日仅两个推理 Subagent：GoalAnalysis → ActionSuggest，然后主编 → 发布。TechResearch 的每日节点、提示词、状态和依赖已移除；通用 RAG、技术资料及历史向量保留。
+
+`PH_MR_PERSONAL_DB_PATH` 指向已核对的正式个人助手数据库，本机默认 `E:/wechat-LangGraph/data/hub.db`（8620 主进程使用的 main 配置）。`hub_readonly.readonly_connection` 强制 SQLite URI `mode=ro` 和 `query_only`，不存在时明确降级，不创建或回退到 V2 空库。记录数据源摘要标识、查询时间、各表数量、缺表及错误类型，不记录私人正文。任务、计划、重要信息、备忘和阅读元数据进入完整决策上下文；附件只读元数据，不声称读过正文。
+
+Runner 将当前个人数据快照内的只读工具传给 `create_agent`：GoalAnalysis 使用 `search_personal_records`，ActionSuggest 使用 `search_personal_records` 与 `search_task_status`。不传入 RAG、历史数据库会话或历史索引配置，不提供历史晨报/建议工具。两个 Agent 的 prompt 和有效证据集均排除新闻；ActionSuggest 额外读取 GoalAnalysis 结果。来源 ID 必须属于本轮个人记录，工具不能扩展到新闻或历史报告证据；来源校验不是事实真实性证明。
+
+GoalAnalysis 输出事实/分析/未知及证据 ID，ActionSuggest 输出个人依据、优先级、下一步与前置条件；无依据的时间/收益清空，允许零条。普通进度仅记录数量、工具调用、结果数、耗时和错误类型。质量评价已移除，主编完成后直接发布。
+
+模型路由：自动与手动生成均由 GoalAnalysis 和 ActionSuggest 两个 Subagent 使用 DashScope `qwen3.7-plus`，保持 JSON mode 并显式关闭 Thinking。正文组装不创建模型客户端或产生 Token。DeepSeek `deepseek-flash` 仅作备用，不参与当前生成，禁止静默切换。
+
+### 9.1 AI 资讯：AIHOT 最新日报（2026-11-11 起）
+
+- 唯一生产入口 `GET https://aihot.news/api/v1/dailies/latest`；必须核对 `report.date == report_date`，日期不符、结构异常或 HTTP 失败按来源失败降级（记录覆盖缺口），不允许旧日报冒充当期，不静默回退旧 items 接口（`fetch_selected` 仅历史兼容保留）。
+- 收录依据是"属于当期日报"而非逐条原文发布时间落入本地窗口：sections.items 按原分类顺序收集，之后接 flashes，highlights 中未出现的条目补入；lead/highlights 只做重点标记，不重复加条目，lead 无可验证链接时不凭标题构造链接。
+- 展示链接优先 `links.original`，缺失时用有效 `links.aihot`；只接受 http/https。原文 `publishedAt` 有则存、无则空，禁止用日报日期伪造；日报归属窗口（`daily_window_*`）与原文发布时间分开记录在 `raw_ref`。
+- 去重按规范化链接确定性进行；条目的 `display_order`、`section_label`、`daily_kind`、`aihot_url` 等元数据存 `news_items.raw_ref`。
+- 生成侧：AI 标题列表不参与模型筛选、不受 AI 60 条输入截断影响；`report_service` 从本期快照按 `display_order` 组装 `ai_daily` 注入图状态，主编提示词只保留占位行 `{{AI_NEWS_LIST}}`，正文由程序注入全部标题与链接（占位符缺失时改写/插入 AI 小节，剔除模型自写列表行，杜绝虚构与重复小节），之后直接发布。提示词版本升级使旧阶段缓存自动失效。
+
+
+### 晨报助手与 Memory 停用（2026-11-11）
+
+删除晨报 `api/assistant.py`、`api/memory.py` 路由及前端客户端/对话组件，不再导出对应请求 schema。生成服务不查询 memories，图状态、决策上下文和证据集合不再接收 Memory；既有个人上下文及决策工具保持只读。`models.Memory` 仅作为历史 Schema 兼容映射保留，不执行数据库迁移或清理。右栏进度占满可用高度；提示词版本升级防止旧行为缓存复用。
+
+2026-11-11 晨报展示调整：主编通过独立 EDITOR_SYSTEM 接收分点表达规范，“我的昨日”一事一点，“今日建议”编号且包含依据和下一步。开篇速览在正文新闻列表组装后确定性注入，取国内/国际已选列表首条、当期 AI 日报首条及所有“技巧与观点”（兼容“讨论与观点”）条目，保留原始标题链接与摘要；缺项不虚构。组装后的最终正文直接发布。前端速览摘要直接显示，正文摘要仍默认折叠。
+
+2026-11-11 新闻星标：晨报独立 SQLite 轻量迁移 v4 为 `news_items` 新增 `is_important BOOLEAN NOT NULL DEFAULT 0`；服务 `news_importance` 按新闻 ID 更新，并按已有确定性 `content_hash` 同步重复采集记录，后续采集继承已标记状态。`GET /api/morning/report/{version_id}/news` 返回该报告所选新闻的当前状态；`PATCH /api/morning/news/{news_id}/importance` 接收严格布尔 `is_important`。报告快照不因用户星标改写，前端按原始新闻记录关联实时星标，速览与正文同步；无法关联的历史条目禁用星标。仅涉及晨报独立库，不改 hub.db 或聊天库。
+
+2026-11-11 生成链路简化：历史检索与索引检查、修复、发布后向量更新已移除，不初始化 Qdrant 或 Embedding Provider。已有独立索引工具与向量数据仅保留兼容，不在生成中调用。进度移除 `index`，共 8 步；`snapshot` 仍显示“准备本轮数据”，保留新闻固定输入、snapshot_id 和部分个人事件证据。GoalAnalysis 与 ActionSuggest 只分析个人上下文，不输入新闻；新闻保留给正文组装、速览。历史报告查看和版本记录不受影响。
+
+晨报 LLM 输出契约：两个 Subagent 每轮模型请求必须启用 JSON mode（`response_format={"type":"json_object"}`），工具循环保留原生协议。最终结果严格解析为 JSON 对象，拒绝围栏、额外说明、非标准数值及重复键；目标分析、昨日回顾及建议均校验字段与证据。解析或模型能力错误显式报错或降级，不静默消费纯文本。正文由程序组装，不再存在主编模型的 content_md 输出契约。
+
+2026-11-12 调度与资讯降级：默认 schedule_hour=8、schedule_minute=30（Asia/Shanghai），内容窗口保持08:00—08:00。采集摘要保存 source_failures 和按类别映射的 category_errors；无资讯的正常来源失败统一为 degraded，而非 failed。生成将 news_errors 传入正文组装，确定性注入对应资讯小节；采集和资讯整理阶段标记 warning，并计入完成数。该降级不吞掉数据库错误、模型错误或用户取消。
+
+2026-11-12 采集复用判断：`collection_needs_refresh` 检查最新采集摘要 source_failures 与 SQLite 实际三类计数，任一来源失败或类别为零则补采；两种手动生成模式共用该判断，不改变 clear_cache 既有语义。Token 查询继续按 run_id 隔离；提交成功切换新 ID 后即时显示0，接口返回后累计本轮真实用量，缺失的已调用字段仍显示未知，不删除历史用量。
+
+2026-11-12 质量评价移除：删除 quality_eval 节点、专用模型配置与评分提示词；editor 直接连接 publish。新报告不写 evaluations，API 不查询或返回 evaluation/has_evaluation，前端移除评价类型与页面，进度为8步。历史 evaluations 表和旧用量记录仅保留兼容，不清理、不重算。
+
+2026-11-12 正文组装：主编已改为确定性程序节点（editor），不再调用普通 ChatOpenAI 或 create_agent。新闻取来源快照，个人回顾取本轮记录与有效目标分析，建议取已验证的 ActionSuggest 结果；无依据或分析失败时明确标注，不生成新的判断。生成服务不创建主编客户端，editor 不写 TokenUsage，仍保留普通链路进度与 Checkpoint。只剩两个 Subagent 发生模型调用。
+
+2026-11-12 新闻结构化展示：新发布版本在 sections.news_content 保存 version=1 的新闻快照，含 categories（domestic/international/ai）、overview、errors；每条包含新闻 id、类别、原始标题/链接/摘要及 section_label。前端固定渲染新闻分区和卡片，按 id 关联实时 is_important，不再以模型 Markdown 栏目名、标题或链接作为主要关联依据；速览摘要直接显示，正文摘要默认折叠。旧版本报告查询可根据已保存 news_selection 的 ID 只读补齐该结构，不写回旧正文；无结构的 Markdown 保留兼容识别。正文存档和下载仍使用原 content_md，个人回顾/建议及信息说明保持原展示。该调整只扩展 JSON 字段，不迁移表结构、不新增模型或 Agent 调用。
+
+2026-11-12 个人回顾展示：正文组装不调用模型，发布时保存 `sections.yesterday_content`，按昨日完成、目标推进、需要关注分组；默认最多八条，其余记录、待确认项与重复完成事项的分析折叠保留。短标题与事实/分析/待确认标签分离，原始细节可展开。历史报告查询根据同轮个人快照只读补齐，不回写历史正文或数据库。
+
+2026-11-12 个人回顾职责调整：GoalAnalysis 在原有分析 JSON 中新增必需的 yesterday_report，直接完成“我的昨日”的取舍、合并、分组、标题、摘要及细节。主编仅校验并原样装配，不再把任务清单与分析数组拼成新文案，也不新增模型调用。格式或证据非法显式降级；缺失最终回顾时提示原因，只保留已有完成事实。旧历史报告继续只读兼容，新提示词版本使目标分析缓存失效；新效果需重新生成。
+
+2026-11-12 生成入口与版本展示（取代旧双按钮及历史多版本展示约定）：只保留“重新生成”，每次重新运行两个分析 Subagent；资讯齐全复用、缺失或策略更新重新采集。新增“重新组装”，以当前展示的已发布版本为固定输入，仅执行正文组装和发布，不重新采集、不重读当前个人数据、不调用模型，本轮Token为0；前置阶段标为复用。组装输入缺失明确提示重新生成，不静默走全流程。生成与组装共用任务互斥和停止通道。历史列表每天只显示最新发布版本，失败或停止不替代成功版本；旧版本仅隐藏，保留全部数据，不自动删除，次日自动生成也不删除。历史日期重新组装不覆盖更新日期的默认晨报。组装输入保存于晨报sections JSON，无Schema迁移。

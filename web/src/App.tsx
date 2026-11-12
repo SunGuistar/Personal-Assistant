@@ -4,6 +4,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import {
   CleanupPage,
   GithubPage,
+  MorningReportPage,
   PlansPage,
   ReadingPage,
   SettingsPage,
@@ -15,6 +16,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<PlansPage />} />
+      <Route path="/morning" element={<MorningReportPage />} />
       <Route path="/wechat" element={<WechatPage />} />
       <Route path="/plans" element={<PlansPage />} />
       <Route path="/github" element={<GithubPage />} />

@@ -7,7 +7,7 @@
 - 个人使用的 Windows PC 应用：FastAPI + React，浏览器访问（默认 127.0.0.1:8620），**仅面向 PC，不做移动端适配**（V2.0 需求）。
 - 核心定位：**个人数据驱动的智能工作助手**——整合计划、备忘、重要信息、阅读记录及未来接入的 GitHub 等个人数据，利用 AI 进行信息整理、关联分析、总结和建议（目标与原则见 `Docs/DEVELOPMENT_PLAN.md`）。
 - 运行环境：Conda 环境 `agent`（Python 3.13）；前端 `cd web && npm install && npm run build`。
-- 当前版本含：微信聊天助手（Agent 对话/总结/同步）、计划管理（默认入口；重要信息 SQLite + 随手备忘 SQLite 多条记录已整合进本页面右列，可与每日任务双向转换；旧 `~/.personal-hub/memo.md` 已废弃，启动时幂等迁移、原文件保留不入 Git）。技术资讯模块已于 2026-11 整体下线（代码与 news_sources/news_items 表已删除）。
+- 当前版本含：微信聊天助手（Agent 对话/总结/同步）、计划管理（默认入口；重要信息 SQLite + 随手备忘 SQLite 多条记录已整合进本页面右列，可与每日任务双向转换；旧 `~/.personal-hub/memo.md` 已废弃，启动时幂等迁移、原文件保留不入 Git）。另含今日晨报（独立 SQLite、每日08:30自动生成、个人分析及新闻星标）。旧技术资讯模块已于 2026-11 整体下线（代码与 news_sources/news_items 表已删除）。
 - 微信模块已迁入 `app/wechat_agent/`；`GetWechatInfo/` 仅保留聊天数据（DataInfo/ 两库 + VectorStore/）。原 `LangGraph/`、`Tool/` 目录已不存在。
 - 常驻决策（不必再问）：总结统一经 Agent（D2，见 §4）；第一版无备份功能，以数据隔离规范替代（D1）；允许自动启动设置中配置的 WeChatDataAnalysis（D5）。
 
@@ -30,7 +30,7 @@
 6. **总结统一经 Agent（D2）**：所有总结请求必须经 Agent 的 `summarize_chat` 工具触发；禁止 Service 直调 `run_summary` 的旁路。
 7. **禁止自动删除**：任何数据删除必须经清理审核流程人工勾选 + 确认；系统不得存在自动删除入口（清理审核见 Architecture §3.4）。
 8. **未来需求不进当前计划**：未经用户明确批准，不得把 `Docs/DEVELOPMENT_PLAN.md` "未批准的后续规划"中的需求排入当前开发或提前实现。
-9. **所有 LLM 调用必须启用 JSON mode**：必须在实际模型请求中设置 `response_format={"type":"json_object"}`（或供应商等效的原生 JSON 约束），仅在提示词写“输出 JSON”不算满足。Agent 工具调用的每轮模型请求同样适用，最终回答必须是 JSON 对象；工具调用轮保留原生工具协议。提示词须定义字段和类型，消费方须解析并校验，非法输出走显式错误/降级流程，禁止静默退回纯文本。Markdown/自然语言内容使用明确字符串字段（如 `content_md`）承载，解包后再展示或落库。不支持 JSON mode 的模型不得静默回退；测试必须验证实际请求参数及输出解析，真实模型验证单独标记 LIVE。
+9. **所有 LLM 调用必须启用 JSON mode**：必须在实际模型请求中设置 `response_format={"type":"json_object"}`（或供应商等效的原生 JSON 约束），仅在提示词写“输出 JSON”不算满足。Agent 工具调用的每轮模型请求同样适用，最终回答必须是 JSON 对象；工具调用轮保留原生工具协议。提示词须定义字段和类型，消费方须解析并校验，非法输出走显式错误/降级流程，禁止静默退回纯文本。Markdown/自然语言内容使用明确字符串字段（如 `content_md`）承载，解包后再展示或落库。不支持 JSON mode 的模型不得静默回退：**供应商返回不支持 `json_object` 的报错（HTTP 400 / `invalid_request_error` 等）时，必须在模型调用封装层统一捕获并转换为显式领域错误**（晨报实现为 `JsonModeUnsupportedError`），错误信息须包含模型名与原因摘要，记录非敏感日志，经任务状态机/降级流程对调用方可见；**禁止**静默去掉 JSON mode 重试、退化为纯文本或静默切换模型。测试必须验证实际请求参数、输出解析与"模型不支持 JSON mode"报错路径，真实模型验证单独标记 LIVE。
 
 ## 4. 数据与安全（最高优先级）
 
@@ -129,3 +129,12 @@ cd web && npm run build              # 正式构建
 - 普通代码修改不需要更新文档；需求、架构或功能规划发生实质变化时更新对应文档，并先核对实际代码。
 - 不单独维护 `TEST_PLAN.md`、`ROADMAP.md`、`CHANGELOG.md`（测试场景由 `tests/` 维护，后续规划并入 DEVELOPMENT_PLAN，开发历史由 Git 记录）。
 - 不为普通 UI 调整、小型重构创建 ADR。涉及重大技术决策（多模块影响、明显方案权衡、修改成本高、未来难从代码理解原因）时，先向用户说明理由与备选方案，再建议是否写入 `Docs/ADR/`。
+
+## 10. 今日晨报模块约定（V2.0 开发已完成，本节为维护期约束）
+
+- **需求文档已归档**：晨报 V2.0 需求原文（`Docs/V2/V0.6产品设计.md`、`Docs/V2/V0.6.1额外信息.md` 等）仅作历史参考；**当前业务规则以 `Docs/PRD.md` 为准、技术设计以 `Docs/Architecture.md` 为准**。采集节奏为**每天北京时间 08:30 一轮**（窗口 `[前一天08:00, 当天08:00)`）。
+- **模块位置**：`app/morning_report/`（api 薄层 → services → adapters；LangGraph 工作流在 `graph/`）。前端 `web/src/pages/MorningReportPage.tsx` 等。
+- **数据隔离**：晨报独立 SQLite `data/morning_report.db`（自带轻量迁移器，版本表 `schema_migrations`）；Qdrant 专用 Collection `morning_tech_news` / `morning_reports`；**现有 hub.db、聊天两库、Chroma 一律只读/不动**。
+- **Qdrant 连接**：必须用 `http://127.0.0.1:6333`，**禁止 localhost**（Windows IPv6 每请求卡 ~21s，决策记录见 `Docs/ADR/0001-Qdrant客户端禁用localhost.md`）。
+- **模型路由**：当前自动与手动生成均由两个分析 Subagent 使用 DashScope `qwen3.7-plus`（OpenAI 兼容端点）；正文由程序组装，不调用主编模型。DeepSeek `deepseek-flash` 仅作备用，不参与当前生成；启用备用须经用户明确授权并遵守允许时段检查，禁止静默切换。Thinking 按节点显式配置。
+- **测试**：LLM 一律 Mock/假模型；外部 HTTP 用 respx；晨报 DB 用隔离临时库；Qdrant 用 `tmp_mr_*` 前缀 Collection 用后清理。真实采集/真实模型验证单独标记 LIVE，与单测隔离。

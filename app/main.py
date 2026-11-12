@@ -24,6 +24,78 @@ from .tasks import TaskRunner
 logger = logging.getLogger(__name__)
 
 
+def _init_morning_report(app: FastAPI, settings: Settings, hub_session_factory) -> None:
+    """晨报 V2.0 模块装配：独立 SQLite + 独立路由（hub 只读访问经 app.state.session_factory）。"""
+
+    from .morning_report import api as mr_api
+    from .morning_report import db as mr_db
+    from .morning_report.config import get_mr_settings
+
+    mr_settings = get_mr_settings()
+    mr_engine = mr_db.make_engine(settings.data_dir / mr_settings.db_filename)
+    mr_db.run_migrations(mr_engine)
+    app.state.mr_settings = mr_settings
+    app.state.mr_engine = mr_engine
+    app.state.mr_session_factory = mr_db.make_session_factory(mr_engine)
+
+    from .morning_report.services.runner import MorningRunner
+
+    app.state.mr_runner = MorningRunner(app.state.mr_session_factory)
+    app.include_router(mr_api.morning_router)
+
+    # 每日 08:30 调度（测试/显式关闭时不启动）
+    if mr_settings.schedule_enabled:
+        from .morning_report.services import scheduler as mr_scheduler
+
+        scheduler, _ = mr_scheduler.create_scheduler(
+            mr_settings, app.state.mr_runner,
+            app.state.mr_session_factory, hub_session_factory,
+        )
+        app.state.mr_scheduler = scheduler
+
+        @app.on_event("startup")
+        def _start_mr_scheduler() -> None:
+            if scheduler.running:
+                return
+            scheduler.start()
+            logger.info("晨报调度已启动：每天 %02d:%02d（Asia/Shanghai）",
+                        mr_settings.schedule_hour, mr_settings.schedule_minute)
+
+        @app.on_event("shutdown")
+        def _stop_mr_scheduler() -> None:
+            if scheduler.running:
+                scheduler.shutdown(wait=False)
+
+    # 进程重启后，遗留的 pending/running 晨报任务实际已不在执行（与 hub 任务同理）
+    @app.on_event("startup")
+    def _reconcile_stale_mr_tasks() -> None:
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+        from datetime import timedelta as _td
+
+        from sqlalchemy import select as _select
+
+        from .morning_report.models import RunRecord as _MRRun
+
+        def _dt_now() -> str:
+            return _dt.now(_tz(_td(hours=8))).isoformat()
+
+        with app.state.mr_session_factory() as s:
+            stale = s.execute(
+                _select(_MRRun).where(_MRRun.status.in_(["pending", "running"]))
+            ).scalars().all()
+            for task in stale:
+                task.status = "failed"
+                task.error = "进程重启，任务中断（可重新提交）"
+            if stale:
+                s.commit()
+                logger.info("晨报陈旧任务清理: %d 个标记为 failed", len(stale))
+        from .morning_report.services import progress as _mr_progress
+        n = _mr_progress.interrupt_stale_stages(s)
+        if n:
+            logger.info("晨报中断阶段清理: %d 个标记为 interrupted", n)
+
+
 class SPAStaticFiles(StaticFiles):
     """单页应用回退：未命中的非 API 路径返回 index.html；/api/* 未命中仍走统一 JSON 404。"""
 
@@ -59,6 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     wechat_jobs.configure(app.state.task_runner)  # summarize_chat 工具经此提交后台总结任务
 
+    _init_morning_report(app, settings, session_factory)
     app.include_router(api_router)
 
     @app.on_event("startup")

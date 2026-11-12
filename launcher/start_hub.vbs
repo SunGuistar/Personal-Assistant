@@ -4,11 +4,17 @@
 ' system ANSI codepage (GBK on zh-CN Windows) and UTF-8 Chinese bytes break
 ' parsing with misleading runtime errors (same rule as .bat/.ini).
 Option Explicit
-Dim shell, fso, launcher, rootDir, condaBat, cmd
+Dim shell, fso, launcher, rootDir, condaBat, cmd, action, exitCode
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 rootDir = fso.GetAbsolutePathName(fso.BuildPath(fso.GetParentFolderName(WScript.ScriptFullName), ".."))
 launcher = fso.GetAbsolutePathName(fso.BuildPath(fso.GetParentFolderName(WScript.ScriptFullName), "launch.py"))
+action = "start"
+If WScript.Arguments.Unnamed.Count > 0 Then action = WScript.Arguments.Unnamed(0)
+If action <> "start" And action <> "stop" And action <> "restart" Then
+    MsgBox "Invalid launcher action.", 16, "Personal Assistant"
+    WScript.Quit 1
+End If
 
 ' Conda discovery: PH_CONDA_BAT env var > common per-user installs > D: drives
 condaBat = ""
@@ -33,9 +39,16 @@ Next
 
 If condaBat <> "" Then
     ' cmd /c needs the whole command wrapped when the first token is quoted
-    cmd = "cmd /c """ & """" & condaBat & """ run -n agent --no-capture-output python """ & launcher & """"""
+    cmd = "cmd /c """ & """" & condaBat & """ run -n agent --no-capture-output python """ & launcher & """ --action " & action & """"
 Else
-    cmd = "pythonw.exe """ & launcher & """"
+    cmd = "pythonw.exe """ & launcher & """ --action " & action
 End If
 shell.CurrentDirectory = rootDir
-shell.Run cmd, 0, False
+If WScript.Arguments.Named.Exists("check") Then
+    WScript.Echo cmd
+    WScript.Quit 0
+End If
+exitCode = shell.Run(cmd, 0, True)
+If exitCode <> 0 Then
+    MsgBox "Action failed. See data\logs\launcher.log for details.", 16, "Personal Assistant"
+End If

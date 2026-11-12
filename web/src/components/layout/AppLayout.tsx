@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   Github,
   MessageSquareText,
+  Sunrise,
   Settings,
   Trash2,
 } from "lucide-react";
@@ -11,6 +12,7 @@ import { cn } from "../../lib/utils";
 
 const NAV_ITEMS = [
   { to: "/plans", label: "计划管理", icon: CalendarCheck },
+  { to: "/morning", label: "今日晨报", icon: Sunrise },
   { to: "/wechat", label: "微信助手", icon: MessageSquareText },
   { to: "/github", label: "GitHub", icon: Github },
   { to: "/reading", label: "阅读管理", icon: BookOpen },

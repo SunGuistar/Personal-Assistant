@@ -35,10 +35,14 @@ Docs/       规划与架构文档（见下）
 
 1. 安装依赖：Conda 环境 `agent`（Python 3.13，见 `requirements.txt`）；前端 `cd web && npm install && npm run build`
 2. 双击 `launcher/个人助手.bat`（或 `python launcher/launch.py`）→ 自动启动服务并打开浏览器
-3. 访问 http://127.0.0.1:8620 （端口可用环境变量 `PH_HUB_PORT` 修改）
+3. V2 默认访问 http://127.0.0.1:8621；启动、停止、重启统一读取 `launcher/launcher.ini` 的 `server.port`，更换端口只需修改该处
 4. 密钥：在 `~/.personal-hub/.env` 配置 `DASHSCOPE_API_KEY`（键名清单见 `.env.example`）
 
 开发模式：`uvicorn --factory app.main:create_app --reload`；微信 Agent 的命令行问答入口：`python -m app.wechat_agent.agent`。
+
+日常管理：双击 `launcher/停止个人助手.bat` 结束后端，双击 `launcher/重启个人助手.bat` 先停止再启动；关闭浏览器不会停止后端。也可运行 `python launcher/launch.py --action stop` 或 `--action restart`。操作失败会弹窗提示，详情见 `data/logs/launcher.log`。停止或重启会中断正在执行的任务。
+
+停止前会核验监听进程的应用入口及工作区路径，拒绝停止其他工作区或无法核验的进程。升级前启动的旧进程没有工作区标识，需要手动停止一次，之后通过上述入口启动即可使用一键停止/重启。
 
 ## 开发
 

@@ -18,3 +18,16 @@ reportlab==5.1.0           # 阅读管理：云记 .Jnotes 手写笔记转 PDF
 pytest==9.0.3
 pytest-asyncio==1.4.1.post1
 respx==0.23.1
+
+# 晨报运行依赖：固定到现有 Conda agent 已验证版本，不升级共享环境。
+langchain==1.2.12
+langchain-core==1.2.18
+langchain-openai==1.1.11
+langgraph==1.1.2
+langgraph-checkpoint-sqlite==3.1.3
+openai==2.26.0
+APScheduler==3.11.3
+aiosqlite==0.22.1
+# 既有向量兼容模块与隔离测试依赖，生成主流程不连接 Qdrant。
+qdrant-client==1.20.0
+fastembed==0.9.1

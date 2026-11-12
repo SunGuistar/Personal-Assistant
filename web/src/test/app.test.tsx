@@ -50,6 +50,8 @@ describe("App 骨架", () => {
     expect(screen.queryByText("首页")).not.toBeInTheDocument();
     expect(screen.getByText("微信助手")).toBeInTheDocument();
     expect(screen.getByText("GitHub")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "今日晨报" })).toHaveAttribute("href", "/morning");
+    expect(screen.queryByRole("link", { name: "技术资讯" })).not.toBeInTheDocument();
     expect(screen.getByText("阅读管理")).toBeInTheDocument();
     expect(screen.getByText("清理审核")).toBeInTheDocument();
     expect(screen.getByText("设置")).toBeInTheDocument();
@@ -63,6 +65,15 @@ describe("App 骨架", () => {
     renderApp();
     expect(await screen.findByText("重要信息")).toBeInTheDocument();
     expect(screen.getByText("随手备忘")).toBeInTheDocument();
+  });
+
+  it("晨报路由可访问且不恢复旧全局右栏", async () => {
+    stubGlobalFetch();
+    renderApp("/morning");
+    expect(await screen.findByRole("heading", { name: "今日晨报" })).toBeInTheDocument();
+    expect(screen.getByText("生成进度")).toBeInTheDocument();
+    expect(screen.queryByText("重要信息")).not.toBeInTheDocument();
+    expect(screen.queryByText("随手备忘")).not.toBeInTheDocument();
   });
 
   it("其他页面不展示重要信息与随手备忘", async () => {
