@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DailyQuestion, reviewQueue, useDailyQuestions, useReviewQuestion, useSaveDailyQuestion } from "../api/dailyQuestions";
 import { Button } from "../components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { cn } from "../lib/utils";
 
 export function KnowledgePage() {
@@ -47,16 +48,27 @@ export function KnowledgePage() {
       </> : <div className="space-y-3"><p>{items.length ? "本轮已完成。刷新可获取新题，或再练一轮。" : "还没有知识，先记录一个问题和答案吧。"}</p>{items.length > 0 && <Button onClick={() => {setSeen([]); setAll(true); setRevealed(null);}}>再练一轮</Button>}</div>}
       <p className="text-xs text-neutral-500">优先到期复习，再学新题。记住后按1、3、7、14、30天复习；没记住10分钟后再试。</p>
     </section>}
-    {editing !== undefined && <form className="space-y-3 rounded-xl border bg-white p-5" onSubmit={e => {e.preventDefault(); save.mutate({id: editing ?? undefined, question, answer, tags}, {onSuccess: () => setEditing(undefined)});}}>
-      <h2 className="font-semibold">{editing === null ? "记录问答" : "编辑问答"}</h2>
+    {editing !== undefined && <QuestionEditor editing={editing} onClose={() => setEditing(undefined)}>
+    <form className="space-y-3 rounded-xl border bg-white p-5" onSubmit={e => {e.preventDefault(); save.mutate({id: editing ?? undefined, question, answer, tags}, {onSuccess: () => setEditing(undefined)});}}>
+      {editing === null && <h2 className="font-semibold">记录问答</h2>}
       <label className="block">问题<textarea className="mt-1 block w-full rounded border p-2" required maxLength={500} value={question} onChange={e=>setQuestion(e.target.value)} /></label>
       <label className="block">答案<textarea className="mt-1 block w-full rounded border p-2" required rows={5} maxLength={50000} value={answer} onChange={e=>setAnswer(e.target.value)} /></label>
       <label className="block">标签<input className="ml-2 rounded border p-2" maxLength={200} placeholder="例如：Python、工作" value={tags} onChange={e=>setTags(e.target.value)} /></label>
       {save.isError && <p role="alert" className="text-red-600">保存失败，请重试。</p>}
       <div className="flex gap-2"><Button disabled={save.isPending || !question.trim() || !answer.trim()} type="submit">保存</Button><Button type="button" variant="outline" onClick={()=>setEditing(undefined)}>取消</Button></div>
-    </form>}
+    </form></QuestionEditor>}
     {tab === "questions" && <section className="space-y-3"><h2 className="text-lg font-semibold">全部问答</h2><input aria-label="搜索知识" className="w-full rounded border p-2" placeholder="搜索问题、答案或标签" value={search} onChange={e=>setSearch(e.target.value)} />
       {items.filter(q => `${q.question} ${q.answer} ${q.tags ?? ""}`.toLowerCase().includes(search.toLowerCase())).map(q => <article key={q.id} className="rounded-lg border bg-white p-4"><div className="flex items-start justify-between gap-4"><span className="whitespace-pre-wrap break-words font-medium">{q.question}</span><Button variant="outline" onClick={()=>edit(q)}>编辑</Button></div><p className="mt-1 text-xs text-neutral-500">{q.tags} · 已练 {q.review_count ?? 0} 次 · {q.due_at ? `下次复习 ${new Date(q.due_at).toLocaleString()}` : "新题"}</p><details className="mt-2"><summary className="cursor-pointer text-sm text-neutral-500">答案</summary><p className="mt-2 whitespace-pre-wrap break-words">{q.answer}</p></details></article>)}
     </section>}
   </div>;
+}
+
+function QuestionEditor({ editing, onClose, children }: { editing: number | null; onClose: () => void; children: React.ReactNode }) {
+  if (editing === null) return <>{children}</>;
+  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+    <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto" aria-describedby={undefined}>
+      <DialogHeader><DialogTitle>编辑问答</DialogTitle></DialogHeader>
+      {children}
+    </DialogContent>
+  </Dialog>;
 }
