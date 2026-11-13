@@ -14,7 +14,7 @@ def test_editor_never_calls_llm_and_keeps_personal_and_action_fields():
         advice_result={"status": "ok", "advices": [{"content": "检查方案", "basis": "已有待办", "next_step": "列出缺口", "priority": "今日优先"}]})
     deps = SimpleNamespace(cancel_token=None, progress=None, llm=Forbidden(), record=lambda *a: (_ for _ in ()).throw(AssertionError("unexpected token write")))
     draft = node_editor(state, deps)["draft"]
-    assert "### 昨日完成" in draft and "**读论文**" in draft
+    assert "### 昨日完成" not in draft and "**读论文**（事实完成）" in draft
     assert "目标分析暂缺（TypeError）" in draft
     assert "1. **检查方案**（今日优先）" in draft and "依据：已有待办" in draft and "下一步：列出缺口" in draft
     assert "## 五、信息说明" in draft and "### AI" in draft

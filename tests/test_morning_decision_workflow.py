@@ -166,6 +166,25 @@ def test_duplicate_completed_and_invented_estimates_filtered(fclient):
     assert result['advices'][0]['estimated_time'] is None and result['advices'][0]['expected_value'] is None
 
 
+def test_advice_selects_at_most_one_valid_action(fclient):
+    from tests.test_morning_stage4_graph import _initial
+    from app.morning_report.graph.workflow import node_advice
+    from app.morning_report.graph import prompts
+    state = _initial()
+    state['personal']['daily_pending'] = [{'source_id': 'daily_tasks:2', 'title': '未完成任务', 'done': False}]
+    row = {'content': '推进已有任务', 'basis': '真实未完成任务', 'priority': '今日优先',
+           'personal_refs': ['daily_tasks:2'], 'evidence_ids': ['daily_tasks:2'], 'next_step': '确认方案'}
+    class Agent:
+        def run(self, name, prompt, tools):
+            assert '最多一个元素' in prompt
+            return json.dumps({'advices': [row, {**row, 'content': '另一项行动', 'next_step': '查看资料'}]})
+    result = node_advice(state, _deps(fclient, subagents=Agent()))['advice_result']
+    assert result['status'] == 'ok' and len(result['advices']) == 1
+    assert result['advices'][0]['content'] == '推进已有任务'
+    assert result['rejected_count'] == 1
+    assert '最多输出 1 条' in prompts.ADVICE_SYSTEM
+
+
 def test_publish_does_not_write_evaluation_even_for_legacy_state(fclient):
     from tests.test_morning_stage4_graph import _initial
     from app.morning_report.graph.workflow import node_publish

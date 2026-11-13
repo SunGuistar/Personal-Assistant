@@ -198,14 +198,14 @@ function BookTitle({ book, className = "" }: { book: Book; className?: string })
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-1.5">
-        <span className={`truncate text-base font-semibold ${book.is_important ? "text-red-700" : ""} ${className}`}>
+        <span className={`min-w-0 break-words text-xl font-semibold leading-7 ${book.is_important ? "text-red-700" : ""} ${className}`}>
           {book.title}
         </span>
         <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${typeBadgeClass(book.book_type)}`}>
           {BOOK_TYPE_LABELS[book.book_type] ?? book.book_type}
         </span>
       </div>
-      {book.title_cn && <div className="truncate text-xs text-neutral-500">译：{book.title_cn}</div>}
+      {book.title_cn && <div className="break-words text-base leading-6 text-neutral-600">译：{book.title_cn}</div>}
       {book.author && <div className="truncate text-xs text-neutral-500">{book.author}</div>}
     </div>
   );
@@ -293,7 +293,7 @@ function BookRow({
       <BookOpen className="h-4 w-4 shrink-0 text-neutral-400" />
       <div className="min-w-0 flex-1">
         <BookTitle book={book} />
-        {book.note && <div className="truncate text-xs text-neutral-500">备注：{book.note}</div>}
+        {book.note && <div className="mt-2 whitespace-pre-wrap break-words text-lg leading-7 text-neutral-700">备注：{book.note}</div>}
       </div>
       <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${statusBadgeClass(book.status)}`}>
         {BOOK_STATUS_LABELS[book.status] ?? book.status}
@@ -337,7 +337,7 @@ function BookCard({
           </span>
         </div>
       </div>
-      {book.note && <p className="mt-2 line-clamp-2 text-xs text-neutral-500">{book.note}</p>}
+      {book.note && <p className="mt-2 whitespace-pre-wrap break-words text-lg leading-7 text-neutral-700">{book.note}</p>}
       <div className="mt-3 flex items-center gap-1 text-xs text-neutral-500">
         <FileText className="h-3.5 w-3.5" /> 笔记 {book.note_count} 份
         <span className="ml-auto">

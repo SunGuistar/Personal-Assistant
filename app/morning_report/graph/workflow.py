@@ -327,7 +327,7 @@ def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
             item["estimated_time"] = item.get("estimated_time") if item.get("time_basis") else None
             item["expected_value"] = item.get("expected_value") if item.get("value_basis") else None
             kept.append(item)
-        result = {"status": "ok", "advices": kept[:3], "note": data.get("note", ""), "rejected_count": rejected}
+        result = {"status": "ok", "advices": kept[:1], "note": data.get("note", ""), "rejected_count": rejected + max(0, len(kept) - 1)}
         if rejected:
             result["note"] += "；部分候选缺少有效个人依据或已完成，未作为行动建议发布"
     except Exception as exc:

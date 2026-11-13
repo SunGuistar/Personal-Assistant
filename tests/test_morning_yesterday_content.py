@@ -47,6 +47,15 @@ def test_agent_authored_report_is_used_without_rewriting_or_merging_tasks():
     markdown, _ = personal_sections(personal, goal, {})
     assert "Agent归纳的成果" in markdown and "不应再自动追加" not in markdown
     assert "多个任务共同完成一个成果。" in markdown and "完整细节" in markdown
+    assert "### 昨日完成" not in markdown and "事实完成" in markdown
+
+
+def test_personal_sections_publishes_only_one_advice_from_old_multi_action_data():
+    from app.morning_report.services.report_assembly import personal_sections
+    _, actions = personal_sections({}, {}, {"advices": [
+        {"content": "首选行动", "basis": "依据", "next_step": "第一步"},
+        {"content": "第二行动", "basis": "依据", "next_step": "第二步"}]})
+    assert "首选行动" in actions and "第二行动" not in actions
 
 
 def test_invalid_agent_report_is_explicitly_rejected():

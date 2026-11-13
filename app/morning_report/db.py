@@ -74,11 +74,18 @@ def _v4_news_importance(engine) -> None:
             conn.execute(text("ALTER TABLE news_items ADD COLUMN is_important BOOLEAN NOT NULL DEFAULT 0"))
 
 
+def _v5_news_favorite_settings(engine) -> None:
+    from .models import NewsFavoriteSetting
+
+    NewsFavoriteSetting.__table__.create(engine, checkfirst=True)
+
+
 MIGRATIONS: list[tuple[int, str, object]] = [
     (1, "init_core_tables", _v1_init),
     (2, "run_stages", _v2_run_stages),
     (3, "stop_fields", _v3_stop_fields),
     (4, "news_importance", _v4_news_importance),
+    (5, "news_favorite_settings", _v5_news_favorite_settings),
 ]
 
 
@@ -92,16 +99,19 @@ def run_migrations(engine) -> list[int]:
             "(version INTEGER PRIMARY KEY, applied_at TEXT)"
         ))
         done = {row[0] for row in conn.execute(text("SELECT version FROM schema_migrations"))}
-        for version, name, fn in MIGRATIONS:
-            if version in done:
-                continue
-            logger.info("晨报库迁移 %s (v%d) 应用", name, version)
-            fn(engine)
+    for version, name, fn in MIGRATIONS:
+        if version in done:
+            continue
+        logger.info("晨报库迁移 %s (v%d) 应用", name, version)
+        # 每一步自行开启连接执行 DDL，版本记录单独提交，避免上一版本
+        # 的未提交版本号写入持有 SQLite 写锁，阻塞下一步迁移。
+        fn(engine)
+        with engine.begin() as conn:
             conn.execute(
                 text("INSERT INTO schema_migrations (version, applied_at) VALUES (:v, datetime('now'))"),
                 {"v": version},
             )
-            applied.append(version)
+        applied.append(version)
     if applied:
         logger.info("晨报库迁移完成: %s", applied)
     return applied

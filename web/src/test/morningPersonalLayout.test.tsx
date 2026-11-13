@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { MorningReportBody } from "../components/MorningReportBody";
 
-it("个人条目标题加粗放大，建议跨说明连续编号，非标题颜色为199灰色", () => {
+it("个人条目标题加粗放大，今日建议仅显示首条标题，昨日注解保留灰色", () => {
   const { container } = render(<MorningReportBody text={`**一、开篇速览**
 速览
 ## 二、重要资讯
@@ -25,8 +25,12 @@ it("个人条目标题加粗放大，建议跨说明连续编号，非标题颜�
   }
   const lists = container.querySelectorAll("[data-advice-list]");
   expect(lists).toHaveLength(1);
-  expect(lists[0].children).toHaveLength(2);
-  expect(screen.getByRole("heading", { name: "确认安排" })).toBeInTheDocument();
+  expect(lists[0].children).toHaveLength(1);
+  expect(screen.queryByRole("heading", { name: "确认安排" })).not.toBeInTheDocument();
+  expect(lists[0]).toHaveTextContent("推进方案");
+  expect(lists[0].textContent).toBe("推进方案");
   expect(screen.getByText("补充具体完成情况。").parentElement).toHaveClass("text-[#c7c7c7]");
-  expect(screen.getByText("说明安排的依据。").parentElement).toHaveClass("text-[#c7c7c7]");
+  expect(screen.queryByText("说明安排的依据。")).not.toBeInTheDocument();
+  expect(screen.queryByText(/依据：当前待办/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/下一步：检查方案/)).not.toBeInTheDocument();
 });

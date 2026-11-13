@@ -128,20 +128,19 @@ def display_yesterday(mr, version, sections: dict) -> dict:
 def personal_sections(personal: dict, goal: dict, advice: dict) -> tuple[str, str]:
     content = build_yesterday(personal, goal)
     yesterday = list(content["notices"])
-    for key, label in (("completed", "昨日完成"), ("goal_progress", "目标推进"),
-                       ("attention", "需要关注"), ("questions", "待确认"), ("additional", "更多分析")):
+    for key in ("completed", "goal_progress", "attention", "questions", "additional"):
         if content[key]:
-            yesterday.append("### " + label)
             for item in content[key]:
                 body = item["summary"]
                 if item["detail"] and item["detail"] != body:
                     body += "\n  " + item["detail"].replace("\n", "\n  ")
-                yesterday.append(f"- **{_title(item['title'])}**。{body}")
+                label = "事实完成" if key == "completed" and item["kind"] == "confirmed" else "AI分析"
+                yesterday.append(f"- **{_title(item['title'])}**（{label}）{body}")
     actions = []
     if advice.get("status") == "failed":
         actions.append("暂未生成可发布的建议：建议分析失败（" + _text(advice.get("error") or "未知错误") + "）。")
     else:
-        for item in advice.get("advices", [])[:3]:
+        for item in advice.get("advices", [])[:1]:
             if not isinstance(item, dict) or not item.get("content"): continue
             priority = _text(item.get("priority"))
             actions.append(f"{len(actions) + 1}. **{_title(item['content'])}**" + (f"（{priority}）" if priority else "") +

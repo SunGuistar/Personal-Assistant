@@ -165,6 +165,8 @@ GoalAnalysis 输出事实/分析/未知及证据 ID，ActionSuggest 输出个人
 
 2026-11-11 生成链路简化：历史检索与索引检查、修复、发布后向量更新已移除，不初始化 Qdrant 或 Embedding Provider。已有独立索引工具与向量数据仅保留兼容，不在生成中调用。进度移除 `index`，共 8 步；`snapshot` 仍显示“准备本轮数据”，保留新闻固定输入、snapshot_id 和部分个人事件证据。GoalAnalysis 与 ActionSuggest 只分析个人上下文，不输入新闻；新闻保留给正文组装、速览。历史报告查看和版本记录不受影响。
 
+2026-11-13 收藏新闻：`GET /api/morning/favorites` 汇总 `news_items.is_important=true` 的历次收藏，按 `content_hash` 去重（缺失时按 ID），每组展示最新采集记录。独立库追加迁移 v5 新建 `news_favorite_settings`，以确定性 `hash:<content_hash>` / `id:<id>` 唯一键保存备注 `note`、独立重点 `is_highlighted` 及创建/更新时间；红星优先，其余按新闻 ID 倒序。`PATCH /api/morning/favorites/{news_id}` 仅接受备注和严格布尔重点字段，拒绝修改标题、类型等其他字段。取消正文收藏后不再展示，但保留备注和重点数据；再次收藏恢复。备注不进入日志或模型输入。前端以同级标签及列表展示，复用红色重点星标视觉规范。
+
 晨报 LLM 输出契约：两个 Subagent 每轮模型请求必须启用 JSON mode（`response_format={"type":"json_object"}`），工具循环保留原生协议。最终结果严格解析为 JSON 对象，拒绝围栏、额外说明、非标准数值及重复键；目标分析、昨日回顾及建议均校验字段与证据。解析或模型能力错误显式报错或降级，不静默消费纯文本。正文由程序组装，不再存在主编模型的 content_md 输出契约。
 
 2026-11-12 调度与资讯降级：默认 schedule_hour=8、schedule_minute=30（Asia/Shanghai），内容窗口保持08:00—08:00。采集摘要保存 source_failures 和按类别映射的 category_errors；无资讯的正常来源失败统一为 degraded，而非 failed。生成将 news_errors 传入正文组装，确定性注入对应资讯小节；采集和资讯整理阶段标记 warning，并计入完成数。该降级不吞掉数据库错误、模型错误或用户取消。
@@ -177,7 +179,9 @@ GoalAnalysis 输出事实/分析/未知及证据 ID，ActionSuggest 输出个人
 
 2026-11-12 新闻结构化展示：新发布版本在 sections.news_content 保存 version=1 的新闻快照，含 categories（domestic/international/ai）、overview、errors；每条包含新闻 id、类别、原始标题/链接/摘要及 section_label。前端固定渲染新闻分区和卡片，按 id 关联实时 is_important，不再以模型 Markdown 栏目名、标题或链接作为主要关联依据；速览摘要直接显示，正文摘要默认折叠。旧版本报告查询可根据已保存 news_selection 的 ID 只读补齐该结构，不写回旧正文；无结构的 Markdown 保留兼容识别。正文存档和下载仍使用原 content_md，个人回顾/建议及信息说明保持原展示。该调整只扩展 JSON 字段，不迁移表结构、不新增模型或 Agent 调用。
 
-2026-11-12 个人回顾展示：正文组装不调用模型，发布时保存 `sections.yesterday_content`，按昨日完成、目标推进、需要关注分组；默认最多八条，其余记录、待确认项与重复完成事项的分析折叠保留。短标题与事实/分析/待确认标签分离，原始细节可展开。历史报告查询根据同轮个人快照只读补齐，不回写历史正文或数据库。
+2026-11-13 个人回顾展示：正文组装不调用模型，发布时保存 `sections.yesterday_content`；保留 version=1 的五组数据契约用于历史兼容，前端与新组装 Markdown 均不显示分组，所有条目平铺展示。标题、类型与灰色摘要从同一行开始，仅原始细节保留展开入口。completed 中的 confirmed 项显示“事实完成”，其余显示“AI分析”，不修改原始 kind 与不确定性文案。历史报告查询根据同轮个人快照只读补齐，不回写历史正文或数据库。
+
+2026-11-13 单条行动建议：ActionSuggest 系统和任务提示词均限制 advices 最多一个元素，无个人依据允许空数组；节点仅保留首条有效建议，额外有效候选计入 rejected_count，正文组装同样最多一条以兼容旧缓存。提示词版本更新使旧阶段缓存失效；JSON mode、证据校验及失败降级机制保持生效。现有报告的建议需重新生成或重新组装后更新。
 
 2026-11-12 个人回顾职责调整：GoalAnalysis 在原有分析 JSON 中新增必需的 yesterday_report，直接完成“我的昨日”的取舍、合并、分组、标题、摘要及细节。主编仅校验并原样装配，不再把任务清单与分析数组拼成新文案，也不新增模型调用。格式或证据非法显式降级；缺失最终回顾时提示原因，只保留已有完成事实。旧历史报告继续只读兼容，新提示词版本使目标分析缓存失效；新效果需重新生成。
 

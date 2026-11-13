@@ -14,10 +14,11 @@ def test_upgrade_old_database_preserves_news_and_defaults(tmp_path):
         conn.execute(text("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT)"))
         for version in (1, 2, 3):
             conn.execute(text("INSERT INTO schema_migrations (version) VALUES (:v)"), {"v": version})
-    assert db.run_migrations(engine) == [4]
+    assert db.run_migrations(engine) == [4, 5]
     assert db.run_migrations(engine) == []
     with engine.connect() as conn:
         assert conn.execute(text("SELECT title, is_important FROM news_items")).one() == ("old news", 0)
+        assert conn.execute(text("SELECT COUNT(*) FROM news_favorite_settings")).scalar_one() == 0
     engine.dispose()
 
 

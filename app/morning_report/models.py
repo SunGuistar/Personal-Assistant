@@ -73,6 +73,17 @@ class NewsItem(MRBase):
     raw_ref = Column(JSON)  # 来源原始字段（AIHOT item / 归档行），便于追溯
 
 
+class NewsFavoriteSetting(MRBase):
+    __tablename__ = "news_favorite_settings"
+
+    id = Column(Integer, primary_key=True)
+    news_key = Column(String(80), nullable=False, unique=True)
+    note = Column(Text, nullable=False, default="", server_default="")
+    is_highlighted = Column(Boolean, nullable=False, default=False, server_default="0")
+    created_at = Column(String(32), default=_ts)
+    updated_at = Column(String(32), default=_ts, onupdate=_ts)
+
+
 class EventGroup(MRBase):
     __tablename__ = "event_groups"
 

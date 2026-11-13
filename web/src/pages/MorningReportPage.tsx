@@ -13,10 +13,11 @@ import {
 } from "../api/morning";
 import { MorningTokenUsage } from "../components/MorningTokenUsage";
 import { StarredMorningReport } from "../components/StarredMorningReport";
+import { FavoriteMorningNews } from "../components/FavoriteMorningNews";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 
-type Tab = "report" | "history";
+type Tab = "report" | "history" | "favorites";
 
 export function MorningReportPage() {
   const [tab, setTab] = useState<Tab>("report");
@@ -88,7 +89,7 @@ export function MorningReportPage() {
         </header>
 
         <nav className="flex gap-1 border-b border-neutral-200 px-6 pt-2 dark:border-neutral-800">
-          {([["report", "晨报正文"], ["history", "历史晨报"]] as [Tab, string][]).map(
+          {([["report", "晨报正文"], ["history", "历史晨报"], ["favorites", "收藏新闻"]] as [Tab, string][]).map(
             ([key, label]) => (
               <button
                 key={key}
@@ -107,6 +108,7 @@ export function MorningReportPage() {
         </nav>
 
         <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {tab === "favorites" && <FavoriteMorningNews />}
           {tab === "report" && <ReportTab data={data} loading={report.isLoading} error={report.error} />}
           {tab === "history" && (
             <HistoryTab

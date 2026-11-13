@@ -194,6 +194,28 @@ export function useNewsImportance() {
           (updated.content_hash && item.content_hash === updated.content_hash)
           ? { ...item, is_important: updated.is_important } : item) } : old);
       void qc.invalidateQueries({ queryKey: ["morning", "report-news"] });
+      void qc.invalidateQueries({ queryKey: ["morning", "favorites"] });
     },
+  });
+}
+
+export interface FavoriteNews extends NewsReference {
+  summary: string | null;
+  note: string;
+  is_highlighted: boolean;
+}
+
+export const useFavoriteNews = () => useQuery({
+  queryKey: ["morning", "favorites"],
+  queryFn: () => api<{ items: FavoriteNews[] }>("/morning/favorites"),
+  refetchInterval: 20000,
+});
+
+export function useUpdateFavoriteNews() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...changes }: { id: number; note?: string; is_highlighted?: boolean }) =>
+      api<FavoriteNews>(`/morning/favorites/${id}`, { method: "PATCH", json: changes }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["morning", "favorites"] }); },
   });
 }

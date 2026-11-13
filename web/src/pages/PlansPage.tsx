@@ -29,6 +29,7 @@ import { ImportantInfosPanel } from "../components/rail/ImportantInfosPanel";
 import { DailyQuestionsPanel } from "../components/rail/DailyQuestionsPanel";
 import { MemosPanel } from "../components/rail/MemosPanel";
 import { CleanupBanner } from "./CleanupPage";
+import { MorningReportBanner } from "../components/MorningReportBanner";
 import {
   DailyTask,
   Plan,
@@ -79,6 +80,7 @@ export function PlansPage() {
 
   return (
     <div className="space-y-4">
+      <MorningReportBanner />
       <h1 className="text-xl font-semibold">计划管理</h1>
       <CleanupBanner />
       <DateBar date={date} onChange={setDate} />
