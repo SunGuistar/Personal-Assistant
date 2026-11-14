@@ -45,7 +45,6 @@ def trigger_generate(
 ) -> dict:
     """手动重新生成：默认复用缓存/局部重算；mode=full 完整重算。正式模型时段外将失败。"""
     from ..models import RunRecord
-    from ..services import report_service
 
     date = report_date or datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     run = RunRecord(run_date=date, kind="generate", status="pending")
@@ -54,6 +53,7 @@ def trigger_generate(
     settings = request.app.state.mr_settings
 
     def fn(session, run_id):
+        from ..services import report_service
         token = request.app.state.mr_runner.token_for(run_id)
         report_service.run_generate(
             session, run_id, settings, mode="auto" if mode == "auto" else "manual",

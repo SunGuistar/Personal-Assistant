@@ -21,8 +21,6 @@ def create_scheduler(settings, runner, mr_session_factory, hub_session_factory):
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
 
-    from ..services import report_service
-
     def daily_job() -> None:
         today = datetime.now(CST).date().isoformat()
         with mr_session_factory() as mr:
@@ -47,6 +45,7 @@ def create_scheduler(settings, runner, mr_session_factory, hub_session_factory):
 
     def _generate_fn(settings, hub_sf, mr_sf):
         def fn(mr, run_id):
+            from ..services import report_service
             token = runner.token_for(run_id)
             report_service.run_generate(
                 mr, run_id, settings, mode="auto",

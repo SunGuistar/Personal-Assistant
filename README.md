@@ -34,13 +34,17 @@ Docs/       规划与架构文档（见下）
 ## 启动与使用
 
 1. 安装依赖：Conda 环境 `agent`（Python 3.13，见 `requirements.txt`）；前端 `cd web && npm install && npm run build`
-2. 双击 `launcher/个人助手.bat`（或 `python launcher/launch.py`）→ 自动启动服务并打开浏览器
+2. 双击 `launcher/个人助手.bat`（或 `python launcher/launch.py`）→ 浏览器显示启动页 → 计划管理首页就绪后自动进入
 3. V2 默认访问 http://127.0.0.1:8621；启动、停止、重启统一读取 `launcher/launcher.ini` 的 `server.port`，更换端口只需修改该处
 4. 密钥：在 `~/.personal-hub/.env` 配置 `DASHSCOPE_API_KEY`（键名清单见 `.env.example`）
 
 开发模式：`uvicorn --factory app.main:create_app --reload`；微信 Agent 的命令行问答入口：`python -m app.wechat_agent.agent`。
 
-日常管理：双击 `launcher/停止个人助手.bat` 结束后端，双击 `launcher/重启个人助手.bat` 先停止再启动；关闭浏览器不会停止后端。也可运行 `python launcher/launch.py --action stop` 或 `--action restart`。操作失败会弹窗提示，详情见 `data/logs/launcher.log`。停止或重启会中断正在执行的任务。
+日常管理：双击 `launcher/停止个人助手.bat` 结束后端，双击 `launcher/重启个人助手.bat` 先停止再启动；关闭浏览器不会停止后端。也可运行 `python launcher/launch.py --action stop` 或 `--action restart`。操作失败会弹窗提示，详情见 `launcher/logs/launcher.log`。停止或重启会中断正在执行的任务。
+
+启动与重启会在 Python 启动器就绪后先打开浏览器启动页，显示当前阶段、阶段耗时及累计等待时间；计划管理首页就绪后，同一标签页自动进入首页。晨报、微信管理、阅读和 GitHub 在后台初始化；导航切换到尚未就绪的模块时显示“加载中”，就绪后自动展示内容，失败则显示明确提示。首页中的晨报和清理提醒也会等对应模块就绪后再查询。关闭启动页不会停止后端，临时启动页服务在结果送达或超时后退出。
+
+`launcher/logs/launcher.log` 保存启动器流程，`startup-*.jsonl` 保存各次后端阶段记录（含后台模块），`uvicorn.log` 保存后端进程输出。总耗时包含进入 Python 前的启动脚本/Conda 引导估算（秒精度），首页计时终点为健康检查通过，不包含浏览器页面渲染；其他阶段使用单调时钟，父阶段含子阶段，不可相加。命令行 `--no-browser` 不打开启动页，`--progress` 可额外显示原诊断窗口。
 
 停止前会核验监听进程的应用入口及工作区路径，拒绝停止其他工作区或无法核验的进程。升级前启动的旧进程没有工作区标识，需要手动停止一次，之后通过上述入口启动即可使用一键停止/重启。
 

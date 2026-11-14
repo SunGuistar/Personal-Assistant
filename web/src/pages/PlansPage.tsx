@@ -30,6 +30,7 @@ import { DailyQuestionsPanel } from "../components/rail/DailyQuestionsPanel";
 import { MemosPanel } from "../components/rail/MemosPanel";
 import { CleanupBanner } from "./CleanupPage";
 import { MorningReportBanner } from "../components/MorningReportBanner";
+import { ModuleGate } from "../components/ModuleGate";
 import {
   DailyTask,
   Plan,
@@ -80,9 +81,9 @@ export function PlansPage() {
 
   return (
     <div className="space-y-4">
-      <MorningReportBanner />
+      <ModuleGate module="morning" quiet><MorningReportBanner /></ModuleGate>
       <h1 className="text-xl font-semibold">计划管理</h1>
-      <CleanupBanner />
+      <ModuleGate module="wechat" quiet><CleanupBanner /></ModuleGate>
       <DateBar date={date} onChange={setDate} />
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="grid gap-4 self-start xl:grid-cols-2 lg:col-span-2">

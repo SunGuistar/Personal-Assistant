@@ -1,6 +1,7 @@
 __pycache__
 .env
 *.html
+!launcher/startup.html
 wechat-chat-summary
 Output
 GetWechatInfo/VectorStore/
@@ -16,3 +17,6 @@ app/static/
 *.sqlite3-wal
 .pytest_cache/
 *.tsbuildinfo
+
+# Launcher runtime diagnostics
+launcher/logs/

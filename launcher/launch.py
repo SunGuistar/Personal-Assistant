@@ -1,7 +1,8 @@
 """个人助手 Windows 启动器（ARCH §3.5）。
 
-流程：读取 launcher.ini → 健康检查 → 已运行则直接开浏览器；
-未运行则拉起 uvicorn → 轮询就绪（默认 120s 超时）→ 打开默认浏览器首页。
+流程：读取 launcher.ini → 打开浏览器启动页 → 健康检查；
+未运行则拉起 uvicorn → 轮询首页就绪（默认 120s 超时）→ 启动页自动进入首页。
+非首页模块由后端继续初始化，前端按模块状态显示加载中。
 
 解释器解析顺序（统一使用 Conda `agent` 环境，不依赖项目 .venv）：
 1. 环境变量 PH_HUB_PYTHON 显式指定的解释器；
@@ -20,8 +21,10 @@ from __future__ import annotations
 
 import argparse
 import configparser
-import contextlib
+from datetime import datetime
 import logging
+from logging.handlers import TimedRotatingFileHandler
+import json
 import os
 import shutil
 import subprocess
@@ -29,6 +32,7 @@ import sys
 import time
 import urllib.request
 import webbrowser
+import uuid
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -72,6 +76,15 @@ CONDA_BAT_CANDIDATES = [
 
 class InterpreterNotFound(RuntimeError):
     pass
+
+
+def bootstrap_seconds() -> float:
+    """VBS 进入 Python 前的耗时（墙钟、秒精度）；其余阶段用单调时钟。"""
+    value = os.environ.get("PH_LAUNCH_BOOTSTRAP_AT", "")
+    try:
+        return max(0.0, (datetime.now() - datetime.fromisoformat(value)).total_seconds())
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def service_ready(url: str, timeout: float = 2.0) -> bool:
@@ -140,36 +153,85 @@ def resolve_python_cmd() -> list[str] | str:
 def start_service(log_dir: Path, command) -> subprocess.Popen:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = open(log_dir / "uvicorn.log", "a", encoding="utf-8")
-    process = subprocess.Popen(
-        command,
-        cwd=str(ROOT_DIR),
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        shell=isinstance(command, str),  # conda 形态为完整命令字符串
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(ROOT_DIR),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            shell=isinstance(command, str),  # conda 形态为完整命令字符串
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    finally:
+        log_file.close()
     return process
 
 
+def read_startup_events(trace: Path, offset: int) -> int:
+    """逐行读取当前启动专用文件；未写完的行留待下次读取。"""
+    if not trace.exists():
+        return offset
+    with trace.open("rb") as source:
+        source.seek(offset)
+        while line := source.readline():
+            if not line.endswith(b"\n"):
+                break
+            offset = source.tell()
+            try:
+                event = json.loads(line)
+                state = {"running": "进行中", "success": "完成", "failed": "失败"}[event["status"]]
+                logger.info("后端 · %s · %s · 阶段 %.2fs", event["stage"], state, event["duration_s"])
+            except (ValueError, KeyError, TypeError):
+                logger.warning("启动诊断记录格式错误")
+    return offset
+
+
 def ensure_service() -> None:
+    started = time.monotonic()
+    logger.info("开始启动检查 · 健康检查进行中")
     if service_ready(HEALTH_URL):
-        print("服务已在运行。")
+        logger.info("服务已在运行 · 启动总耗时 %.2fs（复用现有服务）", time.monotonic() - started)
         return
 
-    print("服务未运行，正在启动…")
+    logger.info("健康检查完成 · 阶段 %.2fs", time.monotonic() - started)
+    phase = time.monotonic()
+    logger.info("解释器检测 · 进行中（Conda 检测最多等待 180s）")
     python_cmd = resolve_python_cmd()
-    process = start_service(ROOT_DIR / "data" / "logs", python_cmd)
-    deadline = time.monotonic() + READY_TIMEOUT_SECONDS
+    logger.info("解释器检测 · 完成 · 阶段 %.2fs", time.monotonic() - phase)
+    log_dir = ROOT_DIR / "launcher" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    trace = log_dir / f"startup-{uuid.uuid4().hex}.jsonl"
+    previous = os.environ.get("PH_STARTUP_TRACE")
+    os.environ["PH_STARTUP_TRACE"] = str(trace)
+    phase = time.monotonic()
+    try:
+        logger.info("启动后端进程 · 进行中")
+        process = start_service(log_dir, python_cmd)
+    finally:
+        if previous is None:
+            os.environ.pop("PH_STARTUP_TRACE", None)
+        else:
+            os.environ["PH_STARTUP_TRACE"] = previous
+    logger.info("启动后端进程 · 完成 · 阶段 %.2fs", time.monotonic() - phase)
+    waiting = time.monotonic()
+    deadline = waiting + READY_TIMEOUT_SECONDS
+    next_update = waiting
+    offset = 0
     while time.monotonic() < deadline:
+        offset = read_startup_events(trace, offset)
         if process.poll() is not None:
             raise RuntimeError(
-                f"服务进程提前退出（code={process.returncode}），请查看 data/logs/uvicorn.log"
+                f"服务进程提前退出（code={process.returncode}），请查看 launcher/logs/uvicorn.log"
             )
         if service_ready(HEALTH_URL):
-            print("服务已就绪。")
+            read_startup_events(trace, offset)
+            logger.info("服务已就绪 · 等待后端 %.2fs · 启动总耗时 %.2fs", time.monotonic() - waiting, time.monotonic() - started)
             return
+        if time.monotonic() >= next_update:
+            logger.info("等待后端就绪 · 已等待 %.1fs · 累计 %.1fs", time.monotonic() - waiting, time.monotonic() - started)
+            next_update = time.monotonic() + 5
         time.sleep(POLL_INTERVAL)
-    raise TimeoutError(f"服务 {READY_TIMEOUT_SECONDS:.0f}s 内未就绪，请查看 data/logs/uvicorn.log")
+    raise TimeoutError(f"服务 {READY_TIMEOUT_SECONDS:.0f}s 内未就绪，请查看 launcher/logs/uvicorn.log")
 
 
 def stop_service() -> None:
@@ -190,31 +252,68 @@ def main() -> int:
     global PORT, HOME_URL, HEALTH_URL
     parser = argparse.ArgumentParser(description="个人助手启动器")
     parser.add_argument("--no-browser", action="store_true", help="只启动服务，不打开浏览器")
+    parser.add_argument("--progress", action="store_true", help="显示启动进度与耗时窗口")
     parser.add_argument("--action", choices=("start", "stop", "restart"), default="start")
     args = parser.parse_args()
+    phase = time.monotonic()
+    bootstrap = bootstrap_seconds()
+    started = phase - bootstrap
+    if bootstrap:
+        logger.info("启动脚本 / Conda 引导 · 完成 · 阶段约 %.2fs（进入 Python 前，秒精度）", bootstrap)
     PORT = read_port(CONFIG_PATH)
+    logger.info("读取启动配置 · 完成 · 阶段 %.2fs", time.monotonic() - phase)
     HOME_URL = f"http://127.0.0.1:{PORT}/"
     HEALTH_URL = f"{HOME_URL}api/health"
 
-    if args.action in ("stop", "restart"):
-        stop_service()
     if args.action == "stop":
+        stop_service()
         return 0
-    ensure_service()
+    page = None
     if not args.no_browser:
-        webbrowser.open(HOME_URL)
-        print(f"已在默认浏览器打开 {HOME_URL}")
+        if __package__:
+            from .startup_page import StartupPage
+        else:
+            from startup_page import StartupPage
+        page = StartupPage(logger, HOME_URL, initial_elapsed=bootstrap_seconds())
+        try:
+            webbrowser.open(page.url)
+        except Exception:
+            page.close()
+            raise
+        logger.info("浏览器启动页已打开，首页就绪后自动进入")
+    try:
+        if args.action == "restart":
+            phase = time.monotonic()
+            logger.info("停止当前工作区服务 · 进行中")
+            stop_service()
+            logger.info("停止当前工作区服务 · 完成 · 阶段 %.2fs", time.monotonic() - phase)
+        ensure_service()
+    except Exception as exc:
+        if page:
+            page.finish(error=f"启动失败（{type(exc).__name__}），请查看 launcher/logs/launcher.log 后重试。")
+        raise
+    logger.info("首页启动完成 · 总耗时 %.2fs · 其他模块继续后台初始化", time.monotonic() - started)
+    if page:
+        page.finish()
     return 0
 
 
 if __name__ == "__main__":
-    log_dir = ROOT_DIR / "data" / "logs"
+    log_dir = ROOT_DIR / "launcher" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=log_dir / "launcher.log", encoding="utf-8", level=logging.INFO)
-    with open(log_dir / "launcher.log", "a", encoding="utf-8") as output:
-        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
-            try:
-                raise SystemExit(main())
-            except (RuntimeError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
-                logger.error("启动器操作失败: %s", exc)
-                raise SystemExit(1)
+    handler = TimedRotatingFileHandler(log_dir / "launcher.log", when="midnight", backupCount=7, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.basicConfig(handlers=[handler, logging.StreamHandler()], level=logging.INFO)
+
+    def run():
+        started = time.monotonic() - bootstrap_seconds()
+        try:
+            return main()
+        except (RuntimeError, TimeoutError, OSError, subprocess.SubprocessError) as exc:
+            logger.error("启动器操作失败 · 总耗时 %.2fs · %s", time.monotonic() - started, exc)
+            return 1
+
+    if "--progress" in sys.argv:
+        from progress_window import run_with_progress
+        raise SystemExit(run_with_progress(run, initial_elapsed=bootstrap_seconds()))
+    raise SystemExit(run())

@@ -3,6 +3,7 @@ import { KnowledgePage } from "./pages/KnowledgePage";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "./components/layout/AppLayout";
+import { ModuleGate, StartupProvider } from "./components/ModuleGate";
 import {
   GithubPage,
   MorningReportPage,
@@ -14,18 +15,18 @@ import {
 /** 路由表（不自带 Router，便于测试用 MemoryRouter 包裹）。计划管理为默认入口。 */
 export function AppRoutes() {
   return (
-    <Routes>
+    <StartupProvider><Routes>
       <Route path="/" element={<PlansPage />} />
       <Route path="/knowledge" element={<KnowledgePage />} />
-      <Route path="/morning" element={<MorningReportPage />} />
-      <Route path="/wechat" element={<WechatManagementPage />} />
+      <Route path="/morning" element={<ModuleGate module="morning"><MorningReportPage /></ModuleGate>} />
+      <Route path="/wechat" element={<ModuleGate module="wechat"><WechatManagementPage /></ModuleGate>} />
       <Route path="/plans" element={<PlansPage />} />
-      <Route path="/github" element={<GithubPage />} />
-      <Route path="/reading" element={<ReadingPage />} />
-      <Route path="/cleanup" element={<WechatManagementPage cleanup />} />
+      <Route path="/github" element={<ModuleGate module="github"><GithubPage /></ModuleGate>} />
+      <Route path="/reading" element={<ModuleGate module="reading"><ReadingPage /></ModuleGate>} />
+      <Route path="/cleanup" element={<ModuleGate module="wechat"><WechatManagementPage cleanup /></ModuleGate>} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<div className="text-sm text-neutral-500">页面不存在</div>} />
-    </Routes>
+    </Routes></StartupProvider>
   );
 }
 

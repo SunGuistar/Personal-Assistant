@@ -94,8 +94,10 @@ def client(app_settings):
 
     from app.main import create_app
 
-    app = create_app(app_settings)
+    app = create_app(app_settings, defer_modules=False)
     with TestClient(app) as test_client:
+        startup = app.state.module_startup.snapshot()
+        assert all(item["status"] == "ready" for item in startup["modules"].values()), startup
         yield test_client
     app.state.engine.dispose()
 
@@ -109,8 +111,10 @@ def fclient(tmp_path):
 
     settings = Settings(data_dir=tmp_path / "data", static_dir=ROOT_DIR / "web" / "dist")
     _run_alembic_upgrade(settings.db_url)
-    app = create_app(settings)
+    app = create_app(settings, defer_modules=False)
     with TestClient(app) as test_client:
+        startup = app.state.module_startup.snapshot()
+        assert all(item["status"] == "ready" for item in startup["modules"].values()), startup
         yield test_client
     app.state.engine.dispose()
 

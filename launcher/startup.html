@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>个人助手 · 正在启动</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f6f7f9;color:#17212d;font:15px/1.7 "Microsoft YaHei UI",sans-serif}
+    main{max-width:880px;margin:8vh auto;padding:36px;background:white;border:1px solid #e3e7eb;border-radius:20px;box-shadow:0 14px 48px #14203108}
+    .brand{color:#697786;font-size:13px;letter-spacing:2px}h1{font-size:28px;margin:18px 0 8px}p{color:#697786;margin:0 0 24px}
+    .bar{height:4px;overflow:hidden;border-radius:4px;background:#edf0f4;margin:26px 0}.bar:after{content:"";display:block;width:28%;height:100%;background:#4777db;animation:slide 1.6s infinite ease-in-out}
+    @keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(460%)}}pre{font:13px/1.9 Consolas,"Microsoft YaHei UI",monospace;white-space:pre-wrap;max-height:42vh;overflow:auto;background:#f8fafc;border:1px solid #edf0f4;padding:20px;border-radius:10px}
+    footer{font-size:12px;color:#8793a0;margin-top:18px}.failed .bar:after{animation:none;background:#c45454;width:100%}
+  </style>
+</head>
+<body><main>
+  <div class="brand">PERSONAL ASSISTANT / 个人助手</div>
+  <h1 id="title">正在准备你的工作台</h1>
+  <p id="description">计划管理首页准备就绪后将自动进入，其余模块会在后台继续加载。</p>
+  <div class="bar" aria-hidden="true"></div>
+  <div role="status" id="elapsed">正在连接启动器…</div>
+  <pre id="logs" aria-label="启动阶段记录">等待启动进度…</pre>
+  <footer>启动诊断保存在 launcher/logs/。关闭此页面不会停止启动或后端服务。</footer>
+</main>
+<script>
+  const begun = Date.now();
+  const elapsed = document.getElementById('elapsed'), logs = document.getElementById('logs');
+  let failures = 0;
+  async function poll() {
+    try {
+      const response = await fetch('/api' + location.pathname, {cache:'no-store'});
+      if (!response.ok) throw new Error('status');
+      const data = await response.json(); failures = 0;
+      elapsed.textContent = '已用 ' + data.elapsed_s.toFixed(1) + ' 秒';
+      logs.textContent = data.messages.join('\n') || '正在启动…'; logs.scrollTop = logs.scrollHeight;
+      if (data.status === 'ready') {
+        const target = new URL(data.home_url);
+        if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') throw new Error('target');
+        document.getElementById('title').textContent = '首页已就绪';
+        location.replace(target.href); return;
+      }
+      if (data.status === 'failed') {
+        document.body.classList.add('failed'); document.getElementById('title').textContent = '启动未完成';
+        document.getElementById('description').textContent = data.error; return;
+      }
+    } catch {
+      failures++;
+      elapsed.textContent = '正在重新连接启动器 · 已用 ' + ((Date.now()-begun)/1000).toFixed(1) + ' 秒';
+      if (failures >= 20) {
+        document.body.classList.add('failed'); document.getElementById('title').textContent = '启动器连接中断';
+        document.getElementById('description').textContent = '请查看 launcher/logs/launcher.log，或重新运行启动器。'; return;
+      }
+    }
+    setTimeout(poll, 500);
+  }
+  poll();
+</script></body></html>

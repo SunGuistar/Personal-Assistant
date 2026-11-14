@@ -1,31 +1,15 @@
-"""API 路由聚合。"""
-
-from __future__ import annotations
-
+"""首页 API 装配；非首页模块在后台独立加载。"""
 from fastapi import APIRouter
 
-from .cleanup import router as cleanup_router
-from .github import router as github_router
-from .daily_questions import router as daily_questions_router
-from .health import router as health_router
-from .infos import infos_router, memos_router
-from .jobs import router as jobs_router
-from .plans import router as plans_router
-from .reading import notes_router, router as reading_router
-from .tasks import router as tasks_router
-from .wechat import router as wechat_router
 
-api_router = APIRouter(prefix="/api")
-api_router.include_router(health_router)
-api_router.include_router(plans_router)
-api_router.include_router(tasks_router)
-api_router.include_router(jobs_router)
-api_router.include_router(reading_router)
-api_router.include_router(notes_router)
-api_router.include_router(wechat_router)
-api_router.include_router(cleanup_router)
-api_router.include_router(infos_router)
-api_router.include_router(memos_router)
-api_router.include_router(github_router)
-
-api_router.include_router(daily_questions_router)
+def build_home_router():
+    from .health import router as health
+    from .plans import router as plans
+    from .tasks import router as tasks
+    from .jobs import router as jobs
+    from .infos import infos_router, memos_router
+    from .daily_questions import router as questions
+    router = APIRouter(prefix="/api")
+    for item in (health, plans, tasks, jobs, infos_router, memos_router, questions):
+        router.include_router(item)
+    return router

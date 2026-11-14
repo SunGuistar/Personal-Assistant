@@ -7,6 +7,9 @@ Option Explicit
 Dim shell, fso, launcher, rootDir, condaBat, cmd, action, exitCode
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
+Dim bootAt
+bootAt = Now
+shell.Environment("PROCESS")("PH_LAUNCH_BOOTSTRAP_AT") = Year(bootAt) & "-" & Right("0" & Month(bootAt), 2) & "-" & Right("0" & Day(bootAt), 2) & "T" & Right("0" & Hour(bootAt), 2) & ":" & Right("0" & Minute(bootAt), 2) & ":" & Right("0" & Second(bootAt), 2)
 rootDir = fso.GetAbsolutePathName(fso.BuildPath(fso.GetParentFolderName(WScript.ScriptFullName), ".."))
 launcher = fso.GetAbsolutePathName(fso.BuildPath(fso.GetParentFolderName(WScript.ScriptFullName), "launch.py"))
 action = "start"
@@ -50,5 +53,5 @@ If WScript.Arguments.Named.Exists("check") Then
 End If
 exitCode = shell.Run(cmd, 0, True)
 If exitCode <> 0 Then
-    MsgBox "Action failed. See data\logs\launcher.log for details.", 16, "Personal Assistant"
+    MsgBox "Action failed. See launcher\logs\launcher.log for details.", 16, "Personal Assistant"
 End If

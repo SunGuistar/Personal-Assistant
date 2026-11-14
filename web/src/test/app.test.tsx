@@ -12,6 +12,8 @@ function stubGlobalFetch() {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === "/api/startup") return new Response(JSON.stringify({ home_ready: true,
+        modules: Object.fromEntries(["morning", "wechat", "reading", "github"].map(name => [name, { status: "ready" }])) }), { status: 200 });
       if (url.includes("/api/tasks/daily")) return new Response(JSON.stringify([]), { status: 200 });
       if (url === "/api/plans") return new Response(JSON.stringify([]), { status: 200 });
       if (url === "/api/infos") return new Response(JSON.stringify([]), { status: 200 });

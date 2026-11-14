@@ -87,7 +87,13 @@ Docs/                 # 本文档等
 
 ### 3.6 启动器
 
-`launcher/launch.py`：请求 `/api/health` 通则直接开浏览器；否则启动 uvicorn（隐藏窗口 .vbs）→ 轮询健康检查（超时 120s 报错，兼容 Windows 登录后的冷启动）→ 打开浏览器。默认端口 8620（避开 WeChatDataAnalysis 的 10392）。`.bat/.vbs/.ini` 文件必须纯 ASCII（AGENTS §5）。
+`launcher/launch.py` 在检查/启动后端前打开浏览器启动页。`launcher/startup_page.py` 使用标准库 HTTP 服务，绑定 127.0.0.1 临时端口及随机访问路径，仅提供启动进度。页面轮询启动状态，`/api/health` 成功后在同一标签页自动进入 `/`；失败则显示错误。临时服务在结果送达或超时后退出，不作为常驻服务。`--no-browser` 不打开启动页，`--progress` 可额外显示 Tk 诊断窗口。
+
+后端首先装配首页接口（计划、每日任务、重要信息、备忘、每日一问、后台任务查询及健康检查），主库中断任务恢复及旧备忘迁移完成后才允许首页就绪。其他模块（晨报、微信管理/清理、阅读、GitHub）在进程内工作线程上使用独立路由容器装配；模块 startup 生命周期完成后，在主事件循环中发布路由，始终位于 SPA 兜底之前。关闭时等待初始化结束，退出模块生命周期后释放主库连接。晨报先恢复中断任务，再启动调度器；生成依赖在实际生成任务内导入。
+
+`GET /api/startup` 返回 `home_ready`、各模块的 `loading/ready/failed`、耗时及非敏感错误摘要。未就绪模块的 API 返回 HTTP 503，错误码为 `module_loading` 或 `module_failed`，不落入 SPA HTML 兜底。前端轮询就绪状态，模块页面显示加载状态，首页跨模块提醒等待对应模块就绪后挂载。单模块失败不影响首页，既有业务 API 路径与 Schema 保持兼容。
+
+启动诊断保存在 `launcher/logs/`：launcher.log（按天滚动）、uvicorn.log 和每次启动独立的 startup-*.jsonl。进入 Python 前的 VBS/Conda 引导使用墙钟估算（秒精度），其余阶段使用单调时钟。首页总耗时不含浏览器渲染，后台模块耗时单独记录，父阶段包含子阶段。阶段记录仅含阶段名、状态、耗时及异常类型。默认后端端口为 8620，Windows BAT/VBS/INI 保持纯 ASCII。
 
 ## 4. API 与接口约定
 
