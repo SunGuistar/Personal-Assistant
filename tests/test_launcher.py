@@ -7,6 +7,33 @@ import pytest
 from launcher import launch
 
 
+def test_cold_start_waits_past_thirty_seconds(monkeypatch, tmp_path):
+    elapsed = [0.0]
+    process = type("RunningProcess", (), {"poll": lambda self: None})()
+    monkeypatch.setattr(launch, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(launch.time, "monotonic", lambda: elapsed[0])
+    monkeypatch.setattr(launch.time, "sleep", lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds))
+    monkeypatch.setattr(launch, "service_ready", lambda url: elapsed[0] >= 45)
+    monkeypatch.setattr(launch, "resolve_python_cmd", lambda: ["fake-python"])
+    monkeypatch.setattr(launch, "start_service", lambda *args: process)
+    launch.ensure_service()
+    assert elapsed[0] == 45
+
+
+def test_startup_timeout_remains_bounded(monkeypatch, tmp_path):
+    elapsed = [0.0]
+    process = type("RunningProcess", (), {"poll": lambda self: None})()
+    monkeypatch.setattr(launch, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(launch.time, "monotonic", lambda: elapsed[0])
+    monkeypatch.setattr(launch.time, "sleep", lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds))
+    monkeypatch.setattr(launch, "service_ready", lambda url: False)
+    monkeypatch.setattr(launch, "resolve_python_cmd", lambda: ["fake-python"])
+    monkeypatch.setattr(launch, "start_service", lambda *args: process)
+    with pytest.raises(TimeoutError, match="uvicorn.log"):
+        launch.ensure_service()
+    assert elapsed[0] == launch.READY_TIMEOUT_SECONDS
+
+
 def test_port_config_and_command_share_one_value(tmp_path, monkeypatch):
     config = tmp_path / "launcher.ini"
     config.write_text("[server]\nport = 18620\n", encoding="ascii")

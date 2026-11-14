@@ -16,7 +16,18 @@ class DailyQuestionOut(DailyQuestionIn):
     model_config = ConfigDict(from_attributes=True)
     review_level: int
     review_count: int
+    remembered_count: int
+    forgotten_count: int
     due_at: str | None
     id: int
     created_at: str
     updated_at: str
+
+
+class DailyQuestionRoundOut(BaseModel):
+    review_date: str
+    version: int
+    total: int
+    completed: int
+    queue: list[DailyQuestionOut]
+    has_questions: bool

@@ -11,7 +11,7 @@ from .cleanup import (
     CleanupReview,
 )
 from .important_info import ImportantInfo
-from .daily_question import DailyQuestion
+from .daily_question import DailyQuestion, DailyQuestionRound
 from .memo import Memo
 from .plan import DailyTask, LongTermPlan
 from .reading import Book, BookNote
@@ -30,6 +30,7 @@ __all__ = [
     "CleanupReview",
     "DailyTask",
     "DailyQuestion",
+    "DailyQuestionRound",
     "GithubCommit",
     "GithubIssue",
     "GithubPullRequest",

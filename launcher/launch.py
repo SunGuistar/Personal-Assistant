@@ -1,7 +1,7 @@
 """个人助手 Windows 启动器（ARCH §3.5）。
 
 流程：读取 launcher.ini → 健康检查 → 已运行则直接开浏览器；
-未运行则拉起 uvicorn → 轮询就绪（默认 30s 超时）→ 打开默认浏览器首页。
+未运行则拉起 uvicorn → 轮询就绪（默认 120s 超时）→ 打开默认浏览器首页。
 
 解释器解析顺序（统一使用 Conda `agent` 环境，不依赖项目 .venv）：
 1. 环境变量 PH_HUB_PYTHON 显式指定的解释器；
@@ -53,7 +53,8 @@ PORT = 0
 HOME_URL = ""
 HEALTH_URL = ""
 logger = logging.getLogger(__name__)
-READY_TIMEOUT_SECONDS = 30.0
+# Windows 登录后磁盘与 CPU 繁忙，冷启动可能超过 30 秒。
+READY_TIMEOUT_SECONDS = 120.0
 POLL_INTERVAL = 0.5
 AGENT_ENV_NAME = "agent"
 

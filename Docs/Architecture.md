@@ -87,7 +87,7 @@ Docs/                 # 本文档等
 
 ### 3.6 启动器
 
-`launcher/launch.py`：请求 `/api/health` 通则直接开浏览器；否则启动 uvicorn（隐藏窗口 .vbs）→ 轮询健康检查（超时 30s 报错）→ 打开浏览器。默认端口 8620（避开 WeChatDataAnalysis 的 10392）。`.bat/.vbs/.ini` 文件必须纯 ASCII（AGENTS §5）。
+`launcher/launch.py`：请求 `/api/health` 通则直接开浏览器；否则启动 uvicorn（隐藏窗口 .vbs）→ 轮询健康检查（超时 120s 报错，兼容 Windows 登录后的冷启动）→ 打开浏览器。默认端口 8620（避开 WeChatDataAnalysis 的 10392）。`.bat/.vbs/.ini` 文件必须纯 ASCII（AGENTS §5）。
 
 ## 4. API 与接口约定
 
@@ -125,7 +125,7 @@ Docs/                 # 本文档等
 
 ### 每日一问
 
-计划管理通过 `/api/daily_questions`（GET/POST）及 `/api/daily_questions/{id}`（PUT）访问独立 Service；`daily_questions` 表保存 id、question、answer、created_at、updated_at，Schema 通过 Alembic 新增迁移维护。前端独立 DailyQuestionsPanel 放在随手备忘下方，答案在点击问题后展示。现有备忘及计划接口保持兼容。
+计划管理 DailyQuestionsPanel 位于随手备忘下方，通过 GET `/api/daily_questions/today` 获取北京时间当天固定题单，POST `/api/daily_questions/today/review` 提交日期、版本、队首题目及反馈。独立 rounds Service 使用 Alembic 管理的 `daily_question_rounds` 表，按 review_date 唯一，保存题目 ID 队列（queue_json）、total、completed、version 和时间戳，不复制问答正文。首次访问按到期时间及 ID 排序建单，空题单也保存；刷新/重启读回数据库，下一自然日建立新题单，历史题单不自动删除。日期/队首/版本检查与条件更新防止过期或重复提交；队列、进度、反馈次数及学习阶段在同一事务提交，失败回滚。前端每 30 秒及窗口聚焦时重新获取题单，跨天退出额外练习；跨天旧提交返回 409 并重新取题。额外练习复用原复习接口，只维护页面内队列，不重置当日进度。CRUD 和知识库复习接口保持兼容。
 
 
 ## 9. 晨报资讯候选采集（2026-11-11 更新）
@@ -189,4 +189,7 @@ GoalAnalysis 输出事实/分析/未知及证据 ID，ActionSuggest 输出个人
 
 
 ### 知识库复习
-复用daily_questions表和原CRUD接口，Alembic增加tags、review_level、review_count、due_at；旧条目默认为新题。POST /api/daily_questions/{id}/review记录反馈，服务层按北京时间生成ISO8601复习时间。前端/knowledge与每日一问共享查询缓存，题目按到期优先、新题其次排列，本轮ID集合用于去重，刷新重新请求数据。正文变化清空到期时间及阶段，保留练习次数。
+复用daily_questions表和原CRUD接口，Alembic增加tags、review_level、review_count、due_at、remembered_count、forgotten_count；旧条目默认为新题。POST /api/daily_questions/{id}/review记录反馈，服务层按北京时间生成ISO8601复习时间。前端/knowledge使用题库查询缓存，题目按到期优先、新题其次排列，本轮ID集合用于去重，刷新重新请求数据；每日一问使用独立持久化题单查询，反馈后刷新题库缓存。分类反馈次数仅在全部问答展示，旧总次数保留，分类计数从新增字段后开始。正文变化清空到期时间及阶段，保留练习次数。
+
+
+知识库今日复习与侧栏每日一问统一使用 `QuestionPractice` 组件及 `daily_question_round` 查询缓存，通过 `/daily_questions/today` 和 `/today/review` 读写同一持久化题单；页面差异仅为容器尺寸与入口标题。额外练习仍在各页面本地保存，独立于每日完成进度。

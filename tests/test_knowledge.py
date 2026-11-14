@@ -2,9 +2,31 @@
 from datetime import datetime, timezone
 
 
+def test_feedback_migration_preserves_legacy_counts(tmp_path, monkeypatch):
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine, text
+
+    url = f"sqlite:///{(tmp_path / 'legacy.db').as_posix()}"
+    monkeypatch.setenv("PH_DATABASE_URL", url)
+    config = Config("alembic.ini")
+    command.upgrade(config, "222989684fbc")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO daily_questions (question, answer, review_count, created_at, updated_at) VALUES ('q', 'a', 9, '2026-11-14', '2026-11-14')"))
+        command.upgrade(config, "head")
+        with engine.connect() as connection:
+            row = connection.execute(text("SELECT review_count, remembered_count, forgotten_count FROM daily_questions")).one()
+            assert tuple(row) == (9, 0, 0)
+    finally:
+        engine.dispose()
+
+
 def test_review_schedule_and_edit_reset(fclient):
     q = fclient.post("/api/daily_questions", json={"question": "如何回忆", "answer": "先想再看", "tags": "记忆"}).json()
     assert q["review_count"] == 0 and q["due_at"] is None
+    assert q["remembered_count"] == 0 and q["forgotten_count"] == 0
     for expected_days in (1, 3, 7, 14, 30, 30):
         r = fclient.post(f"/api/daily_questions/{q['id']}/review", json={"remembered": True})
         assert r.status_code == 200
@@ -13,14 +35,20 @@ def test_review_schedule_and_edit_reset(fclient):
         assert expected_days - .01 < days <= expected_days
     q = fclient.post(f"/api/daily_questions/{q['id']}/review", json={"remembered": False}).json()
     assert q["review_level"] == 0 and q["review_count"] == 7
+    assert q["remembered_count"] == 6 and q["forgotten_count"] == 1
     seconds = (datetime.fromisoformat(q["due_at"]) - datetime.now(timezone.utc)).total_seconds()
     assert 590 < seconds <= 600
     q = fclient.put(f"/api/daily_questions/{q['id']}", json={"question": "改问题", "answer": "新答案", "tags": "新标签"}).json()
     assert q["due_at"] is None and q["review_level"] == 0
     assert q["review_count"] == 7 and q["tags"] == "新标签"
+    assert q["remembered_count"] == 6 and q["forgotten_count"] == 1
     assert fclient.get("/api/daily_questions").json()[0] == q
 
 
 def test_review_invalid_and_missing(fclient):
+    q = fclient.post("/api/daily_questions", json={"question": "问", "answer": "答"}).json()
+    assert fclient.post(f"/api/daily_questions/{q['id']}/review", json={"remembered": "false"}).status_code == 422
+    unchanged = fclient.get("/api/daily_questions").json()[0]
+    assert unchanged["remembered_count"] == unchanged["forgotten_count"] == unchanged["review_count"] == 0
     assert fclient.post("/api/daily_questions/999/review", json={"remembered": True}).status_code == 404
     assert fclient.post("/api/daily_questions/999/review", json={"remembered": "false"}).status_code == 422

@@ -34,7 +34,7 @@ def update_question(session: Session, question_id: int, question: str, answer: s
 
 
 
-def review_question(session: Session, question_id: int, remembered: bool):
+def review_question(session: Session, question_id: int, remembered: bool, *, commit: bool = True):
     from datetime import datetime, timedelta, timezone
     item = session.get(DailyQuestion, question_id)
     if item is None:
@@ -44,7 +44,12 @@ def review_question(session: Session, question_id: int, remembered: bool):
     level = min(max(item.review_level, 0), len(intervals) - 1)
     item.due_at = (now + (timedelta(days=intervals[level]) if remembered else timedelta(minutes=10))).isoformat()
     item.review_level = min(level + 1, len(intervals) - 1) if remembered else 0
-    item.review_count += 1
-    session.commit()
-    session.refresh(item)
+    item.review_count = DailyQuestion.review_count + 1
+    if remembered:
+        item.remembered_count = DailyQuestion.remembered_count + 1
+    else:
+        item.forgotten_count = DailyQuestion.forgotten_count + 1
+    if commit:
+        session.commit()
+        session.refresh(item)
     return item

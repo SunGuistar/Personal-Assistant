@@ -13,6 +13,20 @@ class DailyQuestion(Base):
     tags: Mapped[str] = mapped_column(String(200), default="", server_default="")
     review_level: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     review_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    remembered_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    forgotten_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     due_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(32), default=_now)
+    updated_at: Mapped[str] = mapped_column(String(32), default=_now, onupdate=_now)
+
+
+class DailyQuestionRound(Base):
+    __tablename__ = "daily_question_rounds"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    review_date: Mapped[str] = mapped_column(String(10), unique=True)
+    queue_json: Mapped[str] = mapped_column(Text, default="[]")
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    completed: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(String(32), default=_now)
     updated_at: Mapped[str] = mapped_column(String(32), default=_now, onupdate=_now)

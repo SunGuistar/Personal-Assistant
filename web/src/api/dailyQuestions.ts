@@ -7,8 +7,33 @@ export interface DailyQuestion {
   answer: string;
   tags?: string;
   review_count: number;
+  remembered_count?: number;
+  forgotten_count?: number;
   review_level: number;
   due_at: string | null;
+}
+export interface DailyQuestionRound {
+  review_date: string;
+  version: number;
+  total: number;
+  completed: number;
+  queue: DailyQuestion[];
+  has_questions: boolean;
+}
+export function useDailyQuestionRound() {
+  return useQuery({ queryKey: ["daily_question_round"], queryFn: () => api<DailyQuestionRound>("/daily_questions/today"), refetchInterval: 30_000 });
+}
+export function useReviewDailyRound() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { question_id: number; remembered: boolean; review_date: string; version: number }) =>
+      api<DailyQuestionRound>("/daily_questions/today/review", { method: "POST", json: body }),
+    onSuccess: data => {
+      qc.setQueryData(["daily_question_round"], data);
+      void qc.invalidateQueries({ queryKey: ["daily_questions"] });
+    },
+    onError: () => { void qc.invalidateQueries({ queryKey: ["daily_question_round"] }); },
+  });
 }
 export function useDailyQuestions() {
   return useQuery({ queryKey: ["daily_questions"], queryFn: () => api<DailyQuestion[]>("/daily_questions") });
@@ -20,7 +45,10 @@ export function useSaveDailyQuestion() {
       api<DailyQuestion>(id === undefined ? "/daily_questions" : `/daily_questions/${id}`, {
         method: id === undefined ? "POST" : "PUT", json: body,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["daily_questions"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["daily_questions"] });
+      void qc.invalidateQueries({ queryKey: ["daily_question_round"] });
+    },
   });
 }
 
