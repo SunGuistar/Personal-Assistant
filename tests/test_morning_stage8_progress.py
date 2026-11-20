@@ -24,6 +24,35 @@ def _run(fclient, status="running"):
         return r.id
 
 
+@pytest.mark.parametrize("stage", ["goal_analysis", "advice"])
+def test_subagent_quota_failure_is_visible_in_progress(fclient, stage):
+    import httpx
+    from openai import PermissionDeniedError
+    from app.morning_report.graph import workflow
+    from tests.test_morning_stage4_graph import _initial
+
+    class QuotaAgent:
+        def run(self, name, prompt, tools):
+            raise PermissionDeniedError(
+                "Free quota exhausted. private-provider-detail",
+                response=httpx.Response(403, request=httpx.Request("POST", "https://example.com")),
+                body={"error": {"code": "AllocationQuota.FreeTierOnly"}},
+            )
+
+    rid = _run(fclient)
+    deps = _deps(fclient, subagents=QuotaAgent(), run_id=rid)
+    with fclient.app.state.mr_session_factory() as mr:
+        deps.progress = ProgressTracker(mr, rid)
+        result = getattr(workflow, f"node_{stage}")(_initial(rid), deps)
+    assert next(iter(result.values()))["status"] == "failed"
+    snapshot = fclient.get(f"/api/morning/progress?run_id={rid}").json()
+    row = next(s for s in snapshot["stages"] if s["stage"] == stage)
+    assert row["status"] == "failed"
+    assert "失败" in row["summary"]
+    assert "免费额度已耗尽" in row["reason"]
+    assert "private-provider-detail" not in json.dumps(snapshot)
+
+
 def test_stage_lifecycle(fclient):
     rid = _run(fclient)
     with fclient.app.state.mr_session_factory() as mr:

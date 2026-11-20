@@ -52,6 +52,19 @@ export function useSaveDailyQuestion() {
   });
 }
 
+export function useDeleteDailyQuestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<void>(`/daily_questions/${id}`, {
+      method: "DELETE", json: { confirmed: true },
+    }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["daily_questions"] });
+      void qc.invalidateQueries({ queryKey: ["daily_question_round"] });
+    },
+  });
+}
+
 export function useReviewQuestion() {
   const qc = useQueryClient();
   return useMutation({

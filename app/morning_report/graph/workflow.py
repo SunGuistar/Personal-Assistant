@@ -249,6 +249,17 @@ def _agent_tools(deps, name):
     return factory(name) if factory else []
 
 
+def _subagent_error_summary(exc: Exception) -> str:
+    """只展示已知错误码的说明，不传播可能含私人输入的供应商报文。"""
+    body = getattr(exc, "body", None)
+    error = body.get("error", body) if isinstance(body, dict) else {}
+    code = error.get("code") if isinstance(error, dict) else None
+    code = code or getattr(exc, "code", None)
+    if code == "AllocationQuota.FreeTierOnly":
+        return "免费额度已耗尽，供应商当前仅允许使用免费额度（AllocationQuota.FreeTierOnly）"
+    return type(exc).__name__
+
+
 def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
     check_cancel(deps.cancel_token)
     deps.progress and deps.progress.stage_started("goal_analysis")
@@ -290,8 +301,8 @@ def node_goal_analysis(state: MRState, deps: WorkflowDeps) -> dict:
         from ..services.cancel import GenerationCancelled
         if isinstance(exc, GenerationCancelled):
             raise
-        result = {"status": "failed", "analysis": {}, "content": "系统未能取得目标分析，不能据此判断个人进展", "error": type(exc).__name__}
-    deps.progress and deps.progress.stage_completed("goal_analysis", status="success" if result["status"] == "ok" else "skipped",
+        result = {"status": "failed", "analysis": {}, "content": "系统未能取得目标分析，不能据此判断个人进展", "error": _subagent_error_summary(exc)}
+    deps.progress and deps.progress.stage_completed("goal_analysis", status="success" if result["status"] == "ok" else "failed",
         summary="个人目标分析完成" if result["status"] == "ok" else "目标分析失败，已明确降级",
         reason=result.get("error", ""),
         data={"tool_calls": getattr(deps.subagents, "last_tool_calls", {}).get("goal_analysis", 0)})
@@ -334,9 +345,9 @@ def node_advice(state: MRState, deps: WorkflowDeps) -> dict:
         from ..services.cancel import GenerationCancelled
         if isinstance(exc, GenerationCancelled):
             raise
-        result = {"status": "failed", "advices": [], "note": "行动建议生成失败，未编造建议", "error": type(exc).__name__}
-    deps.progress and deps.progress.stage_completed("advice", status="success" if result["status"] == "ok" else "skipped",
-        summary=f"有效行动建议 {len(result['advices'])} 条",
+        result = {"status": "failed", "advices": [], "note": "行动建议生成失败，未编造建议", "error": _subagent_error_summary(exc)}
+    deps.progress and deps.progress.stage_completed("advice", status="success" if result["status"] == "ok" else "failed",
+        summary=f"有效行动建议 {len(result['advices'])} 条" if result["status"] == "ok" else "建议分析失败，已明确降级",
         reason=result.get("error", ""),
         data={"advice_count": len(result["advices"]), "rejected_count": result.get("rejected_count", 0),
               "tool_calls": getattr(deps.subagents, "last_tool_calls", {}).get("advice", 0)})

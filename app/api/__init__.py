@@ -9,7 +9,9 @@ def build_home_router():
     from .jobs import router as jobs
     from .infos import infos_router, memos_router
     from .daily_questions import router as questions
+    from .experiences import router as experiences
+    from .storage import router as storage
     router = APIRouter(prefix="/api")
-    for item in (health, plans, tasks, jobs, infos_router, memos_router, questions):
+    for item in (health, plans, tasks, jobs, infos_router, memos_router, questions, experiences, storage):
         router.include_router(item)
     return router

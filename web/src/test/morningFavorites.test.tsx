@@ -2,6 +2,36 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FavoriteMorningNews } from "../components/FavoriteMorningNews";
 
+it.each([
+  ["https://example.com/news", true],
+  ["http://example.com/news", true],
+  [null, false],
+  ["", false],
+  ["not-a-url", false],
+  ["javascript:alert(1)", false],
+] as const)("收藏新闻标题仅为有效 HTTP(S) 来源提供新标签页链接：%s", async (source_url, linked) => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [{
+    id: 1, title: "收藏新闻标题", summary: "来源摘要", source_url, category: "ai",
+    content_hash: "h1", is_important: true, note: "原有笔记", is_highlighted: false,
+  }] }))));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><FavoriteMorningNews /></QueryClientProvider>);
+  const title = await screen.findByText("收藏新闻标题");
+  if (linked) {
+    const link = screen.getByRole("link", { name: "收藏新闻标题" });
+    expect(link).toHaveAttribute("href", source_url);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  } else {
+    expect(title).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "收藏新闻标题" })).not.toBeInTheDocument();
+  }
+  expect(screen.getByText("笔记：原有笔记")).toBeInTheDocument();
+  expect(screen.getByText("摘要").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByRole("button", { name: "编辑笔记" })).toBeInTheDocument();
+  client.clear();
+});
+
 it("收藏列表编辑笔记，重点星标独立置顶，取消重点仍保留收藏", async () => {
   const items = [1, 2].map(id => ({ id, title: `新闻${id}`, summary: id === 2 ? "新闻摘要内容" : null, category: "ai", content_hash: `h${id}`, is_important: true, note: "", is_highlighted: false }));
   let fail = false;

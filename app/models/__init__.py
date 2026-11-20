@@ -11,6 +11,7 @@ from .cleanup import (
     CleanupReview,
 )
 from .important_info import ImportantInfo
+from .experience import Experience
 from .daily_question import DailyQuestion, DailyQuestionRound
 from .memo import Memo
 from .plan import DailyTask, LongTermPlan
@@ -20,6 +21,7 @@ from .task import Task
 from .token_usage import TokenUsage
 
 __all__ = [
+    "Experience",
     "Book",
     "BookNote",
     "ChatMessage",

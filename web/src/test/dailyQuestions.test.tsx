@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DailyQuestionsPanel } from "../components/rail/DailyQuestionsPanel";
 import { DailyQuestion, DailyQuestionRound } from "../api/dailyQuestions";
@@ -37,7 +37,7 @@ describe("每日一问固定题单", () => {
     await screen.findByText("已完成 1/2");
     expect(screen.queryByText("答案2")).not.toBeInTheDocument();
     expect(screen.queryByText(/记住 \d+ 次/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", {name:"复习知识库"})).toHaveAttribute("href", "/knowledge");
+    expect(screen.getByRole("link", {name:"问答复习"})).toHaveAttribute("href", "/knowledge");
     test.client.clear();
   });
   it("没记住移到队尾不计数，刷新重挂载恢复队列，记住后才完成", async () => {
@@ -85,6 +85,17 @@ describe("每日一问固定题单", () => {
     const test = setup(0); test.show();
     await screen.findByText("今日暂无待复习或新题，新题明日纳入。");
     expect(screen.getByText("已完成 0/0")).toBeInTheDocument();
+    test.client.clear();
+  });
+  it("额外练习同步跳过已从题库删除的题目", async () => {
+    const test = setup(2, 2); test.show();
+    await screen.findByText("今日题目全部记住了。");
+    fireEvent.click(screen.getByRole("button", {name:"再练一轮"}));
+    await screen.findByRole("button", {name:/问题1/});
+    act(() => { test.client.setQueryData(["daily_questions"], [question(2)]); });
+    await screen.findByRole("button", {name:/问题2/});
+    expect(screen.queryByRole("button", {name:/问题1/})).not.toBeInTheDocument();
+    expect(screen.getByText("已完成 2/2")).toBeInTheDocument();
     test.client.clear();
   });
 });

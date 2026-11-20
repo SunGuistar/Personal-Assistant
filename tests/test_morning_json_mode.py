@@ -16,6 +16,54 @@ def completion(content, tools=None):
             "choices": [{"index": 0, "finish_reason": "tool_calls" if tools else "stop", "message": message}]}
 
 
+def test_goal_format_contract_reaches_model_and_example_passes_validation(monkeypatch):
+    from app.morning_report.graph import prompts
+    from app.morning_report.graph.subagents import LangChainSubagentRunner
+    from app.morning_report.graph.workflow import node_goal_analysis
+    from app.morning_report.config import MRSettings
+    from app.morning_report.services.report_assembly import validate_yesterday
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+    prompt = prompts.GOAL_ANALYSIS.format(context="CONTEXT_END_MARKER")
+    tail = prompt.split("CONTEXT_END_MARKER", 1)[1]
+    example = json.loads(next(line for line in tail.splitlines() if line.startswith('{"current_state"')))
+    validate_yesterday(example["yesterday_report"], {"daily_tasks:1": {}})
+    runner = LangChainSubagentRunner(MRSettings())
+    deps = SimpleNamespace(cancel_token=None, progress=None, subagents=runner)
+    with respx.mock() as mock:
+        route = mock.post("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions").respond(
+            200, json=completion(json.dumps(example, ensure_ascii=False)))
+        result = node_goal_analysis(_initial(), deps)["goal_result"]
+    assert result["status"] == "ok"
+    assert result["analysis"]["yesterday_report"] == example["yesterday_report"]
+    body = json.loads(route.calls[0].request.content)
+    assert body["response_format"] == {"type": "json_object"}
+    system = next(m["content"] for m in body["messages"] if m["role"] == "system")
+    user = next(m["content"] for m in body["messages"] if m["role"] == "user")
+    assert "不能用整数" in system
+    assert "summary" in system and "evidence_ids" in system
+    assert "最终输出格式检查" in user
+    assert user.index("最终输出格式检查") > user.index("输入：")
+    assert "禁止照抄" in user
+
+
+@pytest.mark.parametrize("invalid_item", [
+    {"id": 1, "title": "完成整理", "summary": "完成记录中的任务。", "detail": "", "kind": "confirmed", "evidence_ids": ["daily_tasks:1"]},
+    {"id": "c1", "title": "完成整理", "detail": "", "kind": "confirmed", "evidence_ids": ["daily_tasks:1"]},
+    {"id": "c1", "title": "完成整理", "summary": "完成记录中的任务。", "detail": "", "kind": "confirmed"},
+])
+def test_goal_incomplete_or_wrongly_typed_yesterday_still_fails(invalid_item):
+    from app.morning_report.graph.workflow import node_goal_analysis
+    payload = {"current_state": {"content": "证据不足", "kind": "unknown", "evidence_ids": []},
+               "yesterday_report": {"version": 1, "completed": [invalid_item], "goal_progress": [],
+                                    "attention": [], "questions": [], "additional": [], "notices": []}}
+    agent = SimpleNamespace(run=lambda *a, **kw: json.dumps(payload, ensure_ascii=False))
+    deps = SimpleNamespace(cancel_token=None, progress=None, subagents=agent)
+    result = node_goal_analysis(_initial(), deps)["goal_result"]
+    assert result["status"] == "failed"
+    assert result["error"] == "ValueError"
+
+
 @pytest.mark.parametrize("base,model", [("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.7-plus"),
                                         ("https://api.deepseek.com", "deepseek-flash")])
 def test_default_chat_requests_json_and_cannot_disable(monkeypatch, base, model):

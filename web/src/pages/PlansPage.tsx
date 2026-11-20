@@ -576,7 +576,7 @@ function PlanCard({
       <div className="mt-1 space-y-0.5 pl-6 text-xs text-neutral-400">
         {plan.target_date && <div>目标 {plan.target_date}</div>}
         {plan.description && <div>{plan.description}</div>}
-        {plan.goal && <div className="whitespace-pre-wrap text-neutral-500">具体目标：{plan.goal}</div>}
+        {plan.goal && <div className="whitespace-pre-wrap text-neutral-500">{plan.goal}</div>}
       </div>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -644,7 +644,7 @@ function PlanHistoryDialog({
                     完成于 {completedAtLabel(plan.completed_at)} · 创建于 {plan.created_at?.slice(0, 10) ?? "未知"}
                     {plan.description && ` · ${plan.description}`}
                     {plan.goal && (
-                      <div className="mt-0.5 whitespace-pre-wrap text-neutral-500">具体目标：{plan.goal}</div>
+                      <div className="mt-0.5 whitespace-pre-wrap text-neutral-500">{plan.goal}</div>
                     )}
                   </div>
                 </div>
@@ -716,7 +716,7 @@ function PlanDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto p-6">
         <DialogHeader>
           <DialogTitle>{plan ? "编辑长期计划" : "新建长期计划"}</DialogTitle>
         </DialogHeader>
@@ -727,11 +727,11 @@ function PlanDialog({
           </div>
           <div>
             <Label>描述</Label>
-            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+            <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
           <div>
             <Label>具体目标（可选）</Label>
-            <Textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="例如：每天阅读 20 分钟英文文章" />
+            <Textarea rows={5} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="例如：每天阅读 20 分钟英文文章" />
           </div>
           <div>
             <Label>目标日期（可选）</Label>

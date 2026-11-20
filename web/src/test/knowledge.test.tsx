@@ -1,9 +1,68 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KnowledgePage } from "../pages/KnowledgePage";
 import { reviewQueue, DailyQuestion } from "../api/dailyQuestions";
 afterEach(() => vi.unstubAllGlobals());
+
+it("全部问答经审核勾选后删除，取消不发送请求，成功刷新题库和今日题单", async () => {
+  let items = [{ id: 1, question: "待删除题", answer: "待删除答案", review_count: 0, review_level: 0, due_at: null }];
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "DELETE") {
+      expect(String(input)).toBe("/api/daily_questions/1");
+      expect(JSON.parse(String(init.body))).toEqual({ confirmed: true });
+      items = [];
+      return new Response(null, { status: 204 });
+    }
+    return new Response(JSON.stringify(String(input).endsWith("/today")
+      ? { review_date: "2026-11-17", version: 0, total: items.length, completed: 0, queue: items, has_questions: items.length > 0 }
+      : items));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+  await screen.findByText(/总计 1/);
+  fireEvent.click(screen.getByRole("button", { name: "全部问答" }));
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  let dialog = within(screen.getByRole("dialog", { name: "删除问答" }));
+  expect(dialog.getByText("待删除题")).toBeInTheDocument();
+  expect(dialog.getByRole("button", { name: "确认删除" })).toBeDisabled();
+  fireEvent.click(dialog.getByRole("button", { name: "取消" }));
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+  expect(screen.getByText("待删除题")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  dialog = within(screen.getByRole("dialog", { name: "删除问答" }));
+  fireEvent.click(dialog.getByRole("checkbox"));
+  fireEvent.click(dialog.getByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await screen.findByText(/总计 0/);
+  expect(screen.queryByText("待删除题")).not.toBeInTheDocument();
+  expect(client.getQueryState(["daily_question_round"])?.isInvalidated).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "今日复习" }));
+  await screen.findByText("还没有问答，前往问答复习记录问答。");
+  client.clear();
+});
+
+it("问答删除失败保留题目和审核弹窗，可重试", async () => {
+  const item = { id: 1, question: "保留题", answer: "保留答案", review_count: 0, review_level: 0, due_at: null };
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => init?.method === "DELETE"
+    ? new Response(JSON.stringify({ detail: { message: "失败" } }), { status: 500 })
+    : new Response(JSON.stringify(String(input).endsWith("/today")
+      ? { review_date: "2026-11-17", version: 0, total: 1, completed: 0, queue: [item], has_questions: true }
+      : [item]))));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+  await screen.findByText(/总计 1/);
+  fireEvent.click(screen.getByRole("button", { name: "全部问答" }));
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  const dialog = within(screen.getByRole("dialog", { name: "删除问答" }));
+  fireEvent.click(dialog.getByRole("checkbox"));
+  fireEvent.click(dialog.getByRole("button", { name: "确认删除" }));
+  await dialog.findByRole("alert");
+  expect(dialog.getByRole("button", { name: "确认删除" })).toBeEnabled();
+  expect(screen.getAllByText("保留题")).toHaveLength(2);
+  client.clear();
+});
 it("先揭晓再反馈，失败可重试，刷新保持固定今日题单", async () => {
   let items = [{id:1, question:"第一题", answer:"答案一", tags:"", review_count:0, review_level:0, due_at:null as string|null}];
   let fail = true;

@@ -39,7 +39,7 @@ class MRSettings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-flash"
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    dashscope_model: str = "qwen3.7-plus"
+    dashscope_model: str = "qwen3.5-plus-2026-02-15"
 
     # Embedding（DashScope text-embedding-v4，1024 维；T13 实测）
     embedding_model: str = "text-embedding-v4"

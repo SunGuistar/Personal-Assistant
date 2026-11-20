@@ -113,6 +113,8 @@ Docs/                 # 本文档等
 
 ## 6. 横切设计
 
+存储大小看板：`GET /api/storage/overview` → `services/storage_inventory.py`（固定存储清单、保留规则、汇总）→ `adapters/storage_inventory.py`（有界文件元数据扫描）。仅按运行配置与项目既有目录统计，不接受客户端路径，不打开数据库、不初始化向量客户端、不调用清理/缓存业务入口。扫描不跟随符号链接或目录联接，按路径去重，限制数量与耗时；统计不完整时返回未知而非部分大小。SQLite 统计主文件及已有 `-wal/-shm/-journal`；读取期间仍可能发生业务写入，结果为本轮近似实时值，非跨文件一致快照。前端 `StoragePage.tsx` 用同一响应绘制图表及表格，未知值排除于汇总；无监测数据落库或新依赖。
+
 - **日志**：模块级 logging，按天滚动 `data/logs/hub.log`；文件日志只记时间/任务 ID/操作类型/数量/结果/耗时/非敏感错误摘要；聊天正文、Agent 完整回答、密钥不进文件日志。
 - **异常**：服务层抛领域异常（DomainError 体系），API 层统一映射；外部调用全部设超时 + 最多 2 次指数退避重试；任务执行器捕获一切异常落任务表，不静默死亡。
 - **Token 成本**：统一经 `llm_config.build_llm` 出口；每次 LLM/Embedding 调用写 `token_usage`（kind/model/input/output/ref）。
@@ -131,7 +133,7 @@ Docs/                 # 本文档等
 
 ### 每日一问
 
-计划管理 DailyQuestionsPanel 位于随手备忘下方，通过 GET `/api/daily_questions/today` 获取北京时间当天固定题单，POST `/api/daily_questions/today/review` 提交日期、版本、队首题目及反馈。独立 rounds Service 使用 Alembic 管理的 `daily_question_rounds` 表，按 review_date 唯一，保存题目 ID 队列（queue_json）、total、completed、version 和时间戳，不复制问答正文。首次访问按到期时间及 ID 排序建单，空题单也保存；刷新/重启读回数据库，下一自然日建立新题单，历史题单不自动删除。日期/队首/版本检查与条件更新防止过期或重复提交；队列、进度、反馈次数及学习阶段在同一事务提交，失败回滚。前端每 30 秒及窗口聚焦时重新获取题单，跨天退出额外练习；跨天旧提交返回 409 并重新取题。额外练习复用原复习接口，只维护页面内队列，不重置当日进度。CRUD 和知识库复习接口保持兼容。
+计划管理 DailyQuestionsPanel 位于随手备忘下方，通过 GET `/api/daily_questions/today` 获取北京时间当天固定题单，POST `/api/daily_questions/today/review` 提交日期、版本、队首题目及反馈。独立 rounds Service 使用 Alembic 管理的 `daily_question_rounds` 表，按 review_date 唯一，保存题目 ID 队列（queue_json）、total、completed、version 和时间戳，不复制问答正文。首次访问按到期时间及 ID 排序建单，空题单也保存；刷新/重启读回数据库，下一自然日建立新题单，历史题单不自动删除。日期/队首/版本检查与条件更新防止过期或重复提交；队列、进度、反馈次数及学习阶段在同一事务提交，失败回滚。前端每 30 秒及窗口聚焦时重新获取题单，跨天退出额外练习；跨天旧提交返回 409 并重新取题。额外练习复用原复习接口，只维护页面内队列，不重置当日进度。CRUD 和问答复习复习接口保持兼容。
 
 
 ## 9. 晨报资讯候选采集（2026-11-11 更新）
@@ -194,8 +196,17 @@ GoalAnalysis 输出事实/分析/未知及证据 ID，ActionSuggest 输出个人
 2026-11-12 生成入口与版本展示（取代旧双按钮及历史多版本展示约定）：只保留“重新生成”，每次重新运行两个分析 Subagent；资讯齐全复用、缺失或策略更新重新采集。新增“重新组装”，以当前展示的已发布版本为固定输入，仅执行正文组装和发布，不重新采集、不重读当前个人数据、不调用模型，本轮Token为0；前置阶段标为复用。组装输入缺失明确提示重新生成，不静默走全流程。生成与组装共用任务互斥和停止通道。历史列表每天只显示最新发布版本，失败或停止不替代成功版本；旧版本仅隐藏，保留全部数据，不自动删除，次日自动生成也不删除。历史日期重新组装不覆盖更新日期的默认晨报。组装输入保存于晨报sections JSON，无Schema迁移。
 
 
-### 知识库复习
+### 问答复习复习
+手动删除入口为“全部问答”的逐题审核弹窗（勾选+确认），调用 `DELETE /api/daily_questions/{question_id}`，JSON请求必须含严格布尔 `confirmed=true`，成功返回204。`daily_questions_service.delete_question` 在同一事务删除daily_questions记录并从daily_question_rounds.queue_json移除所有待完成引用，按移除数量扣减total、保留completed、递增version；题单乐观锁冲突409，事务失败回滚。无需Schema迁移。前端成功后刷新题库与共享每日题单缓存，额外练习依据题库跳过已删ID；不改写Output历史文件。
+
 复用daily_questions表和原CRUD接口，Alembic增加tags、review_level、review_count、due_at、remembered_count、forgotten_count；旧条目默认为新题。POST /api/daily_questions/{id}/review记录反馈，服务层按北京时间生成ISO8601复习时间。前端/knowledge使用题库查询缓存，题目按到期优先、新题其次排列，本轮ID集合用于去重，刷新重新请求数据；每日一问使用独立持久化题单查询，反馈后刷新题库缓存。分类反馈次数仅在全部问答展示，旧总次数保留，分类计数从新增字段后开始。正文变化清空到期时间及阶段，保留练习次数。
 
 
-知识库今日复习与侧栏每日一问统一使用 `QuestionPractice` 组件及 `daily_question_round` 查询缓存，通过 `/daily_questions/today` 和 `/today/review` 读写同一持久化题单；页面差异仅为容器尺寸与入口标题。额外练习仍在各页面本地保存，独立于每日完成进度。
+问答复习今日复习与侧栏每日一问统一使用 `QuestionPractice` 组件及 `daily_question_round` 查询缓存，通过 `/daily_questions/today` 和 `/today/review` 读写同一持久化题单；页面差异仅为容器尺寸与入口标题。额外练习仍在各页面本地保存，独立于每日完成进度。
+
+
+### 2026-11-15 经验库与导航整合
+
+经验库遵循 `api/experiences.py` → `services/experiences.py` → `models/experience.py` 分层；在 hub.db 新增 experiences 表，字段为 id、title、problem、solution、tags、created_at、updated_at。Schema 经 Alembic 迁移，现有表不变。API 为 GET/POST `/api/experiences` 与 PUT `/api/experiences/{id}`，不提供删除；必填文本去除首尾空白后校验，未知记录返回领域错误。第一版列表一次加载，浏览搜索和标签筛选由前端执行，不引入额外依赖。内容按纯文本展示，不解释为 HTML。
+
+`DataManagementPage` 统一 GitHub、微信助手和清理审核的页签外壳，各功能仍使用原有路由和独立 ModuleGate，一个模块初始化失败不阻断其他页签。设置占位页移除；问答页面仅更名换图标，保留数据/API/路由与复习逻辑。此轮导航顺序以 PRD 的 2026-11-15 调整为准。

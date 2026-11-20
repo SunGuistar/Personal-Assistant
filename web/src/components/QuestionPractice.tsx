@@ -11,7 +11,8 @@ export function QuestionPractice({ compact = false }: { compact?: boolean }) {
   const dailyReview = useReviewDailyRound();
   const extraReview = useReviewQuestion();
   const review = roundQueue === null ? dailyReview : extraReview;
-  const queue = roundQueue ?? questions.data?.queue ?? [];
+  const queue = roundQueue === null ? questions.data?.queue ?? []
+    : roundQueue.filter(item => !library.data || library.data.some(question => question.id === item.id));
   const current = queue[0];
   useEffect(() => {
     setRoundQueue(null);
@@ -27,7 +28,7 @@ export function QuestionPractice({ compact = false }: { compact?: boolean }) {
       </div>
       <div className="flex items-center gap-3">
         <button className="text-xs text-blue-600" disabled={questions.isFetching || library.isFetching || review.isPending} onClick={() => { setExpanded(null); void questions.refetch(); void library.refetch(); }}>刷新题库</button>
-        {compact && <a href="/knowledge" className="text-xs text-blue-600">复习知识库</a>}
+        {compact && <a href="/knowledge" className="text-xs text-blue-600">问答复习</a>}
       </div>
     </div>
     <div className="min-h-0 overflow-y-auto px-3 pb-3">
@@ -56,7 +57,7 @@ export function QuestionPractice({ compact = false }: { compact?: boolean }) {
           </>}
         </div>
         : <div className="space-y-2 py-3 text-center">
-          <p className="text-xs text-neutral-400">{!questions.data?.has_questions ? "还没有知识，前往知识库记录问答。"
+          <p className="text-xs text-neutral-400">{!questions.data?.has_questions ? "还没有问答，前往问答复习记录问答。"
             : roundQueue !== null ? "本轮全部记住了。"
             : questions.data.total > 0 ? "今日题目全部记住了。" : "今日暂无待复习或新题，新题明日纳入。"}</p>
           {questions.data?.has_questions && <Button size="sm" variant="outline" disabled={library.isFetching || library.isError || !library.data} onClick={() => { setRoundQueue(reviewQueue(library.data ?? [], [], true)); setExpanded(null); extraReview.reset(); }}>再练一轮</Button>}

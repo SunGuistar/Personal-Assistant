@@ -50,15 +50,15 @@ describe("App 骨架", () => {
     expect(screen.getByText("个人助手")).toBeInTheDocument();
     // 无「首页」导航项
     expect(screen.queryByText("首页")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", {name:"微信管理"})).toBeInTheDocument();
-    expect(screen.getByText("GitHub")).toBeInTheDocument();
+    expect(screen.getByRole("link", {name:"数据管理"})).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "GitHub" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "今日晨报" })).toHaveAttribute("href", "/morning");
     expect(screen.queryByRole("link", { name: "技术资讯" })).not.toBeInTheDocument();
     expect(screen.getByText("阅读管理")).toBeInTheDocument();
     expect(screen.queryByRole("link", {name:"清理审核"})).not.toBeInTheDocument();
     expect(screen.getAllByRole("navigation")[0].querySelectorAll("a")[0]).toHaveTextContent("计划管理");
-    expect(Array.from(screen.getAllByRole("navigation")[0].querySelectorAll("a")).map(a => a.textContent)).toEqual(["计划管理", "知识库", "今日晨报", "阅读管理", "GitHub", "微信管理", "设置"]);
-    expect(screen.getByText("设置")).toBeInTheDocument();
+    expect(Array.from(screen.getAllByRole("navigation")[0].querySelectorAll("a")).map(a => a.textContent)).toEqual(["计划管理", "问答复习", "经验库", "今日晨报", "阅读管理", "数据管理"]);
+    expect(screen.queryByText("设置")).not.toBeInTheDocument();
     // 默认路由 = 计划管理（页面标题 + 每日任务面板）
     expect(await screen.findByRole("heading", { name: "计划管理" })).toBeInTheDocument();
     expect(screen.getByText(`每日计划 · ${todayStr()}`)).toBeInTheDocument();
@@ -80,19 +80,19 @@ describe("App 骨架", () => {
     expect(screen.queryByText("随手备忘")).not.toBeInTheDocument();
   });
 
-  it("清理审核归入微信管理，保留旧链接且选中统一导航", async () => {
+  it("清理审核归入数据管理，保留旧链接且选中统一导航", async () => {
     stubGlobalFetch();
     renderApp("/cleanup");
-    expect(await screen.findByRole("heading", {name:"微信管理"})).toBeInTheDocument();
-    expect(screen.getByRole("navigation", {name:"微信管理功能"})).toHaveTextContent("微信助手清理审核");
+    expect(await screen.findByRole("heading", {name:"数据管理"})).toBeInTheDocument();
+    expect(screen.getByRole("navigation", {name:"数据管理功能"})).toHaveTextContent("GitHub微信助手清理审核");
     expect(screen.getByRole("link", {name:"清理审核"})).toHaveAttribute("href", "/cleanup");
-    expect(screen.getByRole("link", {name:"微信管理"})).toHaveClass("bg-neutral-900");
+    expect(screen.getByRole("link", {name:"数据管理"})).toHaveClass("bg-neutral-900");
   });
 
   it("其他页面不展示重要信息与随手备忘", async () => {
     stubGlobalFetch();
-    renderApp("/settings");
-    expect(await screen.findByRole("heading", { name: "基础设置" })).toBeInTheDocument();
+    renderApp("/experiences");
+    expect(await screen.findByRole("heading", { name: "经验库" })).toBeInTheDocument();
     expect(screen.queryByText("重要信息")).not.toBeInTheDocument();
     expect(screen.queryByText("随手备忘")).not.toBeInTheDocument();
   });

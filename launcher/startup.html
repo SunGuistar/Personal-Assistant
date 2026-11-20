@@ -35,6 +35,7 @@
       if (data.status === 'ready') {
         const target = new URL(data.home_url);
         if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') throw new Error('target');
+        target.searchParams.set('_launch', String(Date.now()));
         document.getElementById('title').textContent = '首页已就绪';
         location.replace(target.href); return;
       }

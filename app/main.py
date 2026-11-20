@@ -152,6 +152,13 @@ def _init_morning_report(app: FastAPI, settings: Settings, hub_session_factory) 
 class SPAStaticFiles(StaticFiles):
     """单页应用回退：未命中的非 API 路径返回 index.html；/api/* 未命中仍走统一 JSON 404。"""
 
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if Path(full_path).suffix.lower() == ".html":
+            # HTML 决定前端资源版本；200 和 304 都要求下次使用前重新校验。
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     async def get_response(self, path: str, scope):  # type: ignore[override]
         from starlette.exceptions import HTTPException as StarletteHTTPException
 

@@ -25,6 +25,10 @@ function FavoriteRow({ item }: { item: FavoriteNews }) {
   const update = useUpdateFavoriteNews();
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState("");
+  let href: string | undefined;
+  try {
+    if (item.source_url && ["http:", "https:"].includes(new URL(item.source_url).protocol)) href = item.source_url;
+  } catch { /* 无效来源链接仍显示标题 */ }
   return <li className={`rounded-md border border-neutral-200 px-3 py-3 ${importantRowClass(item.is_highlighted)}`}>
     <div className="flex items-start gap-3">
       <span className={update.isPending ? "pointer-events-none opacity-50" : ""}>
@@ -34,7 +38,9 @@ function FavoriteRow({ item }: { item: FavoriteNews }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="min-w-0 break-words text-xl font-semibold leading-7 text-neutral-900">{item.title}</span>
+          <span className="min-w-0 break-words text-xl font-semibold leading-7 text-neutral-900">
+            {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-4">{item.title}</a> : item.title}
+          </span>
           <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${CATEGORY_CLASSES[item.category] ?? "bg-neutral-100 text-neutral-600"}`}>
             {CATEGORY_LABELS[item.category] ?? item.category}
           </span>
@@ -46,7 +52,7 @@ function FavoriteRow({ item }: { item: FavoriteNews }) {
             <Button size="sm" disabled={update.isPending} onClick={() => update.mutate({ id: item.id, note }, { onSuccess: () => setEditing(false) })}>保存笔记</Button>
             <Button size="sm" variant="outline" disabled={update.isPending} onClick={() => { setEditing(false); update.reset(); }}>取消</Button>
           </div>
-        </div> : item.note.trim() ? <p className="mt-2 whitespace-pre-wrap break-words text-lg leading-7 text-blue-700">笔记：{item.note}</p> : null}
+        </div> : item.note.trim() ? <p className="mt-2 whitespace-pre-wrap break-words text-lg leading-7 text-black">笔记：{item.note}</p> : null}
         {item.summary?.trim() && <details className="mt-2 text-sm text-neutral-600">
           <summary className="cursor-pointer select-none text-neutral-500">摘要</summary>
           <p className="mt-2 whitespace-pre-wrap break-words">{item.summary}</p>

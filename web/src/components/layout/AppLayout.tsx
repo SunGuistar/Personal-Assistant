@@ -2,22 +2,21 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   BookOpen,
   CalendarCheck,
-  Github,
-  MessageSquareText,
+  BrainCircuit,
+  Database,
+  NotebookPen,
   Sunrise,
-  Settings,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 // 计划管理始终首项；新增模块放在其后。
 const NAV_ITEMS = [
   { to: "/plans", label: "计划管理", icon: CalendarCheck },
-  { to: "/knowledge", label: "知识库", icon: BookOpen },
+  { to: "/knowledge", label: "问答复习", icon: BrainCircuit },
+  { to: "/experiences", label: "经验库", icon: NotebookPen },
   { to: "/morning", label: "今日晨报", icon: Sunrise },
   { to: "/reading", label: "阅读管理", icon: BookOpen },
-  { to: "/github", label: "GitHub", icon: Github },
-  { to: "/wechat", label: "微信管理", icon: MessageSquareText },
-  { to: "/settings", label: "设置", icon: Settings },
+  { to: "/storage", label: "数据管理", icon: Database },
 ];
 
 function navLinkClass(active: boolean) {
@@ -41,7 +40,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="px-4 pb-2 pt-4 text-base font-semibold">个人助手</div>
         <nav className="flex flex-col gap-1 px-3 py-2">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={({ isActive }) => navLinkClass(isActive || (to === "/wechat" && pathname === "/cleanup") || (to === "/plans" && pathname === "/"))}>
+            <NavLink key={to} to={to} className={({ isActive }) => navLinkClass(isActive || (to === "/storage" && ["/wechat", "/cleanup", "/github"].includes(pathname)) || (to === "/plans" && pathname === "/"))}>
               <Icon className="h-4 w-4 shrink-0" />
               <span className="whitespace-nowrap">{label}</span>
             </NavLink>
@@ -50,7 +49,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* 中央：业务工作区（独立纵向滚动） */}
-      <main className="min-w-[650px] flex-1 overflow-y-auto p-4">{children}</main>
+      <main className={cn("flex-1 overflow-y-auto p-4", pathname === "/storage" ? "min-w-0" : "min-w-[650px]")}>{children}</main>
     </div>
   );
 }

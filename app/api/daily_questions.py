@@ -1,5 +1,5 @@
 """每日一问 API。"""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field, StrictBool
 from sqlalchemy.orm import Session
 from .deps import get_session
@@ -27,6 +27,16 @@ def update_question(question_id: int, payload: DailyQuestionIn, session: Session
 
 class ReviewIn(BaseModel):
     remembered: StrictBool
+
+
+class DeleteQuestionIn(BaseModel):
+    confirmed: StrictBool
+
+
+@router.delete("/{question_id}", status_code=204)
+def delete_question(question_id: int, payload: DeleteQuestionIn, session: Session = Depends(get_session)):
+    service.delete_question(session, question_id, confirmed=payload.confirmed)
+    return Response(status_code=204)
 
 
 class DailyReviewIn(ReviewIn):

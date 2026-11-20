@@ -17,7 +17,10 @@ function runPage(state: object) {
 
 it("首页就绪后替换当前启动标签页", async () => {
   const { location, fetcher } = runPage({ status: "ready", home_url: "http://127.0.0.1:18620/" });
-  await waitFor(() => expect(location.replace).toHaveBeenCalledWith("http://127.0.0.1:18620/"));
+  await waitFor(() => expect(location.replace).toHaveBeenCalled());
+  const target = new URL(location.replace.mock.calls[0][0]);
+  expect(target.origin + target.pathname).toBe("http://127.0.0.1:18620/");
+  expect(target.searchParams.get("_launch")).toMatch(/^\d+$/);
   expect(fetcher).toHaveBeenCalledWith("/api/startup/test", { cache: "no-store" });
 });
 
