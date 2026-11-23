@@ -21,7 +21,7 @@
 - 采集和生成等长任务走 `MorningRunner` 及晨报运行记录。默认每天北京时间 08:30 触发，个人回顾窗口为 `[前一天 08:00, 当天 08:00)`。调度值见 `config.py`，窗口由 `hub_readonly.window_for` 定义。
 - 晨报默认写入 `data/morning_report.db`，Schema 由 `db.py` 的迁移器和 `schema_migrations` 管理。开发、验证和迁移使用隔离数据库，晨报运行数据不入 Git。生成路径经 `PH_MR_PERSONAL_DB_PATH` 指定个人库，以 SQLite `mode=ro` 和 `query_only` 打开。禁止写入现有 `hub.db`、微信两库及 Chroma。
 - 当前自动与手动生成由 LangGraph 编排，LangChain `create_agent` 运行目标分析、行动建议两个 Subagent。工具只使用本轮个人上下文。正文由程序组装，重新组装使用指定的历史版本输入。修改现行行为须依据确认后的规格与设计。
-- 两个 Subagent 使用 DashScope 的 OpenAI 兼容端点，模型由 `PH_MR_DASHSCOPE_MODEL` 配置。按节点显式设置 Thinking，当前两者均关闭。遵守根规范的原生 JSON mode 规则，供应商不支持时走 `JsonModeUnsupportedError` 和显式降级。DeepSeek `deepseek-flash` 是备用，启用须获用户明确授权并通过允许时段检查，禁止静默切换。
+- 两个 Subagent 使用 DashScope 的 OpenAI 兼容端点，模型通过 `PH_MR_DASHSCOPE_MODEL` 显式配置，可按各模型免费额度调整。所选模型须支持原生 JSON mode、原生工具调用和当前的 Thinking 配置（两节点均显式关闭）。供应商不支持 JSON mode 时走 `JsonModeUnsupportedError` 和显式降级。禁止未经授权静默换模型或降级。启用备用 DeepSeek 模型须获用户明确授权并通过允许时段检查。
 - 保留的 Qdrant/RAG 实现未接入当前生成链路。使用 Qdrant 时固定走 `http://127.0.0.1:6333`，禁止使用 `localhost`。晨报专用集合为 `morning_tech_news`、`morning_reports`，测试不得写入这两个集合。[Qdrant ADR](../../Docs/ADR/0001-Qdrant客户端禁用localhost.md)
 
 ## 测试与汇报

@@ -152,7 +152,7 @@ Runner 将当前个人数据快照内的只读工具传给 `create_agent`：Goal
 
 GoalAnalysis 输出事实/分析/未知及证据 ID，ActionSuggest 输出个人依据、优先级、下一步与前置条件；无依据的时间/收益清空，允许零条。普通进度仅记录数量、工具调用、结果数、耗时和错误类型。质量评价已移除，主编完成后直接发布。
 
-模型路由：自动与手动生成均由 GoalAnalysis 和 ActionSuggest 两个 Subagent 使用 DashScope `qwen3.7-plus`，保持 JSON mode 并显式关闭 Thinking。正文组装不创建模型客户端或产生 Token。DeepSeek `deepseek-flash` 仅作备用，不参与当前生成，禁止静默切换。
+自动与手动生成的两个分析 Subagent 使用 DashScope 的 OpenAI 兼容端点。模型由 `PH_MR_DASHSCOPE_MODEL` 选择，可随各模型免费额度调整。所选模型须支持原生 JSON mode、原生工具调用，以及当前请求显式关闭 Thinking 的配置。正文由程序组装。DeepSeek 为备用，启用须获明确授权并通过允许时段检查。禁止未经授权静默换模型或降级。
 
 ### 9.1 AI 资讯：AIHOT 最新日报（2026-11-11 起）
 

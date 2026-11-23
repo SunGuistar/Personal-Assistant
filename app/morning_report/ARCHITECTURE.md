@@ -32,10 +32,10 @@
 
 - **数据归属。** 晨报写入宿主数据目录下的 `morning_report.db`，由模块自己的迁移器管理。生成路径用 SQLite `mode=ro` 和 `query_only` 打开配置的个人库，读取失败会记录缺口，不回退到其他数据库。独立的 `/personal_context` 查询通过宿主注入的会话执行只读查询，与生成路径使用不同的读取入口。
 - **分析与正文。** 决策工具只检索本轮个人记录，无新闻、历史晨报或历史建议检索入口。两个代理的请求均使用原生 JSON mode 和原生工具协议，消费端解析并校验结果。模型拒绝 JSON mode 时转换为领域错误，由节点显式降级。正文采用程序组装，DeepSeek 备用客户端未接入当前流程。
-- **保留实现。** Qdrant、Embedding 和通用 RAG 实现仍在 `services/{qdrant_store,index_sync,rag_tool}.py` 与 `adapters/embedding.py`，当前生成和发布链路没有接线。旧新闻适配器也仍在代码树中，实际采集来源以 `run_collect` 为准。旧晨报助手与 Memory API 已停用，`Memory` 模型保留用于兼容历史 Schema。
+- **保留实现。** Qdrant、Embedding 和通用 RAG 实现仍在 `services/{qdrant_store,index_sync,rag_tool}.py` 与 `adapters/embedding.py`，这些是历史实现，仅保留兼容和独立测试用途。自动生成、手动生成、重新组装和发布均不连接 Qdrant。宿主存储浏览仅展示历史向量库条目，未连接服务端查询占用。旧新闻适配器也仍在代码树中，实际采集来源以 `run_collect` 为准。旧晨报助手与 Memory API 已停用，`Memory` 模型保留用于兼容历史 Schema。
 
 ## 横切关注点与文档导航
 
-- **配置。** 晨报继承宿主加载的环境变量，模块设置使用 `PH_MR_` 前缀。个人库路径和 DashScope 模型分别由 `PH_MR_PERSONAL_DB_PATH` 与 `PH_MR_DASHSCOPE_MODEL` 控制。实际部署的覆盖值待确认。
+- **配置。** 晨报继承宿主加载的环境变量，模块设置使用 `PH_MR_` 前缀。个人库路径由 `PH_MR_PERSONAL_DB_PATH` 控制。DashScope 模型通过 `PH_MR_DASHSCOPE_MODEL` 配置，可按各模型免费额度调整。能力兼容和切换规则见[晨报开发规范](AGENTS.md)。
 - **任务与诊断。** 执行器通过进程内线程池运行任务，阻止同类任务并发提交，停止请求由执行路径在检查点协作处理。宿主启动时将遗留的待执行和运行中任务标为失败。阶段进度、运行日志和用量保存在晨报库，页面通过快照和 SSE（服务器发送事件）获取进度。LangGraph 检查点使用单独的 SQLite 文件。采集 HTTP 和模型调用各自配置超时及有限重试。
 - **文档与验证入口。** 宿主装配见[项目架构](../../ARCHITECTURE.md)，业务规则见[产品需求 §7](../../Docs/PRD.md#7-今日晨报v2-已完成能力)，详细设计及历史演进见[技术架构](../../Docs/Architecture.md)，开发约束见[晨报开发规范](AGENTS.md)。回归场景见 `tests/test_morning_*.py` 与 `web/src/test/morning*.test.tsx`。
