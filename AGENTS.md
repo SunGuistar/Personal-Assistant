@@ -8,16 +8,16 @@
 
 - 启动与使用见 [README](README.md)。按当前代码查找模块与入口时，读[系统架构地图](ARCHITECTURE.md)。
 - 现行业务规则的权威来源为[产品需求](Docs/PRD.md)，技术架构与设计的权威来源为[技术架构](Docs/Architecture.md)。发现文档与实现不一致时，说明差异并向用户确认涉及行为或权限的变更。
-- 既有阶段和后续功能范围见[开发规划](Docs/DEVELOPMENT_PLAN.md)。[仓库计划](Docs/PLANS.md)、[产品规格索引](Docs/product-specs/index.md)和[设计文档索引](Docs/design-docs/index.md)目前是预留入口。晨报专项的实际计划由模块规范导航。
+- 既有阶段和后续功能范围见[开发规划](Docs/DEVELOPMENT_PLAN.md)。晨报专项文档由模块规范导航。
 
 ## 文档维护与执行计划
 
 - **持续同步。** 业务需求、架构、接口、技术设计、功能规划、开发规范或验收要求发生实质变化时，核对事实并更新对应文档。同一信息由职责对应的文档维护，其他文档优先引用。各级 `ARCHITECTURE.md` 记录当前实际架构，Design Docs 记录拟采用的设计。方案实施后，再按实际结果更新架构地图。
 - 实施中发现代码与文档不一致时，先核实原因并及时处理，必要的文档更新须在任务结束前完成。重要设计变更应说明原因。变更已确认的需求或验收标准须先获确认，不能为迁就实现而直接改写。普通代码调整若不影响文档准确性，无须更新文档。
 - 不另设 `TEST_PLAN.md`、`ROADMAP.md` 或 `CHANGELOG.md`。重大技术决策先说明理由和备选方案，再建议是否记入 [ADR](Docs/ADR/)。普通 UI 调整和小型重构无需 ADR。
-- **ExecPlan（执行计划）。** 复杂功能、重大架构调整或跨多个步骤的长期任务应使用 ExecPlan，简单修改无须强制创建。采用五阶段流程时，通常在阶段三建立。仓库 `Docs/PLANS.md` 用于总体规划与固定任务范围，晨报专项范围见[晨报计划](app/morning_report/PLANS.md)。Product Specs 定义需求和验收标准，Design Docs 提供技术方案与依据，ExecPlan 记录具体任务的实施步骤与过程，并引用相关规格和设计。
-- 进行中的计划保存在 [`Docs/exec-plans/active/`](Docs/exec-plans/active/)。执行中持续记录进度、重要发现、关键决策及理由、验证结果和剩余工作。恢复任务时先读对应计划，从已记录的进度继续。[OpenAI ExecPlan 实践](https://developers.openai.com/cookbook/articles/codex_exec_plans)
-- 完成验收后（采用五阶段流程时为阶段五），记录最终结果和遗留事项，再移至 [`Docs/exec-plans/completed/`](Docs/exec-plans/completed/)。
+- **ExecPlan（执行计划）。** 复杂功能、重大架构调整或跨多个步骤的长期任务应使用 ExecPlan，简单修改无须强制创建。Product Specs 定义需求和验收标准，Design Docs 提供技术方案与依据，ExecPlan 记录具体任务的实施步骤与过程，并引用相关规格和设计。
+- 计划的归属和存放路径见相关模块规范。执行中持续记录进度、重要发现、关键决策及理由、验证结果和剩余工作。恢复任务时先读对应计划，从已记录的进度继续。[OpenAI ExecPlan 实践](https://developers.openai.com/cookbook/articles/codex_exec_plans)
+- 完成验收后记录最终结果和遗留事项，再归档。
 
 ## 架构与代码
 

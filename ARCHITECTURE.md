@@ -20,7 +20,7 @@ PC 浏览器 → React 页面 → /api/* → 领域服务 → SQLite、文件及
 | 微信聊天 | `app/api/wechat.py` 提供同步和 SSE 对话。`app/services/wechat_service.py` 协调同步，`app/wechat_agent/` 持有 LangGraph 对话、聊天检索和总结逻辑。 | `app/adapters/wechat_source.py` 封装上游接入。同步链路处理快照、归一化和 Chroma 索引。Agent 读取应用侧聊天数据，Hub 保存对话记录、任务与同步状态。 |
 | 清理审核与存储 | `app/api/cleanup.py` 将审核和执行交给 `app/cleanup/`。`app/api/storage.py` 经库存服务和适配器提供存储概览。 | 清理用专用 SQLite 与 Chroma 访问层，审核状态存于 Hub。存储概览独立于清理执行。前端 `DataManagementPage` 汇集微信、清理、GitHub 与存储入口。 |
 | GitHub | `app/api/github.py` 与 `app/services/github_service.py` 提供数据同步及活动查询。 | `app/adapters/github_source.py` 封装 GitHub API。同步后的仓库、活动与游标存入 Hub。 |
-| 今日晨报 | `app/morning_report/` 自带 `api/`、`services/`、`adapters/` 和 LangGraph `graph/`，负责新闻采集、筛选、个人分析、报告组装与运行进度。 | 独立 SQLite 和专用 Qdrant collections。通过只读适配读取个人数据，新闻和模型调用留在晨报域。 |
+| [今日晨报](app/morning_report/ARCHITECTURE.md) | `app/morning_report/` 自带 `api/`、`services/`、`adapters/` 和 LangGraph `graph/`，负责新闻采集、筛选、个人分析、报告组装与运行进度。 | 独立 SQLite 和专用 Qdrant collections。通过只读适配读取个人数据，新闻和模型调用留在晨报域。 |
 
 追查一条请求时，从 `web/src/App.tsx` 找页面，再看 `web/src/api/` 和对应后端路由。追查后台执行时，从提交点进入 `app/tasks/` 的 `TaskRunner`，或晨报域的 `services/runner.py` 与 `services/scheduler.py`。
 

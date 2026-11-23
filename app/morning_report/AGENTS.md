@@ -5,15 +5,16 @@
 今日晨报负责采集资讯、分析个人记录、发布报告版本。宿主提供页面路由、模块装配及数据目录，晨报维护自己的运行和存储。后端在 `app/morning_report/`，宿主装配在 `app/main.py`。前端从 `web/src/pages/MorningReportPage.tsx` 和 `web/src/api/morning.ts` 进入，测试在 `tests/test_morning_*.py` 与 `web/src/test/morning*.test.tsx`。本规范也适用于这些目录中的晨报改动。
 
 - 通用规范见[根目录 AGENTS.md](../../AGENTS.md)。查找当前流程、依赖和代码入口时读[模块架构](ARCHITECTURE.md)。
-- 本轮总体目标、固定任务范围和阶段产出见[晨报专项计划](PLANS.md)。其中的规划项须经相应阶段确认后实施。仓库级入口见[仓库计划](../../Docs/PLANS.md)。
+- 本轮目标与成功条件见[项目目标](GOALS.md)，固定任务范围和阶段产出见[晨报专项计划](PLANS.md)。规划项须经相应阶段确认后实施。
 - 当前业务规则以[产品需求](../../Docs/PRD.md)的晨报章节为准，详细设计见[技术架构](../../Docs/Architecture.md)。V2 原始需求可作历史参考。[开发规划](../../Docs/DEVELOPMENT_PLAN.md)中的既有晨报阶段记录沿用当时的编号。
-- 阶段二确认目标时产出 GOALS 和 Product Specs，阶段三产出 Design Docs。当前[产品规格索引](../../Docs/product-specs/index.md)与[设计文档索引](../../Docs/design-docs/index.md)均为空，尚无可引用的 V3 对应文档。
+- 阶段二确认目标时产出 GOALS 和 Product Specs，阶段三产出 Design Docs。当前[产品规格索引](docs/product-specs/index.md)与[设计文档索引](docs/design-docs/index.md)均为空，尚无可引用的 V3 对应文档。
 
 ## 本轮五阶段开发
 
 1. 按「项目分析 → 目标与规格 → 架构与计划 → 实施 → 验收」推进。开始任务前确认当前阶段和授权范围，按需阅读当前阶段的文档。未获授权不得进入后续阶段。各阶段职责与产出见[晨报专项计划](PLANS.md)。
-2. 实施以已确认的规格和设计为依据。验收按约定的成功条件提交实际测试或评估证据，列出未验证项目。发现前序规格或设计有问题时，明确反馈差异，并在授权范围内修订相关文档和验收依据。
-3. 五阶段是项目自主采用的流程。工程实践参考 OpenAI 公开资料，记录采纳依据与适用性，明确哪些是官方建议、公开案例或项目适配。[Harness Engineering](https://openai.com/index/harness-engineering/) · [Codex 工作流案例](https://developers.openai.com/cookbook/examples/codex/iterating-development-workflows-with-codex)
+2. 需要 ExecPlan 时通常在阶段三建立，进行中放在[执行计划目录](docs/exec-plans/active/)，阶段五验收后归档至[已完成目录](docs/exec-plans/completed/)。编写与维护遵循[根规范](../../AGENTS.md#文档维护与执行计划)。
+3. 实施以已确认的规格和设计为依据。验收按约定的成功条件提交实际测试或评估证据，列出未验证项目。发现前序规格或设计有问题时，明确反馈差异，并在授权范围内修订相关文档和验收依据。
+4. 五阶段是项目自主采用的流程。工程实践参考 OpenAI 公开资料，记录采纳依据与适用性，明确哪些是官方建议、公开案例或项目适配。[Harness Engineering](https://openai.com/index/harness-engineering/) · [Codex 工作流案例](https://developers.openai.com/cookbook/examples/codex/iterating-development-workflows-with-codex)
 
 ## 当前实现的专属约束
 

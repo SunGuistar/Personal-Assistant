@@ -38,4 +38,4 @@
 
 - **配置。** 晨报继承宿主加载的环境变量，模块设置使用 `PH_MR_` 前缀。个人库路径和 DashScope 模型分别由 `PH_MR_PERSONAL_DB_PATH` 与 `PH_MR_DASHSCOPE_MODEL` 控制。实际部署的覆盖值待确认。
 - **任务与诊断。** 执行器通过进程内线程池运行任务，阻止同类任务并发提交，停止请求由执行路径在检查点协作处理。宿主启动时将遗留的待执行和运行中任务标为失败。阶段进度、运行日志和用量保存在晨报库，页面通过快照和 SSE（服务器发送事件）获取进度。LangGraph 检查点使用单独的 SQLite 文件。采集 HTTP 和模型调用各自配置超时及有限重试。
-- **文档与验证入口。** 宿主装配见[项目架构](../../ARCHITECTURE.md)，业务规则见[产品需求 §7](../../Docs/PRD.md#7-今日晨报v2-已完成能力)，详细设计及历史演进见[技术架构](../../Docs/Architecture.md)，开发约束见[开发规范 §10](../../AGENTS.md#10-今日晨报模块约定v20-开发已完成本节为维护期约束)。回归场景见 `tests/test_morning_*.py` 与 `web/src/test/morning*.test.tsx`。
+- **文档与验证入口。** 宿主装配见[项目架构](../../ARCHITECTURE.md)，业务规则见[产品需求 §7](../../Docs/PRD.md#7-今日晨报v2-已完成能力)，详细设计及历史演进见[技术架构](../../Docs/Architecture.md)，开发约束见[晨报开发规范](AGENTS.md)。回归场景见 `tests/test_morning_*.py` 与 `web/src/test/morning*.test.tsx`。
