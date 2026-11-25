@@ -74,3 +74,13 @@ cd web && npm run build
 - Alembic revision ID 由工具生成，禁止手写或复用对方 ID，核对依赖与 migration heads。两边涉及同一表时先报告并协调，合并时保留双方迁移文件，`down_revision` 冲突由用户裁决。
 - 工作区规则发生冲突或歧义时先报告，保持架构约束优先，数据安全按更严格的要求执行。
 - 完成时汇报工作区与分支、完成项与文件、验证命令和结果、共享接口或数据库影响、配合或同步需求、Git 状态及已提交时的 Commit Hash。说明未解决问题与验证失败。
+
+## Agent skills
+
+### Issue tracker
+
+本仓库的 Issue 与 Spec 发布到 `SunGuistar/Personal-Assistant` 的 GitHub Issues。见 [Issue tracker](Docs/agents/issue-tracker.md)。
+
+### Domain docs
+
+领域文档沿用现有布局。晨报术语表位于 `app/morning_report/GLOSSARY.md`，仓库 ADR 位于 `Docs/ADR/`。见 [Domain docs](Docs/agents/domain.md)。
